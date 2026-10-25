@@ -117,6 +117,7 @@ var allowedProtocols = map[string]bool{
 	"trojan":      true,
 	"shadowsocks": true,
 	"hysteria":    true,
+	"tuic":        true, // carried by package tuic, not by Xray
 }
 
 // allowedXrayKeys are the outbound fields a transport may set. The client

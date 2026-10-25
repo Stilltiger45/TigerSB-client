@@ -26,6 +26,7 @@ import (
 	"github.com/Stilltiger45/TigerSB-client/internal/netauto"
 	"github.com/Stilltiger45/TigerSB-client/internal/smart"
 	"github.com/Stilltiger45/TigerSB-client/internal/subscription"
+	"github.com/Stilltiger45/TigerSB-client/internal/tuic"
 	"github.com/Stilltiger45/TigerSB-client/internal/xrayconf"
 	"github.com/Stilltiger45/TigerSB-client/pkg/profile"
 )
@@ -203,7 +204,7 @@ func Start(fd int, mode string, mtu int) error {
 	if err := os.Setenv("XRAY_TUN_FD", strconv.Itoa(fd)); err != nil {
 		return err
 	}
-	i, err := engine.Start(cfg, smart.Hooks(p, m)...)
+	i, err := engine.Start(cfg, append(tuic.Hooks(p), smart.Hooks(p, m)...)...)
 	if err != nil {
 		return err
 	}
