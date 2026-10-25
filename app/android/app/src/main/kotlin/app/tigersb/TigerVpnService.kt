@@ -24,6 +24,7 @@ import app.tigersb.mobile.Mobile
 import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 
 /**
  * Opens the system VPN and hands its descriptor to the Go core.
@@ -99,7 +100,10 @@ class TigerVpnService : VpnService() {
     // The network the core's connections use; a new one means a restart.
     private var network: Network? = null
     private var lastNetRestart = 0L
-    private val netRestart = Runnable { worker.execute { restartForNetwork() } }
+
+    // Networks with internet that are not a VPN, as the worker last heard.
+    private val nets = HashMap<Network, NetworkCapabilities>()
+    private val netRestart = Runnable { onWorker { restartForNetwork() } }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
@@ -135,7 +139,10 @@ class TigerVpnService : VpnService() {
         main.removeCallbacks(protocolTick)
         main.removeCallbacks(watchTick)
         main.removeCallbacks(netRestart)
-        worker.execute { stopCore() }
+        worker.execute {
+            unwatchNetwork()
+            stopCore()
+        }
         worker.shutdown()
         super.onDestroy()
     }
@@ -287,13 +294,16 @@ class TigerVpnService : VpnService() {
     }
 
     /**
-     * Follows the real network: the best one with internet that is not a
-     * VPN, the one Android would use without us. When it changes, say from
-     * Wi-Fi to mobile and back, the core is restarted: its sessions to the
-     * servers belonged to the old network and would hang until they time
-     * out. When the MTU the network needs differs, the tunnel is rebuilt
-     * with it. The default-network callback is no good here: Android may
-     * report our own tunnel as the default network.
+     * Follows the real network: of the networks with internet that are not
+     * a VPN, the one Android would pick itself, a working Wi-Fi before mobile
+     * data. When it changes, say from Wi-Fi to mobile and back, the core is
+     * restarted: its sessions to the servers belonged to the old network and
+     * would hang until they time out. When the MTU the network needs
+     * differs, the tunnel is rebuilt with it.
+     *
+     * Only a plain listen is safe here. The default-network callback may
+     * report our own tunnel, and registerBestMatchingNetworkCallback brought
+     * the Android 14 emulator down within minutes in the soak test.
      */
     private fun watchNetwork() {
         if (networkCallback != null) return
@@ -303,15 +313,29 @@ class TigerVpnService : VpnService() {
             .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
             .build()
         val cb = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(n: Network) = follow(n)
+            // Android 7 may skip onCapabilitiesChanged after onAvailable.
+            override fun onAvailable(n: Network) {
+                cm.getNetworkCapabilities(n)?.let { onCapabilitiesChanged(n, it) }
+            }
+
+            override fun onCapabilitiesChanged(n: Network, caps: NetworkCapabilities) {
+                onWorker {
+                    nets[n] = caps
+                    pickNetwork()
+                }
+            }
 
             override fun onLost(n: Network) {
-                worker.execute { if (n == network) note("сеть пропала, жду другую") }
+                onWorker {
+                    nets.remove(n)
+                    if (n == network && nets.isEmpty()) note("сеть пропала, жду другую")
+                    pickNetwork()
+                }
             }
 
             override fun onLinkPropertiesChanged(network: Network, lp: LinkProperties) {
-                worker.execute {
-                    if (tun == null || network != this@TigerVpnService.network) return@execute
+                onWorker {
+                    if (tun == null || network != this@TigerVpnService.network) return@onWorker
                     val (transport, linkMtu) = activeNetwork(network)
                     val want = Mobile.pickMTU(transport, linkMtu.toLong()).toInt()
                     if (want != mtu) {
@@ -321,25 +345,40 @@ class TigerVpnService : VpnService() {
                 }
             }
         }
-        // Both give the network that satisfies the request now and a new
-        // onAvailable when another one takes over.
-        if (Build.VERSION.SDK_INT >= 31) cm.registerBestMatchingNetworkCallback(request, cb, main)
-        else cm.requestNetwork(request, cb)
+        cm.registerNetworkCallback(request, cb)
         networkCallback = cb
     }
 
-    private fun follow(n: Network) {
-        worker.execute {
-            val old = network
-            if (old == n) return@execute
-            network = n
-            setUnderlyingNetworks(arrayOf(n))
-            if (tun == null || old == null) return@execute
-            // A network that flaps restarts the core once, after it settles.
-            val wait = maxOf(NET_SETTLE_MS, lastNetRestart + NET_RESTART_GAP_MS - SystemClock.elapsedRealtime())
-            main.removeCallbacks(netRestart)
-            main.postDelayed(netRestart, wait)
+    /** Follows the best of [nets]; the current one stays on a tie. */
+    private fun pickNetwork() {
+        fun score(c: NetworkCapabilities) =
+            (if (c.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) 4 else 0) +
+                (if (c.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR)) 0 else 2)
+        val best = nets.entries.maxByOrNull { score(it.value) } ?: return
+        val now = network
+        val nowCaps = now?.let { nets[it] }
+        if (now != null && nowCaps != null && score(nowCaps) >= score(best.value)) return
+        follow(best.key)
+    }
+
+    /** Runs on the worker; does nothing once the service is gone. */
+    private fun onWorker(block: () -> Unit) {
+        try {
+            worker.execute(block)
+        } catch (_: RejectedExecutionException) {
         }
+    }
+
+    private fun follow(n: Network) {
+        val old = network
+        if (old == n) return
+        network = n
+        setUnderlyingNetworks(arrayOf(n))
+        if (tun == null || old == null) return
+        // A network that flaps restarts the core once, after it settles.
+        val wait = maxOf(NET_SETTLE_MS, lastNetRestart + NET_RESTART_GAP_MS - SystemClock.elapsedRealtime())
+        main.removeCallbacks(netRestart)
+        main.postDelayed(netRestart, wait)
     }
 
     private fun restartForNetwork() {
@@ -354,6 +393,7 @@ class TigerVpnService : VpnService() {
         val cb = networkCallback ?: return
         networkCallback = null
         network = null
+        nets.clear()
         try {
             getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(cb)
         } catch (_: IllegalArgumentException) {
