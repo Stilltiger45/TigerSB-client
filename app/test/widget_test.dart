@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tigersb/app.dart';
 import 'package:tigersb/core.dart';
@@ -164,5 +165,25 @@ void main() {
     await tester.tap(find.byKey(const Key('power')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('stats')), findsNothing);
+  });
+
+  testWidgets('the menu copies the subscription key', (tester) async {
+    const key = 'tigersb://add?url=https%3A%2F%2Fpanel.example.org%2Fsub%2Fabc&pk=y';
+    final core = FakeCore()
+      ..profile = ProfileInfo(name: 'Дом', hasRU: true, fetched: DateTime.now(), exits: const [], key: key);
+    String? copied;
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+      if (call.method == 'Clipboard.setData') copied = (call.arguments as Map)['text'] as String;
+      return null;
+    });
+    await tester.pumpWidget(TigerApp(core: core));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Скопировать ключ подписки'));
+    await tester.pumpAndSettle();
+    expect(copied, key);
+    expect(find.text('Ключ подписки скопирован'), findsOneWidget);
   });
 }

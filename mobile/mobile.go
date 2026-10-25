@@ -72,6 +72,8 @@ type profileInfo struct {
 	Foreign    bool       `json:"foreign"`
 	Exits      []exitInfo `json:"exits"`
 	DirectApps []string   `json:"directApps"`
+	// Key is the key the user imported, to copy and share.
+	Key string `json:"key"`
 }
 
 // exitInfo is one exit with its transports (display names), best first.
@@ -295,6 +297,7 @@ func info(st *subscription.State, p *profile.Profile) (string, error) {
 		HasLists:   len(blocked.Domains)+len(blocked.IPs) > 0,
 		Foreign:    st.Foreign,
 		DirectApps: p.Routing.Direct.Apps,
+		Key:        st.Key,
 	}
 	if in.Name == "" {
 		in.Name = p.ID
