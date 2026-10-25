@@ -20,6 +20,7 @@ import (
 
 	"github.com/Stilltiger45/TigerSB-client/internal/engine"
 	"github.com/Stilltiger45/TigerSB-client/internal/geodata"
+	"github.com/Stilltiger45/TigerSB-client/internal/smart"
 	"github.com/Stilltiger45/TigerSB-client/internal/subscription"
 	"github.com/Stilltiger45/TigerSB-client/internal/xrayconf"
 	"github.com/Stilltiger45/TigerSB-client/pkg/profile"
@@ -46,9 +47,14 @@ const usage = `TigerSB client core
   tigersb-core sign            подписать профиль (JSON) закрытым ключом
   tigersb-core link            собрать ключ tigersb:// из адреса подписки и публичного ключа
 
-Режимы (-mode): main — заблокированное через выход за границей, остальное через
-выход в РФ, банки и вузы напрямую; all — всё через выход за границей, кроме
-банков и вузов; off — без VPN.
+Режимы (-mode):
+  auto (по умолчанию)  каждый сайт проверяется через все серверы и идёт через
+                       самый быстрый, который его открывает, а если не открывает
+                       ни один — напрямую; банки и вузы сразу напрямую
+  main                 заблокированное через выход за границей, остальное через
+                       выход в РФ, банки и вузы напрямую
+  all                  всё через выход за границей, кроме банков и вузов
+  off                  без VPN
 `
 
 func main() {
@@ -166,7 +172,7 @@ type runFlags struct {
 func addRunFlags(fs *flag.FlagSet) runFlags {
 	return runFlags{
 		dir:    stateDirFlag(fs),
-		mode:   fs.String("mode", string(xrayconf.ModeMain), "режим: main, all или off"),
+		mode:   fs.String("mode", string(xrayconf.ModeAuto), "режим: auto, main, all или off"),
 		socks:  fs.String("socks", "127.0.0.1:10808", "адрес локального SOCKS5 (пусто — не открывать)"),
 		http:   fs.String("http", "127.0.0.1:10809", "адрес локального HTTP-прокси (пусто — не открывать)"),
 		assets: fs.String("assets", "", "каталог с geosite.dat и geoip.dat (по умолчанию скачиваются в каталог состояния)"),
@@ -238,7 +244,8 @@ func cmdRun(args []string) error {
 	if err := engine.SetAssetDir(assets); err != nil {
 		return err
 	}
-	inst, err := engine.Start(cfg)
+	mode, _ := xrayconf.ParseMode(*f.mode)
+	inst, err := engine.Start(cfg, smart.Hooks(p, mode)...)
 	if err != nil {
 		return err
 	}

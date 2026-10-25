@@ -7,7 +7,7 @@ import 'package:tigersb/core.dart';
 
 class FakeCore implements Core {
   ProfileInfo? profile;
-  Mode currentMode = Mode.main;
+  Mode currentMode = Mode.auto;
   final statuses = StreamController<VpnStatus>.broadcast();
   final incoming = StreamController<String>.broadcast();
   final added = <String>[];
@@ -87,7 +87,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Подключено'), findsOneWidget);
 
-    await tester.tap(find.text('Всё за границу'));
+    expect(find.textContaining('Каждый сайт проверяется'), findsOneWidget);
+    await tester.tap(find.text('По спискам'));
+    await tester.pumpAndSettle();
+    expect(core.currentMode, Mode.main);
+    await tester.tap(find.text('Всё в VPN'));
     await tester.pumpAndSettle();
     expect(core.currentMode, Mode.all);
 
@@ -106,8 +110,9 @@ void main() {
     expect(core.connects, 1);
   });
 
-  testWidgets('another VPN\'s subscription: no mode choice, server count shown', (tester) async {
+  testWidgets('another VPN\'s subscription: no lists mode, server count shown', (tester) async {
     final core = FakeCore()
+      ..currentMode = Mode.main
       ..profile = ProfileInfo(
         name: 'Чужой VPN',
         hasRU: false,
@@ -120,8 +125,13 @@ void main() {
       );
     await tester.pumpWidget(TigerApp(core: core));
     await tester.pumpAndSettle();
-    expect(find.text('Умный'), findsNothing);
-    expect(find.textContaining('Серверов: 3'), findsOneWidget);
-    expect(find.textContaining('Весь трафик'), findsOneWidget);
+    expect(find.text('По спискам'), findsNothing);
+    expect(find.text('Умный'), findsOneWidget);
+    // A saved lists mode turns into the check, as there are no lists.
+    expect(core.currentMode, Mode.auto);
+    expect(find.textContaining('Серверов: 3. Для каждого сайта выбирается свой'), findsOneWidget);
+    await tester.tap(find.text('Всё в VPN'));
+    await tester.pumpAndSettle();
+    expect(find.text('Всё — через VPN. Банки и госуслуги — напрямую.'), findsOneWidget);
   });
 }

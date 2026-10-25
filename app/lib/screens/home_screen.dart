@@ -28,7 +28,7 @@ class _HomeScreenState extends State<HomeScreen> {
   static const refreshAfter = Duration(hours: 6);
 
   VpnStatus _status = const VpnStatus(Phase.disconnected);
-  Mode _mode = Mode.main;
+  Mode _mode = Mode.auto;
   bool _refreshing = false;
   StreamSubscription<VpnStatus>? _sub;
 
@@ -41,7 +41,13 @@ class _HomeScreenState extends State<HomeScreen> {
       if (s.phase == Phase.error && s.error != null) _snack(s.error!);
     });
     widget.core.mode().then((m) {
-      if (mounted) setState(() => _mode = m);
+      if (!mounted) return;
+      if (m == Mode.main && !_hasLists) {
+        // Without lists there is nothing to follow; the check is the better choice.
+        m = Mode.auto;
+        widget.core.setMode(m);
+      }
+      setState(() => _mode = m);
     });
     final fetched = widget.profile.fetched;
     if (fetched == null || DateTime.now().difference(fetched) > refreshAfter) {
@@ -119,12 +125,20 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// Without an RU exit and lists both modes do the same, so there is no choice.
-  bool get _hasModes => widget.profile.hasRU || widget.profile.hasLists;
+  /// Routing by lists needs lists or an RU exit; without them it would send
+  /// everything through the VPN, like Mode.all.
+  bool get _hasLists => widget.profile.hasRU || widget.profile.hasLists;
 
   String get _modeText {
-    if (!_hasModes) return 'Весь трафик — через VPN. Банки и госуслуги — напрямую.';
-    if (_mode == Mode.all) return 'Всё — через сервер за границей. Банки и госуслуги — напрямую.';
+    if (_mode == Mode.auto) {
+      return 'Каждый сайт проверяется через все серверы и открывается через самый быстрый, '
+          'а если не открывается ни через один — напрямую. Банки и госуслуги — сразу напрямую.';
+    }
+    if (_mode == Mode.all) {
+      return widget.profile.hasRU
+          ? 'Всё — через сервер за границей. Банки и госуслуги — напрямую.'
+          : 'Всё — через VPN. Банки и госуслуги — напрямую.';
+    }
     if (widget.profile.hasRU) {
       return 'Заблокированное — через сервер за границей, остальное — через сервер в России, '
           'банки и госуслуги — напрямую.';
@@ -197,22 +211,25 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ],
                   const SizedBox(height: 32),
-                  if (_hasModes)
-                    SegmentedButton<Mode>(
-                      segments: const [
-                        ButtonSegment(value: Mode.main, label: Text('Умный'), icon: Icon(Icons.alt_route)),
-                        ButtonSegment(value: Mode.all, label: Text('Всё за границу'), icon: Icon(Icons.public)),
-                      ],
-                      selected: {_mode},
-                      onSelectionChanged: (s) => _setMode(s.first),
-                    ),
+                  SegmentedButton<Mode>(
+                    showSelectedIcon: false,
+                    segments: [
+                      const ButtonSegment(value: Mode.auto, label: Text('Умный')),
+                      if (_hasLists) const ButtonSegment(value: Mode.main, label: Text('По спискам')),
+                      const ButtonSegment(value: Mode.all, label: Text('Всё в VPN')),
+                    ],
+                    selected: {_mode == Mode.main && !_hasLists ? Mode.auto : _mode},
+                    onSelectionChanged: (s) => _setMode(s.first),
+                  ),
                   const SizedBox(height: 12),
                   Text(_modeText, textAlign: TextAlign.center, style: theme.textTheme.bodyMedium),
                   if (widget.profile.servers > 1) ...[
                     const SizedBox(height: 8),
                     Text(
-                      'Серверов: ${widget.profile.servers}. Подключение идёт через самый быстрый, '
-                      'при сбое переключается само.',
+                      _mode == Mode.auto
+                          ? 'Серверов: ${widget.profile.servers}. Для каждого сайта выбирается свой.'
+                          : 'Серверов: ${widget.profile.servers}. Подключение идёт через самый быстрый, '
+                                'при сбое переключается само.',
                       key: const Key('servers'),
                       textAlign: TextAlign.center,
                       style: theme.textTheme.bodySmall,

@@ -31,7 +31,9 @@ func SetAssetDir(dir string) error {
 }
 
 // Start builds the config and starts Xray. Close the instance to stop it.
-func Start(config []byte) (*core.Instance, error) {
+// setup hooks run on the created instance before it starts, to add what a
+// JSON config cannot describe, such as the per-site picker.
+func Start(config []byte, setup ...func(*core.Instance) error) (*core.Instance, error) {
 	cfg, err := Load(config)
 	if err != nil {
 		return nil, err
@@ -39,6 +41,12 @@ func Start(config []byte) (*core.Instance, error) {
 	inst, err := core.New(cfg)
 	if err != nil {
 		return nil, fmt.Errorf("не удалось создать ядро Xray: %w", err)
+	}
+	for _, f := range setup {
+		if err := f(inst); err != nil {
+			inst.Close()
+			return nil, fmt.Errorf("не удалось настроить ядро Xray: %w", err)
+		}
 	}
 	if err := inst.Start(); err != nil {
 		return nil, fmt.Errorf("не удалось запустить ядро Xray: %w", err)

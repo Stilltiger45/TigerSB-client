@@ -203,7 +203,7 @@ func TestVLESSProfileBuilds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, m := range []xrayconf.Mode{xrayconf.ModeMain, xrayconf.ModeAll, xrayconf.ModeOff} {
+	for _, m := range []xrayconf.Mode{xrayconf.ModeAuto, xrayconf.ModeMain, xrayconf.ModeAll, xrayconf.ModeOff} {
 		build(t, p, m)
 	}
 	for _, link := range []string{
@@ -220,6 +220,9 @@ func TestVLESSProfileBuilds(t *testing.T) {
 }
 
 func TestParseMode(t *testing.T) {
+	if m, err := xrayconf.ParseMode("auto"); err != nil || m != xrayconf.ModeAuto {
+		t.Errorf("auto: %v", err)
+	}
 	if _, err := xrayconf.ParseMode("smart"); err == nil {
 		t.Error("unknown mode accepted")
 	}
@@ -254,5 +257,57 @@ func TestTUNHijacksDNSAndRefusesIPv6(t *testing.T) {
 	}
 	if !found {
 		t.Error("dns outbound missing")
+	}
+}
+
+func TestAutoMode(t *testing.T) {
+	p := fixture(t)
+	b, dest := build(t, p, xrayconf.ModeAuto)
+	want := map[string]string{
+		"dns":            "balancer:foreign",
+		"private":        "direct",
+		"direct-domains": "direct",
+		"direct-ips":     "direct",
+		"rest":           xrayconf.TagSmart,
+	}
+	for tag, to := range want {
+		if dest[tag] != to {
+			t.Errorf("rule %s goes to %q, want %q", tag, dest[tag], to)
+		}
+	}
+	if _, ok := dest["blocked-domains"]; ok {
+		t.Error("auto mode checks sites instead of using the blocked lists")
+	}
+	// Every server is measured, so the picker can check the fastest first.
+	if b.Observatory == nil || !slices.Equal(b.Observatory.SubjectSelector, []string{"foreign/", "ru/"}) {
+		t.Errorf("observatory %+v", b.Observatory)
+	}
+	// Encrypted DNS first, the provider's when no server answers.
+	if b.DNS == nil || len(b.DNS.Servers) != 3 || string(b.DNS.Servers[2]) != `"localhost"` {
+		t.Errorf("dns %+v", b.DNS)
+	}
+
+	all, def := xrayconf.Candidates(p)
+	if !slices.Equal(all, []string{"foreign/nl-1/reality", "foreign/nl-1/xhttp-cdn", "ru/msk-1/grpc"}) {
+		t.Errorf("candidates %v", all)
+	}
+	if !slices.Equal(def, []string{"foreign/nl-1/reality", "foreign/nl-1/xhttp-cdn"}) {
+		t.Errorf("default %v", def)
+	}
+}
+
+func TestAutoModeOnlyRU(t *testing.T) {
+	p := fixture(t)
+	p.Exits = p.Exits[1:]
+	b, dest := build(t, p, xrayconf.ModeAuto)
+	if dest["dns"] != "ru/msk-1/grpc" || dest["rest"] != xrayconf.TagSmart || b.DNS == nil {
+		t.Errorf("rules %v, dns %v", dest, b.DNS)
+	}
+	if b.Observatory != nil {
+		t.Error("one server needs no observatory")
+	}
+	all, def := xrayconf.Candidates(p)
+	if !slices.Equal(all, def) || len(all) != 1 {
+		t.Errorf("candidates %v, default %v", all, def)
 	}
 }

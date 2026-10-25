@@ -59,7 +59,7 @@ class MainActivity : FlutterActivity() {
                     "status" -> result.success(VpnState.toMap())
                     "mode" -> result.success(Core.mode(this@MainActivity))
                     "setMode" -> {
-                        Core.setMode(this@MainActivity, call.argument<String>("mode") ?: "main")
+                        Core.setMode(this@MainActivity, call.argument<String>("mode") ?: "auto")
                         // A running VPN picks the new mode up by reconnecting.
                         if (VpnState.phase == VpnState.Phase.CONNECTED) TigerVpnService.start(this@MainActivity)
                         result.success(null)
