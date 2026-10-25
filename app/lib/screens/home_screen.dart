@@ -10,6 +10,7 @@ import '../ui/glass.dart';
 import '../ui/mode_switch.dart';
 import '../ui/palette.dart';
 import '../ui/power_button.dart';
+import 'apps_screen.dart';
 
 /// Main screen: one big button, the mode and the profile.
 class HomeScreen extends StatefulWidget {
@@ -160,6 +161,12 @@ class _HomeScreenState extends State<HomeScreen> {
     _snack('Ключ подписки скопирован');
   }
 
+  void _openApps() => Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => AppsScreen(core: widget.core, profile: widget.profile, onProfile: widget.onProfile),
+    ),
+  );
+
   Future<void> _forget() async {
     final ok = await showDialog<bool>(
       context: context,
@@ -245,12 +252,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 onSelected: (v) => switch (v) {
                   'refresh' => _refresh(),
                   'copy' => _copyKey(),
+                  'apps' => _openApps(),
                   _ => _forget(),
                 },
                 itemBuilder: (_) => [
                   const PopupMenuItem(value: 'refresh', child: Text('Обновить профиль')),
                   if (widget.profile.key.isNotEmpty)
                     const PopupMenuItem(value: 'copy', child: Text('Скопировать ключ подписки')),
+                  const PopupMenuItem(value: 'apps', child: Text('Приложения мимо VPN')),
                   const PopupMenuItem(value: 'forget', child: Text('Сменить ключ')),
                 ],
               ),

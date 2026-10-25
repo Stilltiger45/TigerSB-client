@@ -21,6 +21,12 @@ object Core {
             val app = context.applicationContext
             val version = app.packageManager.getPackageInfo(app.packageName, 0).versionName ?: "dev"
             Mobile.init(app.filesDir.absolutePath, version)
+            try {
+                Vault.stateKey(app)?.let { Mobile.setStateKey(it) }
+            } catch (e: Exception) {
+                // The VPN still works; the state just stays unencrypted.
+                android.util.Log.e("TigerSB", "state key", e)
+            }
             // Panels with a device limit count devices by this id. ANDROID_ID
             // stays the same for this app until a factory reset.
             @SuppressLint("HardwareIds")

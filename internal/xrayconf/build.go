@@ -24,7 +24,8 @@ const (
 	// ModeMain: blocked sites via the foreign exit, everything else via the RU
 	// exit, banks and universities direct.
 	ModeMain Mode = "main"
-	// ModeAll: everything through the VPN, local networks aside.
+	// ModeAll: everything through the VPN, local networks and ShieldDomains
+	// aside.
 	ModeAll Mode = "all"
 	// ModeOff: no VPN, everything direct.
 	ModeOff Mode = "off"
@@ -202,6 +203,9 @@ func Build(p *profile.Profile, opt Options) ([]byte, error) {
 		// instead of leaking past the VPN or failing on servers without IPv6.
 		rules = append(rules, rule{Type: "field", InboundTag: tunTags, IP: []string{"::/0"}, OutboundTag: TagBlock, RuleTag: "ipv6"})
 	}
+	if opt.Mode != ModeOff {
+		rules = append(rules, direct.apply(rule{Type: "field", Domain: ShieldDomains, RuleTag: "shield"}))
+	}
 	if hasForeign && opt.Mode != ModeOff {
 		rules = append(rules, foreign.apply(rule{Type: "field", Domain: ForeignOnlyDomains, RuleTag: "foreign-only"}))
 	}
@@ -278,7 +282,7 @@ func Build(p *profile.Profile, opt Options) ([]byte, error) {
 		}
 	}
 	if hasDNSVia {
-		cfg["dns"] = dnsConfig(opt.Mode, blocked.Domains, directDomains)
+		cfg["dns"] = dnsConfig(opt.Mode, blocked.Domains, append(slices.Clone(ShieldDomains), directDomains...))
 	}
 	return json.MarshalIndent(cfg, "", "  ")
 }

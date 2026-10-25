@@ -303,6 +303,9 @@ func Load(dir string) (*State, error) {
 	if err != nil {
 		return nil, err
 	}
+	if b, err = unseal(b); err != nil {
+		return nil, err
+	}
 	var st State
 	if err := json.Unmarshal(b, &st); err != nil {
 		return nil, fmt.Errorf("файл состояния повреждён: %w", err)
@@ -310,13 +313,17 @@ func Load(dir string) (*State, error) {
 	return &st, nil
 }
 
-// Save writes the state to dir atomically, readable only by the user.
+// Save writes the state to dir atomically, readable only by the user, and
+// encrypted when StateKey is set.
 func Save(dir string, st *State) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 	b, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
+		return err
+	}
+	if b, err = seal(b); err != nil {
 		return err
 	}
 	tmp, err := os.CreateTemp(dir, stateFile+".*")

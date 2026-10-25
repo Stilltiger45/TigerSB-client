@@ -14,7 +14,14 @@ class FakeCore implements Core {
   final added = <String>[];
   int connects = 0;
 
-  ProfileInfo _profile(String name) => ProfileInfo(name: name, hasRU: true, fetched: DateTime.now(), exits: const []);
+  ProfileInfo _profile(String name, {List<String> userApps = const []}) => ProfileInfo(
+    name: name,
+    hasRU: true,
+    fetched: DateTime.now(),
+    exits: const [],
+    shieldApps: const ['ru.oneme.app'],
+    userApps: userApps,
+  );
 
   @override
   Future<ProfileInfo?> current() async => profile;
@@ -59,6 +66,20 @@ class FakeCore implements Core {
 
   @override
   Stream<VpnStatus> status() => statuses.stream;
+
+  List<String> userApps = [];
+
+  @override
+  Future<List<AppInfo>> apps() async => const [
+    AppInfo(package: 'ru.oneme.app', label: 'MAX'),
+    AppInfo(package: 'org.example.game', label: 'Игра'),
+  ];
+
+  @override
+  Future<void> setUserApps(List<String> packages) async {
+    userApps = packages;
+    profile = _profile(profile!.name, userApps: packages);
+  }
 
   @override
   Future<String?> takeKey() async => null;
@@ -193,6 +214,36 @@ void main() {
     await tester.pumpAndSettle();
     expect(copied, key);
     expect(find.text('Ключ подписки скопирован'), findsOneWidget);
+  });
+
+  testWidgets('the menu opens apps outside the VPN: MAX is locked, others toggle', (tester) async {
+    final core = FakeCore()
+      ..profile = ProfileInfo(
+        name: 'Дом',
+        hasRU: true,
+        fetched: DateTime.now(),
+        exits: const [],
+        shieldApps: const ['ru.oneme.app'],
+      );
+    await tester.pumpWidget(TigerApp(core: core));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Приложения мимо VPN'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('MAX'), findsOneWidget);
+    expect(find.text('ВСЕГДА НАПРЯМУЮ'), findsOneWidget);
+    expect(find.byType(Switch), findsOneWidget);
+    await tester.tap(find.byType(Switch));
+    await tester.pumpAndSettle();
+    expect(core.userApps, ['org.example.game']);
+    expect(core.profile!.userApps, ['org.example.game']);
+
+    await tester.enterText(find.byType(TextField), 'игр');
+    await tester.pumpAndSettle();
+    expect(find.text('MAX'), findsNothing);
+    expect(find.text('Игра'), findsOneWidget);
   });
 
   testWidgets('every mode animates without errors', (tester) async {

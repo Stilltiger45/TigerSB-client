@@ -13,6 +13,8 @@ class ProfileInfo {
     this.hasLists = true,
     this.foreign = false,
     this.key = '',
+    this.shieldApps = const [],
+    this.userApps = const [],
   });
 
   final String name;
@@ -30,12 +32,20 @@ class ProfileInfo {
   /// The key the profile was imported from, to copy and share.
   final String key;
 
+  /// Apps always left out of the VPN (MAX, VK, Yandex, banks, government).
+  final List<String> shieldApps;
+
+  /// Apps the user left out of the VPN.
+  final List<String> userApps;
+
   factory ProfileInfo.fromJson(Map<String, dynamic> j) => ProfileInfo(
     name: j['name'] as String? ?? '',
     hasRU: j['hasRU'] as bool? ?? false,
     hasLists: j['hasLists'] as bool? ?? true,
     foreign: j['foreign'] as bool? ?? false,
     key: j['key'] as String? ?? '',
+    shieldApps: List<String>.from(j['shieldApps'] as List? ?? const []),
+    userApps: List<String>.from(j['userApps'] as List? ?? const []),
     fetched: DateTime.tryParse(j['fetched'] as String? ?? '')?.toLocal(),
     exits: [
       for (final e in (j['exits'] as List? ?? const []))
@@ -98,6 +108,16 @@ class VpnStats {
   );
 }
 
+/// An installed app, for the list of apps left out of the VPN.
+class AppInfo {
+  const AppInfo({required this.package, required this.label, this.icon});
+  final String package;
+  final String label;
+
+  /// A PNG.
+  final Uint8List? icon;
+}
+
 /// Everything the screens need from the platform. [PlatformCore] talks to the
 /// Android side; tests use a fake.
 abstract class Core {
@@ -107,6 +127,12 @@ abstract class Core {
   Future<void> forget();
   Future<Mode> mode();
   Future<void> setMode(Mode m);
+
+  /// Apps with a launcher icon.
+  Future<List<AppInfo>> apps();
+
+  /// Saves the apps the user leaves out of the VPN; a running VPN reconnects.
+  Future<void> setUserApps(List<String> packages);
 
   /// Traffic and ping of the running VPN; takes up to a few seconds.
   Future<VpnStats> stats();
@@ -172,6 +198,16 @@ class PlatformCore implements Core {
     await setMode(Mode.auto);
     return Mode.auto;
   }
+
+  @override
+  Future<List<AppInfo>> apps() async => [
+    for (final a in await _call<List<Object?>>('apps') ?? const [])
+      if (a case {'package': final String package, 'label': final String label, 'icon': final Uint8List? icon})
+        AppInfo(package: package, label: label, icon: icon),
+  ];
+
+  @override
+  Future<void> setUserApps(List<String> packages) => _call('setUserApps', {'apps': packages});
 
   @override
   Future<VpnStats> stats() async =>
