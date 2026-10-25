@@ -76,7 +76,8 @@ func start(t *testing.T, routes []route, opt smart.Options) *http.Client {
 		"log": map[string]any{"loglevel": "none"},
 		"inbounds": []any{map[string]any{
 			"tag": "socks-in", "protocol": "socks", "listen": "127.0.0.1", "port": port,
-			"settings": map[string]any{"udp": true},
+			// TCP only: a UDP listener would need the port free for UDP too.
+			"settings": map[string]any{"udp": false},
 			"sniffing": map[string]any{"enabled": true, "destOverride": []string{"tls", "http"}, "routeOnly": true},
 		}},
 		"outbounds": outbounds,
