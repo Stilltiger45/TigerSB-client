@@ -27,9 +27,9 @@ jobs:
       # The release to attach the APKs to; empty for test builds.
       TAG: ${{ github.event.release.tag_name || inputs.tag }}
     steps:
+      # A release builds its own tag; a manual run builds the branch it was
+      # started on and attaches the APKs to the release named in "tag".
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ env.TAG || github.ref }}
 
       - uses: actions/setup-go@v5
         with:
