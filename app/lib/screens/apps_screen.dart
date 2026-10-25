@@ -138,6 +138,8 @@ class _AppsScreenState extends State<AppsScreen> {
               value: _user.contains(a.package),
               activeThumbColor: Palette.ink,
               activeTrackColor: Palette.orange,
+              inactiveThumbColor: Palette.muted,
+              inactiveTrackColor: Colors.white.withValues(alpha: 0.06),
               onChanged: (v) => _toggle(a.package, v),
             ),
       onTap: always ? null : () => _toggle(a.package, !_user.contains(a.package)),
