@@ -143,29 +143,33 @@ func tuicServer(t *testing.T) int {
 	return pc.LocalAddr().(*net.UDPAddr).Port
 }
 
-func freePort(t *testing.T, network string) int {
+// freePort finds a port that is free for both TCP and UDP: the SOCKS inbound
+// listens on both, and Windows keeps some UDP ports reserved even when the
+// same TCP port is free ("forbidden by its access permissions").
+func freePort(t *testing.T) int {
 	t.Helper()
-	if network == "udp" {
-		c, err := net.ListenPacket("udp", "127.0.0.1:0")
+	for range 50 {
+		l, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer c.Close()
-		return c.LocalAddr().(*net.UDPAddr).Port
+		port := l.Addr().(*net.TCPAddr).Port
+		c, err := net.ListenPacket("udp", fmt.Sprintf("127.0.0.1:%d", port))
+		l.Close()
+		if err == nil {
+			c.Close()
+			return port
+		}
 	}
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port
+	t.Fatal("no port free for both TCP and UDP")
+	return 0
 }
 
 // start runs the client's own config for the profile, with a SOCKS port for
 // TCP and a UDP port that forwards to 1.2.3.4:7777.
 func start(t *testing.T, p *profile.Profile) (inst *core.Instance, socks, udp int) {
 	t.Helper()
-	socks, udp = freePort(t, "tcp"), freePort(t, "udp")
+	socks, udp = freePort(t), freePort(t)
 	cfg, err := xrayconf.Build(p, xrayconf.Options{
 		Mode:     xrayconf.ModeAll,
 		LogLevel: "none",
