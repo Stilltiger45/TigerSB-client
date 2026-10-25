@@ -2,3 +2,4 @@
 /tigersb-core.exe
 /tigersb-core-ci*
 *.dat
+/app/android/app/libs/
