@@ -8,13 +8,17 @@
     <!-- Apps from the profile's direct list (banks) are excluded from the VPN
          by package name, which needs to see installed packages. -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <!-- Other apps' overlays are hidden while TigerSB is on screen. -->
+    <uses-permission android:name="android.permission.HIDE_OVERLAY_WINDOWS" />
 
     <uses-feature android:name="android.hardware.camera" android:required="false" />
 
     <application
         android:label="TigerSB"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules">
         <activity
             android:name=".MainActivity"
             android:exported="true"

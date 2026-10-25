@@ -3,12 +3,17 @@ package app.tigersb
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.view.WindowManager
 import app.tigersb.mobile.Mobile
+import org.json.JSONArray
+import java.io.ByteArrayOutputStream
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.EventChannel
@@ -30,6 +35,12 @@ class MainActivity : FlutterActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         pendingKey = keyFrom(intent)
         super.onCreate(savedInstanceState)
+        // Other apps must not read or steer the screen: no screenshots,
+        // screen recording or recents preview, no taps through an overlay,
+        // and other apps' overlays hidden while TigerSB is open.
+        window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
+        window.decorView.filterTouchesWhenObscured = true
+        if (Build.VERSION.SDK_INT >= 31) window.setHideOverlayWindows(true)
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -53,6 +64,13 @@ class MainActivity : FlutterActivity() {
                     "refresh" -> background(result) { Mobile.refresh() }
                     "forget" -> background(result) { Mobile.forget(); null }
                     "stats" -> background(result) { Mobile.stats() }
+                    "apps" -> background(result) { installedApps() }
+                    "setUserApps" -> background(result) {
+                        Mobile.setUserApps(JSONArray(call.argument<List<String>>("apps") ?: emptyList<String>()).toString())
+                        // A running VPN leaves the apps out after reconnecting.
+                        if (VpnState.phase == VpnState.Phase.CONNECTED) TigerVpnService.start(this@MainActivity)
+                        null
+                    }
                     "takeKey" -> {
                         result.success(pendingKey)
                         pendingKey = null
@@ -90,6 +108,25 @@ class MainActivity : FlutterActivity() {
                 listener = null
             }
         })
+    }
+
+    /** Apps with a launcher icon, but TigerSB itself: package, label and a small PNG icon. */
+    private fun installedApps(): List<Map<String, Any>> {
+        val pm = packageManager
+        val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+        @Suppress("DEPRECATION")
+        val found = pm.queryIntentActivities(launcher, 0)
+        val size = (40 * resources.displayMetrics.density).toInt()
+        return found.map { it.activityInfo.applicationInfo }
+            .distinctBy { it.packageName }
+            .filter { it.packageName != packageName }
+            .map { ai ->
+                val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+                pm.getApplicationIcon(ai).apply { setBounds(0, 0, size, size); draw(Canvas(bmp)) }
+                val png = ByteArrayOutputStream().also { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
+                mapOf("package" to ai.packageName, "label" to pm.getApplicationLabel(ai).toString(), "icon" to png)
+            }
+            .sortedBy { (it["label"] as String).lowercase() }
     }
 
     /** Runs a core call off the main thread and answers on it. */

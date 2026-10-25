@@ -41,6 +41,7 @@ var (
 
 	// What Stats needs about the running VPN.
 	vpnTags, pingTags []string
+	protocols         map[string]string
 	probeURL          string
 	started           time.Time
 )
@@ -64,14 +65,18 @@ func SetDevice(hwid, osName, osVersion, model string) {
 
 // profileInfo describes the imported profile for the app's screen.
 type profileInfo struct {
-	Name       string     `json:"name"`
-	Updated    time.Time  `json:"updated"`
-	Fetched    time.Time  `json:"fetched"`
-	HasRU      bool       `json:"hasRU"`
-	HasLists   bool       `json:"hasLists"`
-	Foreign    bool       `json:"foreign"`
-	Exits      []exitInfo `json:"exits"`
-	DirectApps []string   `json:"directApps"`
+	Name     string     `json:"name"`
+	Updated  time.Time  `json:"updated"`
+	Fetched  time.Time  `json:"fetched"`
+	HasRU    bool       `json:"hasRU"`
+	HasLists bool       `json:"hasLists"`
+	Foreign  bool       `json:"foreign"`
+	Exits    []exitInfo `json:"exits"`
+	// DirectApps are left out of the VPN: ShieldApps, the panel's apps and
+	// the user's own (UserApps).
+	DirectApps []string `json:"directApps"`
+	ShieldApps []string `json:"shieldApps"`
+	UserApps   []string `json:"userApps"`
 	// Key is the key the user imported, to copy and share.
 	Key string `json:"key"`
 }
@@ -212,6 +217,7 @@ func Start(fd int, mode string, mtu int) error {
 	}
 	inst = i
 	vpnTags, pingTags = xrayconf.Candidates(p)
+	protocols = xrayconf.Protocols(p)
 	probeURL = ""
 	if p.Probe != nil {
 		probeURL = p.Probe.URL
@@ -240,6 +246,61 @@ func Stats() (string, error) {
 		"up": up, "down": down, "ping": ping, "uptime": int64(time.Since(since).Seconds()),
 	})
 	return string(b), err
+}
+
+// Protocol names the protocol of the server in use, such as
+// "VLESS · Reality · gRPC", or "" when the VPN is not running.
+func Protocol() string {
+	mu.Lock()
+	defer mu.Unlock()
+	if inst == nil || len(pingTags) == 0 {
+		return ""
+	}
+	return protocols[meter.Fastest(inst, pingTags)]
+}
+
+// SetStateKey sets the 32-byte key that encrypts the saved subscription (see
+// subscription.StateKey) and encrypts a state saved without it. Call it right
+// after Init.
+func SetStateKey(key []byte) error {
+	mu.Lock()
+	defer mu.Unlock()
+	subscription.StateKey = slices.Clone(key)
+	st, err := subscription.Load(dataDir)
+	if errors.Is(err, subscription.ErrNoState) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return subscription.Save(dataDir, st)
+}
+
+// SetUserApps saves the apps the user leaves out of the VPN, a JSON array of
+// Android package names. A running VPN applies them when it reconnects.
+func SetUserApps(apps string) error {
+	var list []string
+	if err := json.Unmarshal([]byte(apps), &list); err != nil {
+		return fmt.Errorf("список приложений: %w", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	b, _ := json.Marshal(list)
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dataDir, userAppsFile), b, 0o600)
+}
+
+const userAppsFile = "apps.json"
+
+// userApps reads what SetUserApps saved; none when nothing was.
+func userApps() []string {
+	var list []string
+	if b, err := os.ReadFile(filepath.Join(dataDir, userAppsFile)); err == nil {
+		json.Unmarshal(b, &list)
+	}
+	return list
 }
 
 // Stop stops the VPN. The app closes the TUN descriptor afterwards.
@@ -296,8 +357,14 @@ func info(st *subscription.State, p *profile.Profile) (string, error) {
 		HasRU:      p.HasRole(profile.RoleRU),
 		HasLists:   len(blocked.Domains)+len(blocked.IPs) > 0,
 		Foreign:    st.Foreign,
-		DirectApps: p.Routing.Direct.Apps,
+		ShieldApps: xrayconf.ShieldApps,
+		UserApps:   userApps(),
 		Key:        st.Key,
+	}
+	for _, a := range slices.Concat(in.ShieldApps, p.Routing.Direct.Apps, in.UserApps) {
+		if !slices.Contains(in.DirectApps, a) {
+			in.DirectApps = append(in.DirectApps, a)
+		}
 	}
 	if in.Name == "" {
 		in.Name = p.ID

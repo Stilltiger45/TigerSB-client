@@ -1,7 +1,11 @@
 package mobile
 
 import (
+	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -34,5 +38,53 @@ func TestImportCurrentForget(t *testing.T) {
 	}
 	if s, _ := Current(); s != "" {
 		t.Errorf("forgotten state still there: %s", s)
+	}
+}
+
+func TestAppsOutsideVPN(t *testing.T) {
+	Init(t.TempDir(), "test")
+	if _, err := AddKey("vless://5783a3e7-e373-51cd-8642-c83782b807c5@1.2.3.4:443?security=none#Дом"); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { Forget() })
+	if err := SetUserApps(`["org.example.game","ru.oneme.app"]`); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := Current()
+	var in profileInfo
+	json.Unmarshal([]byte(s), &in)
+	if !slices.Contains(in.DirectApps, "ru.oneme.app") || !slices.Contains(in.DirectApps, "org.example.game") ||
+		!slices.Equal(in.UserApps, []string{"org.example.game", "ru.oneme.app"}) || len(in.ShieldApps) == 0 {
+		t.Fatalf("info %s", s)
+	}
+	seen := map[string]bool{}
+	for _, a := range in.DirectApps {
+		if seen[a] {
+			t.Errorf("%s twice", a)
+		}
+		seen[a] = true
+	}
+	if err := SetUserApps("nonsense"); err == nil {
+		t.Error("bad list accepted")
+	}
+}
+
+func TestStateKeyEncryptsSavedKey(t *testing.T) {
+	dir := t.TempDir()
+	Init(dir, "test")
+	t.Cleanup(func() { SetStateKey(nil); Forget() })
+	key := "vless://5783a3e7-e373-51cd-8642-c83782b807c5@1.2.3.4:443?security=none#secret-name"
+	if _, err := AddKey(key); err != nil {
+		t.Fatal(err)
+	}
+	if err := SetStateKey(bytes.Repeat([]byte{1}, 32)); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(dir, "state.json"))
+	if bytes.Contains(raw, []byte("secret-name")) {
+		t.Fatal("key saved in the clear")
+	}
+	if s, err := Current(); err != nil || !strings.Contains(s, "secret-name") {
+		t.Fatalf("current %q %v", s, err)
 	}
 }

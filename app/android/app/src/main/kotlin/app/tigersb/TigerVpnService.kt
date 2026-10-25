@@ -14,6 +14,8 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.VpnService
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.os.ParcelFileDescriptor
 import android.util.Log
 import app.tigersb.mobile.Mobile
@@ -35,6 +37,10 @@ class TigerVpnService : VpnService() {
         const val ACTION_STOP = "app.tigersb.STOP"
         private const val CHANNEL = "vpn"
         private const val NOTIFICATION_ID = 1
+        private const val ORANGE = 0xFFFF7A1A.toInt()
+
+        // How often the notification checks which protocol carries traffic.
+        private const val PROTOCOL_EVERY_MS = 30_000L
 
         // Addresses inside the TUN. DNS goes to TUN_DNS, the core answers it.
         private const val TUN_ADDR = "172.19.0.1"
@@ -56,6 +62,15 @@ class TigerVpnService : VpnService() {
     private var tun: ParcelFileDescriptor? = null
     private var mtu = 0
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
+    private var profileName = ""
+    private var protocol = ""
+    private val main = Handler(Looper.getMainLooper())
+    private val protocolTick = object : Runnable {
+        override fun run() {
+            worker.execute { showProtocol() }
+            main.postDelayed(this, PROTOCOL_EVERY_MS)
+        }
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
@@ -75,6 +90,7 @@ class TigerVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        main.removeCallbacks(protocolTick)
         worker.execute { stopCore() }
         worker.shutdown()
         super.onDestroy()
@@ -116,10 +132,13 @@ class TigerVpnService : VpnService() {
             tun = pfd
             Mobile.start(pfd.fd.toLong(), mode, mtu.toLong())
 
-            val name = profile.optString("name")
-            startForegroundCompat(getString(R.string.vpn_connected, name))
+            profileName = profile.optString("name")
+            protocol = Mobile.protocol()
+            startForegroundCompat(getString(R.string.vpn_connected, profileName), protocol)
             VpnState.set(VpnState.Phase.CONNECTED)
             watchNetwork()
+            main.removeCallbacks(protocolTick)
+            main.postDelayed(protocolTick, PROTOCOL_EVERY_MS)
         } catch (e: Exception) {
             Log.e(TAG, "connect", e)
             stopCore()
@@ -129,7 +148,20 @@ class TigerVpnService : VpnService() {
         }
     }
 
+    /**
+     * Shows the protocol of the server in use. Servers are measured after the
+     * start, so the fastest one, and its protocol, can change.
+     */
+    private fun showProtocol() {
+        if (tun == null) return
+        val now = Mobile.protocol()
+        if (now == protocol) return
+        protocol = now
+        startForegroundCompat(getString(R.string.vpn_connected, profileName), protocol)
+    }
+
     private fun shutdown() {
+        main.removeCallbacks(protocolTick)
         unwatchNetwork()
         stopCore()
         VpnState.set(VpnState.Phase.DISCONNECTED)
@@ -205,7 +237,8 @@ class TigerVpnService : VpnService() {
         this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE,
     )
 
-    private fun startForegroundCompat(text: String) {
+    /** title on top; detail, such as the protocol, below it when set. */
+    private fun startForegroundCompat(title: String, detail: String = "") {
         val nm = getSystemService(NotificationManager::class.java)
         val builder = if (Build.VERSION.SDK_INT >= 26) {
             nm.createNotificationChannel(
@@ -221,8 +254,10 @@ class TigerVpnService : VpnService() {
         )
         val n = builder
             .setSmallIcon(R.drawable.ic_stat_vpn)
-            .setContentTitle("TigerSB")
-            .setContentText(text)
+            .setColor(ORANGE)
+            .setSubText("TigerSB")
+            .setContentTitle(title)
+            .setContentText(detail.ifEmpty { null })
             .setOngoing(true)
             .setContentIntent(openAppIntent())
             .addAction(Notification.Action.Builder(null, getString(R.string.vpn_disconnect), stop).build())

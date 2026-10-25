@@ -53,7 +53,7 @@ func Ping(inst *core.Instance, tags []string, probeURL string, timeout time.Dura
 	if probeURL == "" {
 		probeURL = profile.DefaultProbeURL
 	}
-	tag := fastest(inst, tags)
+	tag := Fastest(inst, tags)
 
 	// Xray dials only from a context that carries its instance; its own
 	// tests build one the same way.
@@ -85,7 +85,10 @@ func Ping(inst *core.Instance, tags []string, probeURL string, timeout time.Dura
 	return time.Since(start)
 }
 
-func fastest(inst *core.Instance, tags []string) string {
+// Fastest returns the live outbound of tags with the lowest delay the
+// observatory measured, or the first one before any measurement. tags must
+// not be empty.
+func Fastest(inst *core.Instance, tags []string) string {
 	best, delay := tags[0], int64(-1)
 	obs, _ := inst.GetFeature(extension.ObservatoryType()).(extension.Observatory)
 	if obs == nil {

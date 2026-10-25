@@ -114,7 +114,7 @@ func TestMainModeThreeDirections(t *testing.T) {
 		t.Errorf("rule order %v", order)
 	}
 	for _, r := range b.Routing.Rules {
-		if r.RuleTag == "direct-domains" && !slices.Contains(r.Domain, "domain:example-bank.ru") || r.RuleTag == "direct-domains" && !slices.Contains(r.Domain, "domain:gosuslugi.ru") {
+		if r.RuleTag == "direct-domains" && !slices.Contains(r.Domain, "domain:example-bank.ru") || r.RuleTag == "direct-domains" && !slices.Contains(r.Domain, "domain:msu.ru") {
 			t.Errorf("direct domains miss the profile or built-in list: %v", r.Domain)
 		}
 	}
@@ -324,7 +324,7 @@ func TestBasicMode(t *testing.T) {
 		t.Error("basic mode does not need blocked rules")
 	}
 	for _, r := range b.Routing.Rules {
-		if r.RuleTag == "direct-domains" && (!slices.Contains(r.Domain, "domain:ru") || !slices.Contains(r.Domain, "domain:xn--p1ai") || !slices.Contains(r.Domain, "domain:gosuslugi.ru")) {
+		if r.RuleTag == "direct-domains" && (!slices.Contains(r.Domain, "domain:ru") || !slices.Contains(r.Domain, "domain:xn--p1ai") || !slices.Contains(r.Domain, "domain:msu.ru")) {
 			t.Errorf("direct domains %v", r.Domain)
 		}
 	}
@@ -393,5 +393,32 @@ func TestAIServicesGoAbroad(t *testing.T) {
 	}
 	if _, dest := build(t, fixture(t), xrayconf.ModeOff); dest["foreign-only"] != "" {
 		t.Error("off mode sends everything direct")
+	}
+}
+
+func TestShieldAlwaysDirect(t *testing.T) {
+	for _, m := range []xrayconf.Mode{xrayconf.ModeAuto, xrayconf.ModeBasic, xrayconf.ModeMain, xrayconf.ModeAll} {
+		p := fixture(t)
+		p.Routing.NoBuiltinDirect = true
+		b, dest := build(t, p, m)
+		if dest["shield"] != "direct" {
+			t.Errorf("%s: shield goes to %q", m, dest["shield"])
+		}
+		var order []string
+		for _, r := range b.Routing.Rules {
+			order = append(order, r.RuleTag)
+			if r.RuleTag == "shield" && (!slices.Contains(r.Domain, "domain:max.ru") || !slices.Contains(r.Domain, "domain:vk.com") ||
+				!slices.Contains(r.Domain, "domain:yandex.ru") || !slices.Contains(r.Domain, "domain:gosuslugi.ru")) {
+				t.Errorf("%s: shield domains %v", m, r.Domain)
+			}
+		}
+		// Before anything that sends traffic to a server.
+		if i := slices.Index(order, "shield"); i < 0 || i > slices.Index(order, "foreign-only") {
+			t.Errorf("%s: rule order %v", m, order)
+		}
+	}
+	_, dest := build(t, fixture(t), xrayconf.ModeOff)
+	if _, ok := dest["shield"]; ok {
+		t.Error("off mode needs no shield rule")
 	}
 }
