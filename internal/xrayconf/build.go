@@ -18,10 +18,13 @@ const (
 	// the fastest that opens it, or direct when none does. Banks and
 	// universities go direct without a check.
 	ModeAuto Mode = "auto"
+	// ModeBasic: Russian sites (.ru, .рф and Russian IPs), banks and
+	// universities direct, everything else through the VPN.
+	ModeBasic Mode = "basic"
 	// ModeMain: blocked sites via the foreign exit, everything else via the RU
 	// exit, banks and universities direct.
 	ModeMain Mode = "main"
-	// ModeAll: everything via the foreign exit except the direct list.
+	// ModeAll: everything through the VPN, local networks aside.
 	ModeAll Mode = "all"
 	// ModeOff: no VPN, everything direct.
 	ModeOff Mode = "off"
@@ -30,10 +33,10 @@ const (
 // ParseMode reads a mode name.
 func ParseMode(s string) (Mode, error) {
 	switch m := Mode(s); m {
-	case ModeAuto, ModeMain, ModeAll, ModeOff:
+	case ModeAuto, ModeBasic, ModeMain, ModeAll, ModeOff:
 		return m, nil
 	}
-	return "", fmt.Errorf("неизвестный режим %q (ожидается auto, main, all или off)", s)
+	return "", fmt.Errorf("неизвестный режим %q (ожидается auto, basic, main, all или off)", s)
 }
 
 // Outbound and balancer tags. Transport tags are "<role>/<exit>/<transport>"
@@ -151,12 +154,28 @@ func Build(p *profile.Profile, opt Options) ([]byte, error) {
 		// Without an RU exit the "everything else" direction stays direct.
 		ru = direct
 	}
+	// The VPN direction of the modes that do not tell exits apart: abroad,
+	// or the RU exit when the profile has only that.
+	vpn, hasVPN := foreign, hasForeign
+	if !hasVPN {
+		vpn, hasVPN = targets[profile.RoleRU]
+	}
+	if !hasVPN {
+		vpn = direct
+	}
 	dnsVia, hasDNSVia := foreign, hasForeign
-	if !hasForeign && opt.Mode == ModeAuto {
-		dnsVia, hasDNSVia = targets[profile.RoleRU]
+	if opt.Mode != ModeMain {
+		dnsVia, hasDNSVia = vpn, hasVPN
 	}
 
 	directDomains, directIPs := directLists(p)
+	switch opt.Mode {
+	case ModeBasic:
+		directDomains = append(directDomains, BasicDirectDomains...)
+		directIPs = append(directIPs, BasicDirectIPs...)
+	case ModeAll:
+		directDomains, directIPs = nil, nil
+	}
 	blocked := p.Routing.Blocked
 
 	var tunTags []string
@@ -214,8 +233,8 @@ func Build(p *profile.Profile, opt Options) ([]byte, error) {
 			// would never use the VPN, so send everything but the direct list through it.
 			rest = foreign
 		}
-	case ModeAll:
-		rest = foreign
+	case ModeBasic, ModeAll:
+		rest = vpn
 	case ModeOff:
 		rest = direct
 	}
@@ -229,6 +248,12 @@ func Build(p *profile.Profile, opt Options) ([]byte, error) {
 			"domainStrategy": "IPIfNonMatch",
 			"rules":          rules,
 		},
+		// Traffic counters of every outbound, read by package meter.
+		"stats": map[string]any{},
+		"policy": map[string]any{"system": map[string]any{
+			"statsOutboundUplink":   true,
+			"statsOutboundDownlink": true,
+		}},
 	}
 	if len(balancers) > 0 {
 		cfg["routing"].(map[string]any)["balancers"] = balancers
@@ -331,7 +356,7 @@ func dnsConfig(mode Mode, blocked, direct []string) map[string]any {
 			servers = append(servers, map[string]any{"address": DoHServer, "domains": blocked, "skipFallback": true})
 		}
 		servers = append(servers, "localhost")
-	case ModeAll:
+	case ModeAll, ModeBasic:
 		if len(direct) > 0 {
 			servers = append(servers, map[string]any{"address": "localhost", "domains": direct, "skipFallback": true})
 		}
@@ -382,14 +407,24 @@ func inbounds(in []Inbound) []any {
 	return out
 }
 
-// HasGeoData reports whether the config refers to geosite: or geoip: lists,
-// which need geosite.dat and geoip.dat next to the core.
-func HasGeoData(p *profile.Profile) bool {
-	all := slices.Concat(p.Routing.Blocked.Domains, p.Routing.Blocked.IPs, p.Routing.Direct.Domains, p.Routing.Direct.IPs)
-	for _, s := range all {
+// GeoData returns whether the mode's config refers to geosite: or geoip:
+// lists, which need geosite.dat and geoip.dat next to the core, and the
+// geoip: lists the mode adds to the profile's (package geodata fetches them).
+func GeoData(p *profile.Profile, m Mode) (needed bool, extraIPs []string) {
+	var lists []string
+	switch m {
+	case ModeBasic:
+		return true, BasicDirectIPs
+	case ModeAll:
+		return false, nil
+	case ModeMain:
+		lists = slices.Concat(p.Routing.Blocked.Domains, p.Routing.Blocked.IPs)
+	}
+	lists = slices.Concat(lists, p.Routing.Direct.Domains, p.Routing.Direct.IPs)
+	for _, s := range lists {
 		if strings.HasPrefix(s, "geosite:") || strings.HasPrefix(s, "geoip:") {
-			return true
+			return true, nil
 		}
 	}
-	return false
+	return false, nil
 }

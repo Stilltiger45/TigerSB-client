@@ -168,6 +168,37 @@ func TestEnsureMissingCode(t *testing.T) {
 	}
 }
 
+func TestEnsureBasicIPs(t *testing.T) {
+	ip := ipList(t)
+	var sites atomic.Int32
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "geosite.dat") {
+			sites.Add(1)
+		}
+		_, _ = w.Write(ip)
+	}))
+	defer srv.Close()
+	p, err := profile.FromVLESS("vless://5783a3e7-e373-51cd-8642-c83782b807c5@1.2.3.4:443?security=none")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p.Geodata = &profile.Geodata{GeoSite: srv.URL + "/geosite.dat", GeoIP: srv.URL + "/geoip.dat"}
+	dir := t.TempDir()
+	// The basic mode needs Russian IPs even when the profile has no lists;
+	// geosite.dat is not needed at all.
+	if err := geodata.Ensure(context.Background(), srv.Client(), dir, p, 0, "geoip:ru"); err != nil {
+		t.Fatal(err)
+	}
+	var l router.GeoIPList
+	b, _ := os.ReadFile(filepath.Join(dir, geodata.GeoIPFile))
+	if err := proto.Unmarshal(b, &l); err != nil || len(l.Entry) != 1 || l.Entry[0].CountryCode != "RU" {
+		t.Fatalf("geoip.dat: %v %v", err, l.Entry)
+	}
+	if sites.Load() != 0 {
+		t.Error("geosite.dat downloaded without lists")
+	}
+}
+
 func TestEnsureNothingNeeded(t *testing.T) {
 	p, err := profile.FromVLESS("vless://5783a3e7-e373-51cd-8642-c83782b807c5@1.2.3.4:443?security=none")
 	if err != nil {

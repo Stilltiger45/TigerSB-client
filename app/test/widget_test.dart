@@ -37,6 +37,15 @@ class FakeCore implements Core {
   @override
   Future<void> setMode(Mode m) async => currentMode = m;
 
+  VpnStats nextStats = const VpnStats(up: 0, down: 0, ping: -1, uptime: 0);
+  int statsCalls = 0;
+
+  @override
+  Future<VpnStats> stats() async {
+    statsCalls++;
+    return nextStats;
+  }
+
   @override
   Future<bool> connect() async {
     connects++;
@@ -87,13 +96,15 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Подключено'), findsOneWidget);
 
-    expect(find.textContaining('Каждый сайт проверяется'), findsOneWidget);
-    await tester.tap(find.text('По спискам'));
+    expect(find.textContaining('самый быстрый сервер'), findsOneWidget);
+    await tester.tap(find.text('Базовая'));
     await tester.pumpAndSettle();
-    expect(core.currentMode, Mode.main);
-    await tester.tap(find.text('Всё в VPN'));
+    expect(core.currentMode, Mode.basic);
+    expect(find.textContaining('Российские сайты'), findsOneWidget);
+    await tester.tap(find.text('Все'));
     await tester.pumpAndSettle();
     expect(core.currentMode, Mode.all);
+    expect(find.text('Весь трафик — через VPN.'), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('power')));
     await tester.pumpAndSettle();
@@ -110,13 +121,11 @@ void main() {
     expect(core.connects, 1);
   });
 
-  testWidgets('another VPN\'s subscription: no lists mode, server count shown', (tester) async {
+  testWidgets('connected: speed, traffic and ping, read every 5 minutes', (tester) async {
     final core = FakeCore()
-      ..currentMode = Mode.main
       ..profile = ProfileInfo(
         name: 'Чужой VPN',
         hasRU: false,
-        hasLists: false,
         foreign: true,
         fetched: DateTime.now(),
         exits: [
@@ -125,13 +134,35 @@ void main() {
       );
     await tester.pumpWidget(TigerApp(core: core));
     await tester.pumpAndSettle();
-    expect(find.text('По спискам'), findsNothing);
-    expect(find.text('Умный'), findsOneWidget);
-    // A saved lists mode turns into the check, as there are no lists.
-    expect(core.currentMode, Mode.auto);
-    expect(find.textContaining('Серверов: 3. Для каждого сайта выбирается свой'), findsOneWidget);
-    await tester.tap(find.text('Всё в VPN'));
+    expect(find.byKey(const Key('stats')), findsNothing);
+    expect(find.textContaining('Серверов'), findsNothing);
+
+    await tester.tap(find.byKey(const Key('power')));
     await tester.pumpAndSettle();
-    expect(find.text('Всё — через VPN. Банки и госуслуги — напрямую.'), findsOneWidget);
+    expect(find.byKey(const Key('stats')), findsOneWidget);
+    expect(core.statsCalls, 0);
+
+    // 10 MB down and 1 MB up in 10 seconds.
+    core.nextStats = const VpnStats(up: 1 << 20, down: 10 << 20, ping: 42, uptime: 10);
+    await tester.pump(const Duration(seconds: 10));
+    await tester.pump();
+    expect(core.statsCalls, 1);
+    expect(find.text('↓ 10.0 МБ'), findsOneWidget);
+    expect(find.text('↓ 8.4 Мбит/с'), findsOneWidget);
+    expect(find.text('42 мс'), findsOneWidget);
+
+    // The next reading comes five minutes later; the speed is over those minutes.
+    core.nextStats = const VpnStats(up: 1 << 20, down: 10 << 20, ping: -1, uptime: 310);
+    await tester.pump(const Duration(minutes: 4));
+    expect(core.statsCalls, 1);
+    await tester.pump(const Duration(minutes: 1));
+    await tester.pump();
+    expect(core.statsCalls, 2);
+    expect(find.text('↓ 0 кбит/с'), findsOneWidget);
+    expect(find.text('нет ответа'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('power')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('stats')), findsNothing);
   });
 }

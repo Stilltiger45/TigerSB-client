@@ -52,6 +52,7 @@ class MainActivity : FlutterActivity() {
                     "addKey" -> background(result) { Mobile.addKey(call.argument<String>("key") ?: "") }
                     "refresh" -> background(result) { Mobile.refresh() }
                     "forget" -> background(result) { Mobile.forget(); null }
+                    "stats" -> background(result) { Mobile.stats() }
                     "takeKey" -> {
                         result.success(pendingKey)
                         pendingKey = null

@@ -1,5 +1,12 @@
 package xrayconf
 
+// BasicDirectDomains and BasicDirectIPs go direct in the basic mode: every
+// Russian site, by its domain zone (.ru and .рф) or by a Russian IP.
+var (
+	BasicDirectDomains = []string{"domain:ru", "domain:xn--p1ai"}
+	BasicDirectIPs     = []string{"geoip:ru"}
+)
+
 // BuiltinDirectDomains are Russian sites that often break behind any VPN:
 // banks, payment systems, government services and universities. They always go
 // direct unless the profile sets no_builtin_direct. The panel extends the list

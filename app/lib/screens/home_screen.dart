@@ -27,27 +27,34 @@ class _HomeScreenState extends State<HomeScreen> {
   /// The profile is fetched again on start when it is older than this.
   static const refreshAfter = Duration(hours: 6);
 
+  /// How often traffic, speed and ping are read; the first time a little
+  /// after connecting, so the speed has something to average over.
+  static const statsEvery = Duration(minutes: 5);
+  static const statsFirst = Duration(seconds: 10);
+
   VpnStatus _status = const VpnStatus(Phase.disconnected);
   Mode _mode = Mode.auto;
   bool _refreshing = false;
   StreamSubscription<VpnStatus>? _sub;
+
+  VpnStats? _stats;
+  // Bytes per second since the previous reading.
+  double? _upSpeed, _downSpeed;
+  Timer? _statsTimer;
 
   @override
   void initState() {
     super.initState();
     _sub = widget.core.status().listen((s) {
       if (!mounted) return;
+      final was = _status.phase;
       setState(() => _status = s);
       if (s.phase == Phase.error && s.error != null) _snack(s.error!);
+      if (s.phase == Phase.connected && was != Phase.connected) _startStats();
+      if (s.phase != Phase.connected) _stopStats();
     });
     widget.core.mode().then((m) {
-      if (!mounted) return;
-      if (m == Mode.main && !_hasLists) {
-        // Without lists there is nothing to follow; the check is the better choice.
-        m = Mode.auto;
-        widget.core.setMode(m);
-      }
-      setState(() => _mode = m);
+      if (mounted) setState(() => _mode = m);
     });
     final fetched = widget.profile.fetched;
     if (fetched == null || DateTime.now().difference(fetched) > refreshAfter) {
@@ -58,7 +65,49 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void dispose() {
     _sub?.cancel();
+    _statsTimer?.cancel();
     super.dispose();
+  }
+
+  void _startStats() {
+    _statsTimer?.cancel();
+    _statsTimer = Timer(statsFirst, () {
+      _readStats();
+      _statsTimer = Timer.periodic(statsEvery, (_) => _readStats());
+    });
+  }
+
+  void _stopStats() {
+    _statsTimer?.cancel();
+    _statsTimer = null;
+    if (_stats != null) {
+      setState(() {
+        _stats = null;
+        _upSpeed = _downSpeed = null;
+      });
+    }
+  }
+
+  Future<void> _readStats() async {
+    final VpnStats s;
+    try {
+      s = await widget.core.stats();
+    } on CoreError {
+      return;
+    }
+    if (!mounted || _status.phase != Phase.connected) return;
+    final prev = _stats;
+    // Since the previous reading, or since the start for the first one; a
+    // reconnect restarts the counters.
+    final base = prev != null && s.uptime > prev.uptime && s.down >= prev.down && s.up >= prev.up ? prev : null;
+    final secs = s.uptime - (base?.uptime ?? 0);
+    setState(() {
+      _stats = s;
+      if (secs > 0) {
+        _upSpeed = (s.up - (base?.up ?? 0)) / secs;
+        _downSpeed = (s.down - (base?.down ?? 0)) / secs;
+      }
+    });
   }
 
   void _snack(String text) {
@@ -125,26 +174,11 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  /// Routing by lists needs lists or an RU exit; without them it would send
-  /// everything through the VPN, like Mode.all.
-  bool get _hasLists => widget.profile.hasRU || widget.profile.hasLists;
-
-  String get _modeText {
-    if (_mode == Mode.auto) {
-      return 'Каждый сайт проверяется через все серверы и открывается через самый быстрый, '
-          'а если не открывается ни через один — напрямую. Банки и госуслуги — сразу напрямую.';
-    }
-    if (_mode == Mode.all) {
-      return widget.profile.hasRU
-          ? 'Всё — через сервер за границей. Банки и госуслуги — напрямую.'
-          : 'Всё — через VPN. Банки и госуслуги — напрямую.';
-    }
-    if (widget.profile.hasRU) {
-      return 'Заблокированное — через сервер за границей, остальное — через сервер в России, '
-          'банки и госуслуги — напрямую.';
-    }
-    return 'Заблокированное — через VPN, банки и госуслуги — напрямую.';
-  }
+  String get _modeText => switch (_mode) {
+    Mode.auto => 'Каждый сайт — через самый быстрый сервер, который его открывает, иначе напрямую.',
+    Mode.basic => 'Российские сайты (.ru, .рф, российские IP) — напрямую, остальное — через VPN.',
+    Mode.all => 'Весь трафик — через VPN.',
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -213,27 +247,19 @@ class _HomeScreenState extends State<HomeScreen> {
                   const SizedBox(height: 32),
                   SegmentedButton<Mode>(
                     showSelectedIcon: false,
-                    segments: [
-                      const ButtonSegment(value: Mode.auto, label: Text('Умный')),
-                      if (_hasLists) const ButtonSegment(value: Mode.main, label: Text('По спискам')),
-                      const ButtonSegment(value: Mode.all, label: Text('Всё в VPN')),
+                    segments: const [
+                      ButtonSegment(value: Mode.auto, label: Text('Умная')),
+                      ButtonSegment(value: Mode.basic, label: Text('Базовая')),
+                      ButtonSegment(value: Mode.all, label: Text('Все')),
                     ],
-                    selected: {_mode == Mode.main && !_hasLists ? Mode.auto : _mode},
+                    selected: {_mode},
                     onSelectionChanged: (s) => _setMode(s.first),
                   ),
                   const SizedBox(height: 12),
                   Text(_modeText, textAlign: TextAlign.center, style: theme.textTheme.bodyMedium),
-                  if (widget.profile.servers > 1) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      _mode == Mode.auto
-                          ? 'Серверов: ${widget.profile.servers}. Для каждого сайта выбирается свой.'
-                          : 'Серверов: ${widget.profile.servers}. Подключение идёт через самый быстрый, '
-                                'при сбое переключается само.',
-                      key: const Key('servers'),
-                      textAlign: TextAlign.center,
-                      style: theme.textTheme.bodySmall,
-                    ),
+                  if (on) ...[
+                    const SizedBox(height: 24),
+                    _StatsCard(stats: _stats, upSpeed: _upSpeed, downSpeed: _downSpeed),
                   ],
                   const SizedBox(height: 32),
                   if (_refreshing)
@@ -252,5 +278,72 @@ class _HomeScreenState extends State<HomeScreen> {
   static String _date(DateTime t) {
     String two(int v) => v.toString().padLeft(2, '0');
     return '${two(t.day)}.${two(t.month)} в ${two(t.hour)}:${two(t.minute)}';
+  }
+}
+
+/// Speed, traffic and ping of the running VPN, read every few minutes.
+class _StatsCard extends StatelessWidget {
+  const _StatsCard({required this.stats, required this.upSpeed, required this.downSpeed});
+
+  final VpnStats? stats;
+  final double? upSpeed, downSpeed;
+
+  static const _dash = '—';
+
+  static String _bytes(num b) {
+    const units = ['Б', 'КБ', 'МБ', 'ГБ', 'ТБ'];
+    var v = b.toDouble();
+    var i = 0;
+    while (v >= 1024 && i < units.length - 1) {
+      v /= 1024;
+      i++;
+    }
+    final n = i == 0 || v >= 100 ? v.toStringAsFixed(0) : v.toStringAsFixed(1);
+    return '$n ${units[i]}';
+  }
+
+  static String _speed(double? bps) {
+    if (bps == null) return _dash;
+    // Network speeds are counted in bits.
+    final bits = bps * 8;
+    if (bits >= 1e6) return '${(bits / 1e6).toStringAsFixed(1)} Мбит/с';
+    return '${(bits / 1e3).toStringAsFixed(0)} кбит/с';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final s = stats;
+    Widget cell(String title, String down, String up) => Expanded(
+      child: Column(
+        children: [
+          Text(title, style: theme.textTheme.labelMedium),
+          const SizedBox(height: 6),
+          Text(down, textAlign: TextAlign.center, style: theme.textTheme.bodyMedium),
+          Text(up, textAlign: TextAlign.center, style: theme.textTheme.bodyMedium),
+        ],
+      ),
+    );
+    final ping = s == null ? _dash : (s.ping < 0 ? 'нет ответа' : '${s.ping} мс');
+    return Card(
+      key: const Key('stats'),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 8),
+        child: Column(
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                cell('Скорость', '↓ ${_speed(downSpeed)}', '↑ ${_speed(upSpeed)}'),
+                cell('Трафик', '↓ ${s == null ? _dash : _bytes(s.down)}', '↑ ${s == null ? _dash : _bytes(s.up)}'),
+                cell('Пинг', ping, ''),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text('Обновляется раз в 5 минут', style: theme.textTheme.bodySmall),
+          ],
+        ),
+      ),
+    );
   }
 }

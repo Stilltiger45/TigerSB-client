@@ -42,9 +42,6 @@ class ProfileInfo {
     ],
   );
 
-  /// Servers that go abroad; with several the core uses the fastest.
-  int get servers => exits.where((e) => e.role == 'foreign').fold(0, (n, e) => n + e.transports.length);
-
   static ProfileInfo? parse(String? s) =>
       s == null || s.isEmpty ? null : ProfileInfo.fromJson(jsonDecode(s) as Map<String, dynamic>);
 }
@@ -70,8 +67,31 @@ class VpnStatus {
 }
 
 /// Routing modes, as the core names them: auto checks every site through all
-/// servers, main follows the profile's lists, all sends everything abroad.
-enum Mode { auto, main, all }
+/// servers, basic sends Russian sites direct, all sends everything through
+/// the VPN.
+enum Mode { auto, basic, all }
+
+/// What the core reports about the running VPN.
+class VpnStats {
+  const VpnStats({required this.up, required this.down, required this.ping, required this.uptime});
+
+  /// Bytes sent and received through the servers since the VPN started.
+  final int up;
+  final int down;
+
+  /// Milliseconds to the server in use, or -1 when it does not answer.
+  final int ping;
+
+  /// Seconds since the VPN started.
+  final int uptime;
+
+  factory VpnStats.fromJson(Map<String, dynamic> j) => VpnStats(
+    up: (j['up'] as num?)?.toInt() ?? 0,
+    down: (j['down'] as num?)?.toInt() ?? 0,
+    ping: (j['ping'] as num?)?.toInt() ?? -1,
+    uptime: (j['uptime'] as num?)?.toInt() ?? 0,
+  );
+}
 
 /// Everything the screens need from the platform. [PlatformCore] talks to the
 /// Android side; tests use a fake.
@@ -82,6 +102,9 @@ abstract class Core {
   Future<void> forget();
   Future<Mode> mode();
   Future<void> setMode(Mode m);
+
+  /// Traffic and ping of the running VPN; takes up to a few seconds.
+  Future<VpnStats> stats();
 
   /// Asks for the VPN permission if needed and starts the VPN. Returns false
   /// when the user declined.
@@ -137,8 +160,17 @@ class PlatformCore implements Core {
   @override
   Future<Mode> mode() async {
     final s = await _call<String>('mode');
-    return Mode.values.firstWhere((m) => m.name == s, orElse: () => Mode.auto);
+    for (final m in Mode.values) {
+      if (m.name == s) return m;
+    }
+    // A mode the app no longer offers (the old "main") becomes the default.
+    await setMode(Mode.auto);
+    return Mode.auto;
   }
+
+  @override
+  Future<VpnStats> stats() async =>
+      VpnStats.fromJson(jsonDecode(await _call<String>('stats') ?? '{}') as Map<String, dynamic>);
 
   @override
   Future<void> setMode(Mode m) => _call('setMode', {'mode': m.name});
