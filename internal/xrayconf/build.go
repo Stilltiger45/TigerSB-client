@@ -38,17 +38,23 @@ const (
 	TagDirect = "direct"
 	TagBlock  = "block"
 	TagDNS    = "dns-internal"
+	// TagDNSOut answers DNS queries that apps send into the TUN.
+	TagDNSOut = "dns-out"
 )
+
+// DefaultMTU is the TUN MTU when the caller does not pick one.
+const DefaultMTU = 1500
 
 // DoHServer resolves blocked domains through the foreign exit.
 const DoHServer = "https://1.1.1.1/dns-query"
 
-// Inbound is a local proxy port the core listens on.
+// Inbound is a local proxy port the core listens on, or the system TUN.
 type Inbound struct {
 	Tag      string
-	Protocol string // "socks" or "http"
+	Protocol string // "socks", "http" or "tun"
 	Listen   string
 	Port     int
+	MTU      int // tun only; 0 means DefaultMTU
 }
 
 // Options are the inputs besides the profile.
@@ -70,6 +76,7 @@ type rule struct {
 	InboundTag  []string `json:"inboundTag,omitempty"`
 	Domain      []string `json:"domain,omitempty"`
 	IP          []string `json:"ip,omitempty"`
+	Port        string   `json:"port,omitempty"`
 	Network     string   `json:"network,omitempty"`
 	OutboundTag string   `json:"outboundTag,omitempty"`
 	BalancerTag string   `json:"balancerTag,omitempty"`
@@ -139,11 +146,30 @@ func Build(p *profile.Profile, opt Options) ([]byte, error) {
 	directDomains, directIPs := directLists(p)
 	blocked := p.Routing.Blocked
 
+	var tunTags []string
+	for _, ib := range opt.Inbounds {
+		if ib.Protocol == "tun" {
+			tunTags = append(tunTags, ib.Tag)
+		}
+	}
+
 	var rules []rule
+	if len(tunTags) > 0 {
+		// Apps resolve names through the DNS address of the TUN; answer them
+		// with Xray's own DNS so blocked domains are not resolved by the provider.
+		outbounds = append(outbounds, map[string]any{"tag": TagDNSOut, "protocol": "dns"})
+		rules = append(rules, rule{Type: "field", InboundTag: tunTags, Port: "53", OutboundTag: TagDNSOut, RuleTag: "tun-dns"})
+	}
 	if hasForeign {
 		rules = append(rules, foreign.apply(rule{Type: "field", InboundTag: []string{TagDNS}, RuleTag: "dns"}))
 	}
 	rules = append(rules, direct.apply(rule{Type: "field", IP: privateRanges, RuleTag: "private"}))
+	if len(tunTags) > 0 {
+		// The TUN is IPv4-only in spirit: DNS answers carry no AAAA records and
+		// IPv6 that still arrives is refused, so apps fall back to IPv4 at once
+		// instead of leaking past the VPN or failing on servers without IPv6.
+		rules = append(rules, rule{Type: "field", InboundTag: tunTags, IP: []string{"::/0"}, OutboundTag: TagBlock, RuleTag: "ipv6"})
+	}
 	if len(directDomains) > 0 {
 		rules = append(rules, direct.apply(rule{Type: "field", Domain: directDomains, RuleTag: "direct-domains"}))
 	}
@@ -269,13 +295,19 @@ func inbounds(in []Inbound) []any {
 	out := make([]any, 0, len(in))
 	for _, ib := range in {
 		settings := map[string]any{}
-		if ib.Protocol == "socks" {
+		switch ib.Protocol {
+		case "socks":
 			settings = map[string]any{"udp": true, "auth": "noauth"}
+		case "tun":
+			mtu := ib.MTU
+			if mtu == 0 {
+				mtu = DefaultMTU
+			}
+			settings = map[string]any{"name": "tigersb0", "MTU": mtu}
 		}
-		out = append(out, map[string]any{
+		in := map[string]any{
 			"tag":      ib.Tag,
 			"protocol": ib.Protocol,
-			"listen":   ib.Listen,
 			"port":     ib.Port,
 			"settings": settings,
 			"sniffing": map[string]any{
@@ -283,7 +315,11 @@ func inbounds(in []Inbound) []any {
 				"destOverride": []string{"http", "tls", "quic"},
 				"routeOnly":    true,
 			},
-		})
+		}
+		if ib.Listen != "" {
+			in["listen"] = ib.Listen
+		}
+		out = append(out, in)
 	}
 	return out
 }

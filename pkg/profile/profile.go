@@ -37,6 +37,15 @@ type Profile struct {
 	Exits   []Exit    `json:"exits"`
 	Routing Routing   `json:"routing"`
 	Probe   *Probe    `json:"probe,omitempty"`
+	Geodata *Geodata  `json:"geodata,omitempty"`
+}
+
+// Geodata says where to download geosite.dat and geoip.dat when the routing
+// lists use "geosite:" or "geoip:". Empty fields fall back to the client's
+// default source. The panel can serve files trimmed to the lists it uses.
+type Geodata struct {
+	GeoSite string `json:"geosite,omitempty"`
+	GeoIP   string `json:"geoip,omitempty"`
 }
 
 // Update says where and how often the client refreshes the profile.
@@ -171,6 +180,13 @@ func (p *Profile) Validate() error {
 	}
 	if p.Update != nil && !strings.HasPrefix(p.Update.URL, "https://") {
 		return fmt.Errorf("адрес обновления должен начинаться с https://")
+	}
+	if g := p.Geodata; g != nil {
+		for _, u := range []string{g.GeoSite, g.GeoIP} {
+			if u != "" && !strings.HasPrefix(u, "https://") {
+				return fmt.Errorf("адрес geodata должен начинаться с https://")
+			}
+		}
 	}
 	return nil
 }

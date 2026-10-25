@@ -13,15 +13,20 @@ import (
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"syscall"
 	"time"
 
 	"github.com/Stilltiger45/TigerSB-client/internal/engine"
+	"github.com/Stilltiger45/TigerSB-client/internal/geodata"
 	"github.com/Stilltiger45/TigerSB-client/internal/subscription"
 	"github.com/Stilltiger45/TigerSB-client/internal/xrayconf"
 	"github.com/Stilltiger45/TigerSB-client/pkg/profile"
 )
+
+// geodataMaxAge is how long downloaded geosite.dat and geoip.dat stay fresh.
+const geodataMaxAge = 24 * time.Hour
 
 // version is set at build time with -ldflags "-X main.version=...".
 var version = "dev"
@@ -164,7 +169,7 @@ func addRunFlags(fs *flag.FlagSet) runFlags {
 		mode:   fs.String("mode", string(xrayconf.ModeMain), "режим: main, all или off"),
 		socks:  fs.String("socks", "127.0.0.1:10808", "адрес локального SOCKS5 (пусто — не открывать)"),
 		http:   fs.String("http", "127.0.0.1:10809", "адрес локального HTTP-прокси (пусто — не открывать)"),
-		assets: fs.String("assets", "", "каталог с geosite.dat и geoip.dat"),
+		assets: fs.String("assets", "", "каталог с geosite.dat и geoip.dat (по умолчанию скачиваются в каталог состояния)"),
 		log:    fs.String("log", "warning", "уровень журнала Xray: debug, info, warning, error, none"),
 	}
 }
@@ -220,10 +225,17 @@ func cmdRun(args []string) error {
 	if err != nil {
 		return err
 	}
-	if xrayconf.HasGeoData(p) && *f.assets == "" {
-		log.Println("Внимание: профиль использует geosite:/geoip:. Если Xray не найдёт geosite.dat и geoip.dat рядом с программой, укажите каталог через -assets.")
+	assets := *f.assets
+	if xrayconf.HasGeoData(p) && assets == "" {
+		assets = filepath.Join(*f.dir, "geodata")
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		err := geodata.Ensure(ctx, nil, assets, p, geodataMaxAge)
+		cancel()
+		if err != nil {
+			return err
+		}
 	}
-	if err := engine.SetAssetDir(*f.assets); err != nil {
+	if err := engine.SetAssetDir(assets); err != nil {
 		return err
 	}
 	inst, err := engine.Start(cfg)
