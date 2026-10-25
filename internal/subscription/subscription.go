@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/Stilltiger45/TigerSB-client/internal/certpin"
 	"github.com/Stilltiger45/TigerSB-client/pkg/profile"
 )
 
@@ -86,6 +87,9 @@ func (c *Client) Import(ctx context.Context, keyText string) (*State, *profile.P
 		if err != nil {
 			return nil, nil, err
 		}
+		if _, err := certpin.Profile(ctx, p); err != nil {
+			return nil, nil, err
+		}
 		raw, err := json.Marshal(p)
 		if err != nil {
 			return nil, nil, err
@@ -128,19 +132,23 @@ func (c *Client) importForeign(ctx context.Context, key profile.Key, body []byte
 
 // readForeign turns a third-party subscription response into a profile,
 // asking again with a well-known client's user agent if ours got no servers.
+// Servers with self-signed certificates get them pinned; those that do not
+// answer are left out.
 func (c *Client) readForeign(ctx context.Context, u string, body []byte, hdr http.Header) (*profile.Profile, error) {
 	p, err := parseForeign(u, body, hdr)
-	if err == nil {
-		return p, nil
+	if err != nil {
+		body2, hdr2, err2 := c.get(ctx, u, compatUserAgent)
+		if err2 != nil {
+			return nil, err
+		}
+		if p, err2 = parseForeign(u, body2, hdr2); err2 != nil {
+			return nil, err
+		}
 	}
-	body2, hdr2, err2 := c.get(ctx, u, compatUserAgent)
-	if err2 != nil {
+	if _, err := certpin.Profile(ctx, p); err != nil {
 		return nil, err
 	}
-	if p, err2 := parseForeign(u, body2, hdr2); err2 == nil {
-		return p, nil
-	}
-	return nil, err
+	return p, nil
 }
 
 // Refresh downloads the profile again, trying the update URL and mirrors from

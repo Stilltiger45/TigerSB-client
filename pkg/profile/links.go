@@ -12,7 +12,10 @@ import (
 )
 
 // Share links other clients and panels hand out. Each becomes one transport.
-var linkSchemes = map[string]bool{"vless": true, "vmess": true, "trojan": true, "ss": true}
+var linkSchemes = map[string]bool{
+	"vless": true, "vmess": true, "trojan": true, "ss": true,
+	"hysteria2": true, "hy2": true,
+}
 
 // IsLink reports whether s looks like a share link the client can read.
 func IsLink(s string) bool {
@@ -20,8 +23,8 @@ func IsLink(s string) bool {
 	return ok && linkSchemes[strings.ToLower(scheme)]
 }
 
-// FromVLESS turns a single share link (vless://, vmess://, trojan:// or
-// ss://) into a profile with one foreign exit. Without an RU exit and lists,
+// FromVLESS turns a single share link (vless://, vmess://, trojan://, ss://
+// or hysteria2://) into a profile with one foreign exit. Without an RU exit and lists,
 // the main mode sends everything but the direct list through it.
 func FromVLESS(link string) (*Profile, error) {
 	xray, name, err := ParseLink(link)
@@ -102,6 +105,8 @@ func ParseLink(link string) (json.RawMessage, string, error) {
 		return ssOutbound(link)
 	case "vmess":
 		return vmessOutbound(link)
+	case "hysteria2", "hy2":
+		return hysteria2Outbound(link)
 	}
 	return nil, "", fmt.Errorf("ссылки %s:// не поддерживаются", scheme)
 }
@@ -320,10 +325,16 @@ func streamFromQuery(q url.Values, host, defaultSecurity, scheme string) (map[st
 	switch security := or(q.Get("security"), defaultSecurity); security {
 	case "none", "":
 	case "tls":
+		pin := pinHex(q.Get("pcs"))
 		tls := dropEmpty(map[string]any{
-			"serverName":    or(sni, hostHeader, hostIfName(host)),
-			"fingerprint":   q.Get("fp"),
-			"allowInsecure": q.Get("allowInsecure") == "1" || q.Get("insecure") == "1",
+			"serverName":           or(sni, hostHeader, hostIfName(host)),
+			"fingerprint":          q.Get("fp"),
+			"pinnedPeerCertSha256": pin,
+			"verifyPeerCertByName": q.Get("vcn"),
+			// Xray no longer accepts allowInsecure; the importer replaces it
+			// with the pin of the certificate the server has now (see
+			// Insecure).
+			"allowInsecure": pin == "" && (q.Get("allowInsecure") == "1" || q.Get("insecure") == "1"),
 		})
 		if alpn := q.Get("alpn"); alpn != "" {
 			tls["alpn"] = strings.Split(alpn, ",")
@@ -372,4 +383,99 @@ func dropEmpty(m map[string]any) map[string]any {
 		}
 	}
 	return m
+}
+
+// hysteria2Outbound reads hysteria2:// (or hy2://) links:
+// hysteria2://auth@host:port/?sni=&insecure=1&pinSHA256=&obfs=salamander&obfs-password=&mport=#name.
+// The port may be a list of ports and ranges ("443,20000-30000"), which, like
+// mport, turns on port hopping.
+func hysteria2Outbound(link string) (json.RawMessage, string, error) {
+	_, rest, _ := strings.Cut(strings.TrimSpace(link), "://")
+	rest, name, _ := strings.Cut(rest, "#")
+	if n, err := url.PathUnescape(name); err == nil {
+		name = n
+	}
+	rest, rawQuery, _ := strings.Cut(rest, "?")
+	authority, _, _ := strings.Cut(rest, "/")
+	q, err := url.ParseQuery(rawQuery)
+	if err != nil {
+		return nil, "", fmt.Errorf("неверная ссылка hysteria2://")
+	}
+	var auth string
+	if i := strings.LastIndex(authority, "@"); i >= 0 {
+		auth, authority = authority[:i], authority[i+1:]
+		if a, err := url.PathUnescape(auth); err == nil {
+			auth = a
+		}
+	}
+	if auth == "" {
+		return nil, "", fmt.Errorf("в ссылке hysteria2:// нет пароля")
+	}
+
+	// The port part may hold a list of ports, which net.SplitHostPort and
+	// url.Parse refuse, so split at the last colon outside brackets.
+	host, ports := authority, "443"
+	if i := strings.LastIndex(authority, ":"); i >= 0 && i > strings.LastIndex(authority, "]") {
+		host, ports = authority[:i], authority[i+1:]
+	}
+	host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
+	first, _, _ := strings.Cut(ports, ",")
+	first, _, _ = strings.Cut(first, "-")
+	port, err := strconv.Atoi(first)
+	if host == "" || err != nil || port < 1 || port > 65535 {
+		return nil, "", fmt.Errorf("в ссылке hysteria2:// неверный адрес сервера")
+	}
+	hop := q.Get("mport")
+	if hop == "" && ports != first {
+		hop = ports
+	}
+
+	pin := pinHex(q.Get("pinSHA256"))
+	tls := dropEmpty(map[string]any{
+		"serverName":           or(q.Get("sni"), q.Get("peer"), hostIfName(host)),
+		"pinnedPeerCertSha256": pin,
+		"allowInsecure":        pin == "" && q.Get("insecure") == "1",
+	})
+	tls["alpn"] = []string{"h3"}
+	stream := map[string]any{
+		"network":          "hysteria",
+		"security":         "tls",
+		"tlsSettings":      tls,
+		"hysteriaSettings": map[string]any{"version": 2, "auth": auth},
+	}
+	mask := map[string]any{}
+	switch obfs := q.Get("obfs"); obfs {
+	case "", "none":
+	case "salamander":
+		password := q.Get("obfs-password")
+		if password == "" {
+			return nil, "", fmt.Errorf("в ссылке hysteria2:// нет obfs-password")
+		}
+		mask["udp"] = []any{map[string]any{"type": "salamander", "settings": map[string]any{"password": password}}}
+	default:
+		return nil, "", fmt.Errorf("обфускация %q из ссылки hysteria2:// не поддерживается", obfs)
+	}
+	if hop != "" {
+		mask["quicParams"] = map[string]any{"udpHop": map[string]any{"ports": hop}}
+	}
+	if len(mask) > 0 {
+		stream["finalmask"] = mask
+	}
+	out, err := outbound("hysteria", map[string]any{"version": 2, "address": host, "port": port}, stream)
+	return out, name, err
+}
+
+// pinHex normalizes a certificate SHA-256 from a link: hex, with or without
+// colons, as Xray's pinnedPeerCertSha256 takes it. Anything else is dropped.
+func pinHex(s string) string {
+	s = strings.ToLower(strings.ReplaceAll(strings.TrimSpace(s), ":", ""))
+	if len(s) != 64 {
+		return ""
+	}
+	for _, c := range s {
+		if !strings.ContainsRune("0123456789abcdef", c) {
+			return ""
+		}
+	}
+	return s
 }
