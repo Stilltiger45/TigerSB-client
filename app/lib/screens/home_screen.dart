@@ -119,7 +119,11 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  /// Without an RU exit and lists both modes do the same, so there is no choice.
+  bool get _hasModes => widget.profile.hasRU || widget.profile.hasLists;
+
   String get _modeText {
+    if (!_hasModes) return 'Весь трафик — через VPN. Банки и госуслуги — напрямую.';
     if (_mode == Mode.all) return 'Всё — через сервер за границей. Банки и госуслуги — напрямую.';
     if (widget.profile.hasRU) {
       return 'Заблокированное — через сервер за границей, остальное — через сервер в России, '
@@ -186,19 +190,34 @@ class _HomeScreenState extends State<HomeScreen> {
                   Text(label, style: theme.textTheme.titleLarge),
                   if (_status.phase == Phase.error && _status.error != null) ...[
                     const SizedBox(height: 8),
-                    Text(_status.error!, textAlign: TextAlign.center, style: TextStyle(color: scheme.error)),
+                    Text(
+                      _status.error!,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: scheme.error),
+                    ),
                   ],
                   const SizedBox(height: 32),
-                  SegmentedButton<Mode>(
-                    segments: const [
-                      ButtonSegment(value: Mode.main, label: Text('Умный'), icon: Icon(Icons.alt_route)),
-                      ButtonSegment(value: Mode.all, label: Text('Всё за границу'), icon: Icon(Icons.public)),
-                    ],
-                    selected: {_mode},
-                    onSelectionChanged: (s) => _setMode(s.first),
-                  ),
+                  if (_hasModes)
+                    SegmentedButton<Mode>(
+                      segments: const [
+                        ButtonSegment(value: Mode.main, label: Text('Умный'), icon: Icon(Icons.alt_route)),
+                        ButtonSegment(value: Mode.all, label: Text('Всё за границу'), icon: Icon(Icons.public)),
+                      ],
+                      selected: {_mode},
+                      onSelectionChanged: (s) => _setMode(s.first),
+                    ),
                   const SizedBox(height: 12),
                   Text(_modeText, textAlign: TextAlign.center, style: theme.textTheme.bodyMedium),
+                  if (widget.profile.servers > 1) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Серверов: ${widget.profile.servers}. Подключение идёт через самый быстрый, '
+                      'при сбое переключается само.',
+                      key: const Key('servers'),
+                      textAlign: TextAlign.center,
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ],
                   const SizedBox(height: 32),
                   if (_refreshing)
                     const LinearProgressIndicator()

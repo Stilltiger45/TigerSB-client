@@ -89,7 +89,7 @@ class _KeyScreenState extends State<KeyScreen> {
                   Text('TigerSB', textAlign: TextAlign.center, style: theme.textTheme.headlineMedium),
                   const SizedBox(height: 8),
                   Text(
-                    'Вставьте ключ, который вам дал администратор, или отсканируйте QR-код.',
+                    'Вставьте ключ или ссылку на подписку любого VPN, либо отсканируйте QR-код.',
                     textAlign: TextAlign.center,
                     style: theme.textTheme.bodyLarge,
                   ),
@@ -102,7 +102,7 @@ class _KeyScreenState extends State<KeyScreen> {
                     decoration: InputDecoration(
                       border: const OutlineInputBorder(),
                       labelText: 'Ключ',
-                      hintText: 'tigersb://… или vless://…',
+                      hintText: 'tigersb://…, https://… или vless://…',
                       errorText: _error,
                       errorMaxLines: 4,
                     ),

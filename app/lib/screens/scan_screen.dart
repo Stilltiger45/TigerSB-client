@@ -13,7 +13,7 @@ class _ScanScreenState extends State<ScanScreen> {
   bool _done = false;
 
   bool _looksLikeKey(String s) =>
-      s.startsWith('tigersb://') || s.startsWith('https://') || s.startsWith('vless://');
+      RegExp(r'^(tigersb|https|vless|vmess|trojan|ss)://', caseSensitive: false).hasMatch(s);
 
   void _onDetect(BarcodeCapture capture) {
     if (_done) return;

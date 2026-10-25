@@ -16,7 +16,8 @@ type KeyKind int
 const (
 	// KindSubscription is a panel subscription that returns a signed envelope.
 	KindSubscription KeyKind = iota + 1
-	// KindVLESS is a single vless:// link with no subscription behind it.
+	// KindVLESS is a single share link (vless://, vmess://, trojan://, ss://)
+	// with no subscription behind it.
 	KindVLESS
 )
 
@@ -30,17 +31,17 @@ type Key struct {
 	PK ed25519.PublicKey
 	// Name is an optional display name.
 	Name string
-	// Raw is the vless:// link (KindVLESS).
+	// Raw is the share link (KindVLESS).
 	Raw string
 }
 
 // ParseKey reads a tigersb://add?url=…&pk=… key, a bare https:// subscription
-// address or a vless:// link.
+// address (a TigerSB panel or any other VPN's subscription) or a share link.
 func ParseKey(s string) (Key, error) {
 	s = strings.TrimSpace(s)
 	scheme, _, ok := strings.Cut(s, "://")
 	if !ok {
-		return Key{}, fmt.Errorf("это не похоже на ключ: нужна ссылка tigersb://, https:// или vless://")
+		return Key{}, fmt.Errorf("это не похоже на ключ: нужна ссылка tigersb://, https://, vless://, vmess://, trojan:// или ss://")
 	}
 	switch strings.ToLower(scheme) {
 	case Scheme:
@@ -63,7 +64,8 @@ func ParseKey(s string) (Key, error) {
 			return Key{}, fmt.Errorf("неверный адрес подписки: %w", err)
 		}
 		return Key{Kind: KindSubscription, URL: s}, nil
-	case "vless":
+	}
+	if IsLink(s) {
 		return Key{Kind: KindVLESS, Raw: s}, nil
 	}
 	return Key{}, fmt.Errorf("схема %s:// не поддерживается", scheme)
