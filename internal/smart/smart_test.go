@@ -117,6 +117,20 @@ func get(t *testing.T, c *http.Client, u string) string {
 	return string(b)
 }
 
+// settled returns the counter once it has not moved for 200 ms (at most 3 s).
+func settled(n *atomic.Int32) int32 {
+	v := n.Load()
+	for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); {
+		time.Sleep(200 * time.Millisecond)
+		now := n.Load()
+		if now == v {
+			return v
+		}
+		v = now
+	}
+	return v
+}
+
 func TestPicksServerThatOpensSite(t *testing.T) {
 	refusing := newSite(t, "refusing", http.StatusForbidden)
 	open := newSite(t, "open", http.StatusOK)
@@ -131,8 +145,10 @@ func TestPicksServerThatOpensSite(t *testing.T) {
 	if got := get(t, c, "https://example.com/"); got != "open" {
 		t.Fatalf("site went to %q", got)
 	}
-	// The pick is remembered: the next visit is not checked again.
-	before := refusing.hits.Load()
+	// The pick is remembered: the next visit is not checked again. The check
+	// asks all servers at once and the refusing one may answer after the
+	// pick, so wait for its count to settle first.
+	before := settled(&refusing.hits)
 	if got := get(t, c, "https://example.com/page"); got != "open" {
 		t.Fatalf("second visit went to %q", got)
 	}
