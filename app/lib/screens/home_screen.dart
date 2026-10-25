@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../core.dart';
 
@@ -148,6 +149,11 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  Future<void> _copyKey() async {
+    await Clipboard.setData(ClipboardData(text: widget.profile.key));
+    _snack('Ключ подписки скопирован');
+  }
+
   Future<void> _forget() async {
     final ok = await showDialog<bool>(
       context: context,
@@ -199,10 +205,16 @@ class _HomeScreenState extends State<HomeScreen> {
         title: Text(widget.profile.name),
         actions: [
           PopupMenuButton<String>(
-            onSelected: (v) => v == 'refresh' ? _refresh() : _forget(),
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'refresh', child: Text('Обновить профиль')),
-              PopupMenuItem(value: 'forget', child: Text('Сменить ключ')),
+            onSelected: (v) => switch (v) {
+              'refresh' => _refresh(),
+              'copy' => _copyKey(),
+              _ => _forget(),
+            },
+            itemBuilder: (_) => [
+              const PopupMenuItem(value: 'refresh', child: Text('Обновить профиль')),
+              if (widget.profile.key.isNotEmpty)
+                const PopupMenuItem(value: 'copy', child: Text('Скопировать ключ подписки')),
+              const PopupMenuItem(value: 'forget', child: Text('Сменить ключ')),
             ],
           ),
         ],

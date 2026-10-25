@@ -12,6 +12,7 @@ class ProfileInfo {
     required this.exits,
     this.hasLists = true,
     this.foreign = false,
+    this.key = '',
   });
 
   final String name;
@@ -26,11 +27,15 @@ class ProfileInfo {
   final DateTime? fetched;
   final List<ExitInfo> exits;
 
+  /// The key the profile was imported from, to copy and share.
+  final String key;
+
   factory ProfileInfo.fromJson(Map<String, dynamic> j) => ProfileInfo(
     name: j['name'] as String? ?? '',
     hasRU: j['hasRU'] as bool? ?? false,
     hasLists: j['hasLists'] as bool? ?? true,
     foreign: j['foreign'] as bool? ?? false,
+    key: j['key'] as String? ?? '',
     fetched: DateTime.tryParse(j['fetched'] as String? ?? '')?.toLocal(),
     exits: [
       for (final e in (j['exits'] as List? ?? const []))

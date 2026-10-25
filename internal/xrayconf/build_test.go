@@ -365,3 +365,33 @@ func TestBasicModeOnlyRU(t *testing.T) {
 		t.Errorf("rules %v", dest)
 	}
 }
+
+// AI services refuse Russian users: they go abroad in every mode, never
+// through the per-site check, the RU exit or direct.
+func TestAIServicesGoAbroad(t *testing.T) {
+	for _, mode := range []xrayconf.Mode{xrayconf.ModeAuto, xrayconf.ModeMain, xrayconf.ModeBasic, xrayconf.ModeAll} {
+		b, dest := build(t, fixture(t), mode)
+		if dest["foreign-only"] != "balancer:foreign" {
+			t.Errorf("%s: AI services go to %q", mode, dest["foreign-only"])
+		}
+		for _, r := range b.Routing.Rules {
+			if r.RuleTag == "foreign-only" && (!slices.Contains(r.Domain, "domain:chatgpt.com") || !slices.Contains(r.Domain, "domain:claude.ai")) {
+				t.Errorf("%s: list %v", mode, r.Domain)
+			}
+			if r.RuleTag == "foreign-only" {
+				break
+			}
+			if r.RuleTag == "direct-domains" {
+				t.Errorf("%s: direct rules come before the AI services", mode)
+			}
+		}
+	}
+	p := fixture(t)
+	p.Exits = p.Exits[1:]
+	if _, dest := build(t, p, xrayconf.ModeAuto); dest["foreign-only"] != "" {
+		t.Error("without a foreign exit there is nowhere to send them")
+	}
+	if _, dest := build(t, fixture(t), xrayconf.ModeOff); dest["foreign-only"] != "" {
+		t.Error("off mode sends everything direct")
+	}
+}

@@ -14,12 +14,13 @@ func TestImportCurrentForget(t *testing.T) {
 	if err := Start(3, "main", 1500); err == nil || !strings.Contains(err.Error(), "ключ") {
 		t.Errorf("start without a key: %v", err)
 	}
-	s, err := AddKey("vless://5783a3e7-e373-51cd-8642-c83782b807c5@1.2.3.4:443?security=none#Дом")
+	key := "vless://5783a3e7-e373-51cd-8642-c83782b807c5@1.2.3.4:443?security=none#Дом"
+	s, err := AddKey(key)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var in profileInfo
-	if err := json.Unmarshal([]byte(s), &in); err != nil || in.Name != "Дом" || len(in.Exits) != 1 || in.HasRU {
+	if err := json.Unmarshal([]byte(s), &in); err != nil || in.Name != "Дом" || len(in.Exits) != 1 || in.HasRU || in.Key != key {
 		t.Fatalf("info %s: %v", s, err)
 	}
 	if again, _ := Current(); again != s {

@@ -202,6 +202,9 @@ func Build(p *profile.Profile, opt Options) ([]byte, error) {
 		// instead of leaking past the VPN or failing on servers without IPv6.
 		rules = append(rules, rule{Type: "field", InboundTag: tunTags, IP: []string{"::/0"}, OutboundTag: TagBlock, RuleTag: "ipv6"})
 	}
+	if hasForeign && opt.Mode != ModeOff {
+		rules = append(rules, foreign.apply(rule{Type: "field", Domain: ForeignOnlyDomains, RuleTag: "foreign-only"}))
+	}
 	if len(directDomains) > 0 {
 		rules = append(rules, direct.apply(rule{Type: "field", Domain: directDomains, RuleTag: "direct-domains"}))
 	}
