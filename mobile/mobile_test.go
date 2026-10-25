@@ -123,3 +123,14 @@ func initTemp(t *testing.T) string {
 	t.Cleanup(func() { debug.SetCrashOutput(nil, debug.CrashOptions{}) })
 	return dir
 }
+
+func TestAbout(t *testing.T) {
+	initTemp(t)
+	var a map[string]string
+	if err := json.Unmarshal([]byte(About()), &a); err != nil {
+		t.Fatal(err)
+	}
+	if a["version"] != "test" || a["xray"] == "" || !strings.HasPrefix(a["go"], "go") {
+		t.Fatalf("about: %v", a)
+	}
+}

@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"sync"
@@ -35,9 +36,10 @@ import (
 const geodataMaxAge = 24 * time.Hour
 
 var (
-	mu      sync.Mutex
-	dataDir string
-	inst    *core.Instance
+	mu         sync.Mutex
+	dataDir    string
+	appVersion string
+	inst       *core.Instance
 
 	// What Stats needs about the running VPN.
 	vpnTags, pingTags []string
@@ -52,6 +54,7 @@ func Init(dir, version string) {
 	mu.Lock()
 	defer mu.Unlock()
 	dataDir = dir
+	appVersion = version
 	subscription.UserAgent = "TigerSB-android/" + version
 	startJournal()
 }
@@ -264,6 +267,16 @@ func Healthy() bool {
 		return true // nothing to check through: everything goes direct
 	}
 	return meter.Ping(i, def, url, 6*time.Second) >= 0
+}
+
+// About returns, as JSON, the versions the app's about screen shows: the app
+// itself, the Xray core and Go.
+func About() string {
+	mu.Lock()
+	v := appVersion
+	mu.Unlock()
+	b, _ := json.Marshal(map[string]string{"version": v, "xray": core.Version(), "go": runtime.Version()})
+	return string(b)
 }
 
 // Protocol names the protocol of the server in use, such as
