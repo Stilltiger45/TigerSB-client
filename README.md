@@ -25,7 +25,7 @@
 
 ## Установка на Android
 
-Скачайте `TigerSB-…-android.apk` со страницы [Releases](https://github.com/Stilltiger45/TigerSB-client/releases), откройте файл на телефоне и разрешите установку. Нужен Android 7 или новее. Для старых 32-битных телефонов есть `…-android-old-phones.apk`.
+Скачайте `TigerSB-android.apk` со страницы [Releases](https://github.com/Stilltiger45/TigerSB-client/releases), откройте файл на телефоне и разрешите установку. Нужен Android 7 или новее. Для старых 32-битных телефонов есть `TigerSB-android-old-phones.apk`.
 
 Как выпустить новую версию: [docs/releases.md](docs/releases.md).
 
