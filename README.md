@@ -34,7 +34,7 @@
 ```bash
 go build -o tigersb-core ./cmd/tigersb-core
 
-./tigersb-core import 'tigersb://add?url=...&pk=...'   # или https://…, vless://…, hysteria2://…
+./tigersb-core import 'tigersb://add?url=...&pk=...'   # или https://…, vless://…, hysteria2://…, tuic://…
 ./tigersb-core run                                     # SOCKS5 127.0.0.1:10808, HTTP 127.0.0.1:10809
 ```
 
@@ -80,3 +80,7 @@ cd app && flutter build apk --split-per-abi
 ```
 
 Обычно это делать не нужно: GitHub Actions собирает APK на каждый pull request (вкладка Actions, артефакт `TigerSB-android`) и выкладывает релиз по тегу.
+
+## Лицензия
+
+GPL-3.0, см. [LICENSE](LICENSE). Клиент TUIC взят из sing-box (библиотека sing-quic), которая распространяется под GPL-3.0, поэтому и весь клиент открыт под этой лицензией.

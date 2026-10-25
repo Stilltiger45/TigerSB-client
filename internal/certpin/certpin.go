@@ -99,7 +99,7 @@ type server struct {
 	Port       int
 	ServerName string
 	ALPN       []string
-	QUIC       bool   // Hysteria: TLS inside QUIC over UDP
+	QUIC       bool   // Hysteria and TUIC: TLS inside QUIC over UDP
 	Salamander string // the obfuscation password of a Hysteria server, if any
 }
 
@@ -152,7 +152,7 @@ func insecure(xray json.RawMessage) (server, bool) {
 	if len(ob.Settings.Servers) > 0 {
 		srv.Address, srv.Port = ob.Settings.Servers[0].Address, ob.Settings.Servers[0].Port
 	}
-	if st.Network == "hysteria" {
+	if st.Network == "hysteria" || st.Network == "tuic" {
 		srv.QUIC = true
 		for _, m := range st.Mask.UDP {
 			if m.Type == "salamander" {

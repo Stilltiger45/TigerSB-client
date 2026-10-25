@@ -331,12 +331,43 @@ func addTransports(p *profile.Profile, role profile.Role, outbounds *[]any) ([]s
 		if err := json.Unmarshal(it.xray, &ob); err != nil {
 			return nil, fmt.Errorf("транспорт %s: %w", it.tag, err)
 		}
+		tags = append(tags, it.tag)
+		if isTUIC(it.xray) {
+			continue // added to Xray by package tuic, see TUIC
+		}
 		tag, _ := json.Marshal(it.tag)
 		ob["tag"] = tag
 		*outbounds = append(*outbounds, ob)
-		tags = append(tags, it.tag)
 	}
 	return tags, nil
+}
+
+// Outbound is a transport's outbound with its tag in the config.
+type Outbound struct {
+	Tag  string
+	Xray json.RawMessage
+}
+
+// TUIC lists the profile's TUIC transports. Xray has no TUIC, so Build leaves
+// them out of the config but uses their tags in balancers and rules like any
+// other; the caller adds an outbound handler for each before starting Xray.
+func TUIC(p *profile.Profile) []Outbound {
+	var out []Outbound
+	for _, role := range []profile.Role{profile.RoleForeign, profile.RoleRU} {
+		for _, it := range transports(p, role) {
+			if isTUIC(it.xray) {
+				out = append(out, Outbound{Tag: it.tag, Xray: it.xray})
+			}
+		}
+	}
+	return out
+}
+
+func isTUIC(xray json.RawMessage) bool {
+	var ob struct {
+		Protocol string `json:"protocol"`
+	}
+	return json.Unmarshal(xray, &ob) == nil && ob.Protocol == "tuic"
 }
 
 func directLists(p *profile.Profile) (domains, ips []string) {

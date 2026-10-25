@@ -14,7 +14,7 @@ import (
 // Share links other clients and panels hand out. Each becomes one transport.
 var linkSchemes = map[string]bool{
 	"vless": true, "vmess": true, "trojan": true, "ss": true,
-	"hysteria2": true, "hy2": true,
+	"hysteria2": true, "hy2": true, "tuic": true,
 }
 
 // IsLink reports whether s looks like a share link the client can read.
@@ -23,8 +23,8 @@ func IsLink(s string) bool {
 	return ok && linkSchemes[strings.ToLower(scheme)]
 }
 
-// FromVLESS turns a single share link (vless://, vmess://, trojan://, ss://
-// or hysteria2://) into a profile with one foreign exit. Without an RU exit and lists,
+// FromVLESS turns a single share link (vless://, vmess://, trojan://, ss://,
+// hysteria2:// or tuic://) into a profile with one foreign exit. Without an RU exit and lists,
 // the main mode sends everything but the direct list through it.
 func FromVLESS(link string) (*Profile, error) {
 	xray, name, err := ParseLink(link)
@@ -107,6 +107,8 @@ func ParseLink(link string) (json.RawMessage, string, error) {
 		return vmessOutbound(link)
 	case "hysteria2", "hy2":
 		return hysteria2Outbound(link)
+	case "tuic":
+		return tuicOutbound(link)
 	}
 	return nil, "", fmt.Errorf("ссылки %s:// не поддерживаются", scheme)
 }
@@ -463,6 +465,78 @@ func hysteria2Outbound(link string) (json.RawMessage, string, error) {
 	}
 	out, err := outbound("hysteria", map[string]any{"version": 2, "address": host, "port": port}, stream)
 	return out, name, err
+}
+
+// tuicOutbound reads TUIC v5 links as v2rayN, NekoBox and sing-box write them:
+// tuic://uuid:password@host:port?sni=&alpn=h3&congestion_control=bbr&udp_relay_mode=native&allow_insecure=1#name.
+// Xray has no TUIC: the outbound is written in Xray's style for the profile,
+// and package tuic carries it.
+func tuicOutbound(link string) (json.RawMessage, string, error) {
+	u, err := url.Parse(link)
+	if err != nil {
+		return nil, "", fmt.Errorf("неверная ссылка tuic://")
+	}
+	id := u.User.Username()
+	password, _ := u.User.Password()
+	if !isUUID(id) || password == "" {
+		return nil, "", fmt.Errorf("в ссылке tuic:// нет uuid или пароля")
+	}
+	host, port, err := hostPort(u, "tuic")
+	if err != nil {
+		return nil, "", err
+	}
+	q := u.Query()
+	cc := strings.ToLower(or(q.Get("congestion_control"), q.Get("congestion"), "cubic"))
+	switch cc {
+	case "cubic", "new_reno", "bbr":
+	default:
+		return nil, "", fmt.Errorf("алгоритм перегрузки %q из ссылки tuic:// не поддерживается", cc)
+	}
+	relay := strings.ToLower(or(q.Get("udp_relay_mode"), "native"))
+	if relay != "native" && relay != "quic" {
+		return nil, "", fmt.Errorf("режим UDP %q из ссылки tuic:// не поддерживается", relay)
+	}
+	alpn := []string{"h3"}
+	if a := q.Get("alpn"); a != "" {
+		alpn = strings.Split(a, ",")
+	}
+	pin := pinHex(q.Get("pcs"))
+	insecure := q.Get("allow_insecure") == "1" || q.Get("allowInsecure") == "1" || q.Get("insecure") == "1"
+	tls := dropEmpty(map[string]any{
+		"serverName":           or(q.Get("sni"), hostIfName(host)),
+		"pinnedPeerCertSha256": pin,
+		"allowInsecure":        pin == "" && insecure,
+	})
+	tls["alpn"] = alpn
+	settings := dropEmpty(map[string]any{
+		"address":           host,
+		"port":              port,
+		"uuid":              strings.ToLower(id),
+		"password":          password,
+		"congestionControl": cc,
+		"udpRelayMode":      relay,
+		"zeroRTTHandshake":  q.Get("reduce_rtt") == "1" || q.Get("zero_rtt_handshake") == "1",
+	})
+	out, err := outbound("tuic", settings, map[string]any{"network": "tuic", "security": "tls", "tlsSettings": tls})
+	return out, u.Fragment, err
+}
+
+// isUUID reports whether s is a UUID in its usual text form.
+func isUUID(s string) bool {
+	if len(s) != 36 {
+		return false
+	}
+	for i, c := range strings.ToLower(s) {
+		switch {
+		case i == 8 || i == 13 || i == 18 || i == 23:
+			if c != '-' {
+				return false
+			}
+		case !strings.ContainsRune("0123456789abcdef", c):
+			return false
+		}
+	}
+	return true
 }
 
 // pinHex normalizes a certificate SHA-256 from a link: hex, with or without

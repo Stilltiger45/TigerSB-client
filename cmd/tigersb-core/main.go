@@ -22,6 +22,7 @@ import (
 	"github.com/Stilltiger45/TigerSB-client/internal/geodata"
 	"github.com/Stilltiger45/TigerSB-client/internal/smart"
 	"github.com/Stilltiger45/TigerSB-client/internal/subscription"
+	"github.com/Stilltiger45/TigerSB-client/internal/tuic"
 	"github.com/Stilltiger45/TigerSB-client/internal/xrayconf"
 	"github.com/Stilltiger45/TigerSB-client/pkg/profile"
 )
@@ -247,7 +248,7 @@ func cmdRun(args []string) error {
 	if err := engine.SetAssetDir(assets); err != nil {
 		return err
 	}
-	inst, err := engine.Start(cfg, smart.Hooks(p, mode)...)
+	inst, err := engine.Start(cfg, append(tuic.Hooks(p), smart.Hooks(p, mode)...)...)
 	if err != nil {
 		return err
 	}

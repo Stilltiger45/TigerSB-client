@@ -159,3 +159,70 @@ func TestHysteria2Links(t *testing.T) {
 		t.Errorf("single link: %v", err)
 	}
 }
+
+func TestTUICLinks(t *testing.T) {
+	type ob struct {
+		Protocol string `json:"protocol"`
+		Settings struct {
+			Address           string `json:"address"`
+			Port              int    `json:"port"`
+			UUID              string `json:"uuid"`
+			Password          string `json:"password"`
+			CongestionControl string `json:"congestionControl"`
+			UDPRelayMode      string `json:"udpRelayMode"`
+			ZeroRTT           bool   `json:"zeroRTTHandshake"`
+		} `json:"settings"`
+		Stream struct {
+			Network string `json:"network"`
+			TLS     struct {
+				ServerName    string   `json:"serverName"`
+				ALPN          []string `json:"alpn"`
+				AllowInsecure bool     `json:"allowInsecure"`
+			} `json:"tlsSettings"`
+		} `json:"streamSettings"`
+	}
+	raw, name, err := ParseLink("tuic://B831381D-6324-4d53-ad4f-8cda48b30811:p%40ss@tuic.example.org:8443?congestion_control=bbr&udp_relay_mode=quic&alpn=h3,spdy/3.1&reduce_rtt=1&allow_insecure=1#%D0%A2%D0%A3%D0%98%D0%9A")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var o ob
+	if err := json.Unmarshal(raw, &o); err != nil {
+		t.Fatal(err)
+	}
+	s := o.Settings
+	if o.Protocol != "tuic" || s.Address != "tuic.example.org" || s.Port != 8443 || s.UUID != "b831381d-6324-4d53-ad4f-8cda48b30811" ||
+		s.Password != "p@ss" || s.CongestionControl != "bbr" || s.UDPRelayMode != "quic" || !s.ZeroRTT || name != "ТУИК" {
+		t.Errorf("settings %+v, name %q", s, name)
+	}
+	tls := o.Stream.TLS
+	if o.Stream.Network != "tuic" || tls.ServerName != "tuic.example.org" || strings.Join(tls.ALPN, ",") != "h3,spdy/3.1" || !tls.AllowInsecure {
+		t.Errorf("stream %+v", o.Stream)
+	}
+
+	// Defaults.
+	raw, _, err = ParseLink("tuic://b831381d-6324-4d53-ad4f-8cda48b30811:pw@1.2.3.4:443")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o = ob{}
+	json.Unmarshal(raw, &o)
+	if o.Settings.CongestionControl != "cubic" || o.Settings.UDPRelayMode != "native" || o.Stream.TLS.ServerName != "" || strings.Join(o.Stream.TLS.ALPN, ",") != "h3" {
+		t.Errorf("defaults %+v", o)
+	}
+
+	for _, bad := range []string{
+		"tuic://not-a-uuid:pw@1.2.3.4:443",
+		"tuic://b831381d-6324-4d53-ad4f-8cda48b30811@1.2.3.4:443",
+		"tuic://b831381d-6324-4d53-ad4f-8cda48b30811:pw@1.2.3.4:443?congestion_control=brutal",
+		"tuic://b831381d-6324-4d53-ad4f-8cda48b30811:pw@1.2.3.4:443?udp_relay_mode=x",
+	} {
+		if _, _, err := ParseLink(bad); err == nil {
+			t.Errorf("%s accepted", bad)
+		}
+	}
+
+	p, err := FromVLESS("tuic://b831381d-6324-4d53-ad4f-8cda48b30811:pw@1.2.3.4:443")
+	if err != nil || p.ID != "tuic" {
+		t.Fatalf("profile %v, %v", p, err)
+	}
+}
