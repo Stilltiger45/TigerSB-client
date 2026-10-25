@@ -103,9 +103,10 @@ jobs:
             --build-name "${{ steps.ver.outputs.name }}" \
             --build-number "${{ github.run_number }}"
           mkdir -p ../dist
-          v="${{ steps.ver.outputs.name }}"
-          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "../dist/TigerSB-$v-android.apk"
-          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "../dist/TigerSB-$v-android-old-phones.apk"
+          # The names carry no version: one release keeps exactly these two
+          # files, and every build replaces them.
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk ../dist/TigerSB-android.apk
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk ../dist/TigerSB-android-old-phones.apk
           ls -lh ../dist
 
       - uses: actions/upload-artifact@v4
@@ -113,17 +114,29 @@ jobs:
           name: TigerSB-android
           path: dist/*.apk
 
+      # Only the two APKs of this build stay in the release: older APKs,
+      # whatever their names, are removed first.
+      - name: Remove old APKs from the release
+        if: env.TAG != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' |
+            grep '\.apk$' |
+            while read -r name; do
+              gh release delete-asset "$TAG" "$name" -R "$GITHUB_REPOSITORY" -y
+            done
+
       - name: Release
         if: env.TAG != ''
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG }}
           files: dist/*.apk
-          append_body: true
           body: |
-            **Android:** скачайте `TigerSB-${{ steps.ver.outputs.name }}-android.apk` и откройте его на телефоне. Если телефон старше 2017 года и приложение не ставится, возьмите `…-android-old-phones.apk`.
+            **Android:** скачайте `TigerSB-android.apk` и откройте его на телефоне. Если телефон старше 2017 года и приложение не ставится, возьмите `TigerSB-android-old-phones.apk`.
 
-            После установки вставьте ключ или отсканируйте QR-код и нажмите «Подключить».
+            После установки вставьте ключ или отсканируйте QR-код и нажмите «Подключить». Новая версия ставится поверх старой, ключ сохраняется.
 
   # Starts the release build on an emulator and checks that the key screen
   # appears. Logcat and a screenshot are kept as the artifact
