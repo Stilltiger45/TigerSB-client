@@ -1,0 +1,72 @@
+name: Soak
+
+# A long run of the VPN on an emulator against a local test server, to catch
+# drops that take minutes to show. Run it by hand, or push a branch whose
+# name starts with claude/soak.
+on:
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: "Минут в каждом режиме"
+        required: false
+        default: "12"
+  push:
+    branches: ["claude/soak*"]
+
+permissions:
+  contents: read
+
+jobs:
+  soak:
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.8
+          channel: stable
+          cache: true
+
+      - name: Go core (gomobile, x86_64 for the emulator)
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
+          TARGETS: android/amd64
+        run: scripts/build-core-android.sh
+
+      - name: Build APK
+        working-directory: app
+        run: flutter build apk --release --target-platform android-x64
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Soak on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          SOAK_MINUTES: ${{ inputs.minutes || '12' }}
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: scripts/soak-android.sh app/build/app/outputs/flutter-apk/app-release.apk soak
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: TigerSB-android-soak
+          path: soak/

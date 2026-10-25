@@ -5,13 +5,14 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"testing"
 )
 
 func TestImportCurrentForget(t *testing.T) {
-	Init(t.TempDir(), "test")
+	initTemp(t)
 	if s, err := Current(); err != nil || s != "" {
 		t.Fatalf("empty state: %q %v", s, err)
 	}
@@ -42,7 +43,7 @@ func TestImportCurrentForget(t *testing.T) {
 }
 
 func TestAppsOutsideVPN(t *testing.T) {
-	Init(t.TempDir(), "test")
+	initTemp(t)
 	if _, err := AddKey("vless://5783a3e7-e373-51cd-8642-c83782b807c5@1.2.3.4:443?security=none#Дом"); err != nil {
 		t.Fatal(err)
 	}
@@ -70,8 +71,7 @@ func TestAppsOutsideVPN(t *testing.T) {
 }
 
 func TestStateKeyEncryptsSavedKey(t *testing.T) {
-	dir := t.TempDir()
-	Init(dir, "test")
+	dir := initTemp(t)
 	t.Cleanup(func() { SetStateKey(nil); Forget() })
 	key := "vless://5783a3e7-e373-51cd-8642-c83782b807c5@1.2.3.4:443?security=none#secret-name"
 	if _, err := AddKey(key); err != nil {
@@ -90,8 +90,7 @@ func TestStateKeyEncryptsSavedKey(t *testing.T) {
 }
 
 func TestJournal(t *testing.T) {
-	dir := t.TempDir()
-	Init(dir, "test")
+	dir := initTemp(t)
 	if j := Journal(); j != "Журнал пуст" {
 		t.Errorf("empty journal: %q", j)
 	}
@@ -113,4 +112,14 @@ func TestJournal(t *testing.T) {
 	if Healthy() {
 		t.Error("healthy without a running VPN")
 	}
+}
+
+// initTemp starts the core in a temporary folder. The crash output keeps
+// crash.log open, and Windows cannot delete an open file, so it is released
+// before the folder is removed.
+func initTemp(t *testing.T) string {
+	dir := t.TempDir()
+	Init(dir, "test")
+	t.Cleanup(func() { debug.SetCrashOutput(nil, debug.CrashOptions{}) })
+	return dir
 }

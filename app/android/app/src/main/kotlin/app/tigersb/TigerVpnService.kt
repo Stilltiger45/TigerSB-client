@@ -17,9 +17,11 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelFileDescriptor
+import android.os.SystemClock
 import android.util.Log
 import app.tigersb.mobile.Mobile
 import org.json.JSONObject
+import java.io.File
 import java.util.concurrent.Executors
 
 /**
@@ -48,6 +50,9 @@ class TigerVpnService : VpnService() {
         private const val WATCH_EVERY_MS = 60_000L
         private const val FAILS_TO_RESTART = 3
         private const val RESTART_GAP_MS = 5 * 60_000L
+
+        // A network that flaps restarts the core at most this often.
+        private const val NET_RESTART_GAP_MS = 15_000L
 
         // Addresses inside the TUN. DNS goes to TUN_DNS, the core answers it.
         private const val TUN_ADDR = "172.19.0.1"
@@ -89,6 +94,7 @@ class TigerVpnService : VpnService() {
 
     // The network the core's connections use; a new one means a restart.
     private var network: Network? = null
+    private var lastNetRestart = 0L
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
@@ -138,7 +144,7 @@ class TigerVpnService : VpnService() {
             val profile = JSONObject(info)
             val mode = Core.mode(this)
 
-            val (transport, linkMtu) = activeNetwork()
+            val (transport, linkMtu) = activeNetwork(network)
             mtu = Mobile.pickMTU(transport, linkMtu.toLong()).toInt()
 
             val b = Builder()
@@ -163,7 +169,7 @@ class TigerVpnService : VpnService() {
             val pfd = b.establish() ?: throw IllegalStateException(getString(R.string.vpn_not_allowed))
             tun = pfd
             Mobile.start(pfd.fd.toLong(), mode, mtu.toLong())
-            note("подключено: режим $mode, MTU $mtu, ${transport.ifEmpty { "сеть ?" }}")
+            note("подключено: режим $mode, MTU $mtu, ${transport.ifEmpty { "сеть ?" }}, файлов открыто ${openFiles()}")
 
             profileName = profile.optString("name")
             protocol = Mobile.protocol()
@@ -225,6 +231,9 @@ class TigerVpnService : VpnService() {
         }
     }
 
+    /** Open files of the app: a number that keeps growing is a leak. */
+    private fun openFiles(): Int = File("/proc/self/fd").list()?.size ?: -1
+
     private fun note(event: String) {
         Log.i(TAG, event)
         try {
@@ -280,21 +289,36 @@ class TigerVpnService : VpnService() {
         if (networkCallback != null) return
         val cm = getSystemService(ConnectivityManager::class.java)
         val cb = object : ConnectivityManager.NetworkCallback() {
+            // Android 7 does not always follow onAvailable with the
+            // capabilities, so both lead here; a repeat does nothing.
             override fun onAvailable(n: Network) {
-                setUnderlyingNetworks(arrayOf(n))
+                cm.getNetworkCapabilities(n)?.let { onCapabilitiesChanged(n, it) }
+            }
+
+            override fun onCapabilitiesChanged(n: Network, caps: NetworkCapabilities) {
+                // Android may report our own tunnel as the default network.
+                // Following it would restart the VPN on every restart.
+                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return
                 worker.execute {
                     val old = network
+                    if (old == n) return@execute
                     network = n
-                    if (tun != null && old != null && old != n) {
-                        note("сеть сменилась (${activeNetwork(n).first.ifEmpty { "?" }}), переподключаю")
-                        connect()
+                    setUnderlyingNetworks(arrayOf(n))
+                    if (tun == null || old == null) return@execute
+                    val now = SystemClock.elapsedRealtime()
+                    if (now - lastNetRestart < NET_RESTART_GAP_MS) {
+                        note("сеть сменилась снова, жду: переподключения не чаще раза в ${NET_RESTART_GAP_MS / 1000} с")
+                        return@execute
                     }
+                    lastNetRestart = now
+                    note("сеть сменилась (${activeNetwork(n).first.ifEmpty { "?" }}), переподключаю")
+                    connect()
                 }
             }
 
             override fun onLinkPropertiesChanged(network: Network, lp: LinkProperties) {
                 worker.execute {
-                    if (tun == null) return@execute
+                    if (tun == null || network != this@TigerVpnService.network) return@execute
                     val (transport, linkMtu) = activeNetwork(network)
                     val want = Mobile.pickMTU(transport, linkMtu.toLong()).toInt()
                     if (want != mtu) {
