@@ -136,8 +136,11 @@ func TestMainModeThreeDirections(t *testing.T) {
 
 func TestAllMode(t *testing.T) {
 	b, dest := build(t, fixture(t), xrayconf.ModeAll)
-	if dest["rest"] != "balancer:foreign" || dest["direct-domains"] != "direct" {
+	if dest["rest"] != "balancer:foreign" || dest["private"] != "direct" {
 		t.Errorf("rules %v", dest)
+	}
+	if _, ok := dest["direct-domains"]; ok {
+		t.Error("all mode sends banks through the VPN too")
 	}
 	if _, ok := dest["blocked-domains"]; ok {
 		t.Error("all mode does not need blocked rules")
@@ -203,7 +206,7 @@ func TestVLESSProfileBuilds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, m := range []xrayconf.Mode{xrayconf.ModeAuto, xrayconf.ModeMain, xrayconf.ModeAll, xrayconf.ModeOff} {
+	for _, m := range []xrayconf.Mode{xrayconf.ModeAuto, xrayconf.ModeBasic, xrayconf.ModeMain, xrayconf.ModeAll, xrayconf.ModeOff} {
 		build(t, p, m)
 	}
 	for _, link := range []string{
@@ -309,5 +312,56 @@ func TestAutoModeOnlyRU(t *testing.T) {
 	all, def := xrayconf.Candidates(p)
 	if !slices.Equal(all, def) || len(all) != 1 {
 		t.Errorf("candidates %v, default %v", all, def)
+	}
+}
+
+func TestBasicMode(t *testing.T) {
+	b, dest := build(t, fixture(t), xrayconf.ModeBasic)
+	if dest["rest"] != "balancer:foreign" || dest["direct-domains"] != "direct" || dest["direct-ips"] != "direct" {
+		t.Errorf("rules %v", dest)
+	}
+	if _, ok := dest["blocked-domains"]; ok {
+		t.Error("basic mode does not need blocked rules")
+	}
+	for _, r := range b.Routing.Rules {
+		if r.RuleTag == "direct-domains" && (!slices.Contains(r.Domain, "domain:ru") || !slices.Contains(r.Domain, "domain:xn--p1ai") || !slices.Contains(r.Domain, "domain:gosuslugi.ru")) {
+			t.Errorf("direct domains %v", r.Domain)
+		}
+	}
+	var cfg struct {
+		Routing struct {
+			Rules []struct {
+				RuleTag string   `json:"ruleTag"`
+				IP      []string `json:"ip"`
+			} `json:"rules"`
+		} `json:"routing"`
+		Stats  map[string]any `json:"stats"`
+		Policy struct {
+			System map[string]bool `json:"system"`
+		} `json:"policy"`
+	}
+	raw, err := xrayconf.Build(fixture(t), xrayconf.Options{Mode: xrayconf.ModeBasic})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &cfg); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range cfg.Routing.Rules {
+		if r.RuleTag == "direct-ips" && !slices.Contains(r.IP, "geoip:ru") {
+			t.Errorf("direct ips %v", r.IP)
+		}
+	}
+	if cfg.Stats == nil || !cfg.Policy.System["statsOutboundUplink"] || !cfg.Policy.System["statsOutboundDownlink"] {
+		t.Error("traffic counters are off")
+	}
+}
+
+func TestBasicModeOnlyRU(t *testing.T) {
+	p := fixture(t)
+	p.Exits = p.Exits[1:]
+	_, dest := build(t, p, xrayconf.ModeBasic)
+	if dest["rest"] != "ru/msk-1/grpc" || dest["dns"] != "ru/msk-1/grpc" {
+		t.Errorf("rules %v", dest)
 	}
 }

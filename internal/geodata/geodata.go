@@ -37,8 +37,8 @@ const (
 const maxEntry = 256 << 20
 
 // Codes returns the geosite and geoip list names the profile refers to, in
-// upper case as Xray stores them.
-func Codes(p *profile.Profile) (sites, ips []string) {
+// upper case as Xray stores them. extraIPs are more "geoip:" lists to keep.
+func Codes(p *profile.Profile, extraIPs ...string) (sites, ips []string) {
 	add := func(list *[]string, code string) {
 		code = strings.ToUpper(strings.TrimPrefix(code, "!"))
 		if i := strings.IndexByte(code, '@'); i >= 0 {
@@ -53,7 +53,7 @@ func Codes(p *profile.Profile) (sites, ips []string) {
 			add(&sites, code)
 		}
 	}
-	for _, ip := range slices.Concat(p.Routing.Blocked.IPs, p.Routing.Direct.IPs) {
+	for _, ip := range slices.Concat(p.Routing.Blocked.IPs, p.Routing.Direct.IPs, extraIPs) {
 		if code, ok := strings.CutPrefix(ip, "geoip:"); ok {
 			add(&ips, code)
 		}
@@ -65,11 +65,11 @@ func Codes(p *profile.Profile) (sites, ips []string) {
 // profile uses. A file is downloaded again when a list is missing or the file
 // is older than maxAge (0 keeps it forever). If a refresh of an old but
 // complete file fails, the old file stays and Ensure succeeds.
-func Ensure(ctx context.Context, c *http.Client, dir string, p *profile.Profile, maxAge time.Duration) error {
+func Ensure(ctx context.Context, c *http.Client, dir string, p *profile.Profile, maxAge time.Duration, extraIPs ...string) error {
 	if c == nil {
 		c = http.DefaultClient
 	}
-	sites, ips := Codes(p)
+	sites, ips := Codes(p, extraIPs...)
 	siteURL, ipURL := DefaultGeoSite, DefaultGeoIP
 	if g := p.Geodata; g != nil {
 		if g.GeoSite != "" {

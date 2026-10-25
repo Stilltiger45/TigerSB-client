@@ -51,9 +51,11 @@ const usage = `TigerSB client core
   auto (по умолчанию)  каждый сайт проверяется через все серверы и идёт через
                        самый быстрый, который его открывает, а если не открывает
                        ни один — напрямую; банки и вузы сразу напрямую
+  basic                российские сайты (.ru, .рф и российские IP), банки и
+                       вузы напрямую, остальное через VPN
   main                 заблокированное через выход за границей, остальное через
                        выход в РФ, банки и вузы напрямую
-  all                  всё через выход за границей, кроме банков и вузов
+  all                  всё через VPN, кроме локальной сети
   off                  без VPN
 `
 
@@ -172,7 +174,7 @@ type runFlags struct {
 func addRunFlags(fs *flag.FlagSet) runFlags {
 	return runFlags{
 		dir:    stateDirFlag(fs),
-		mode:   fs.String("mode", string(xrayconf.ModeAuto), "режим: auto, main, all или off"),
+		mode:   fs.String("mode", string(xrayconf.ModeAuto), "режим: auto, basic, main, all или off"),
 		socks:  fs.String("socks", "127.0.0.1:10808", "адрес локального SOCKS5 (пусто — не открывать)"),
 		http:   fs.String("http", "127.0.0.1:10809", "адрес локального HTTP-прокси (пусто — не открывать)"),
 		assets: fs.String("assets", "", "каталог с geosite.dat и geoip.dat (по умолчанию скачиваются в каталог состояния)"),
@@ -232,10 +234,11 @@ func cmdRun(args []string) error {
 		return err
 	}
 	assets := *f.assets
-	if xrayconf.HasGeoData(p) && assets == "" {
+	mode, _ := xrayconf.ParseMode(*f.mode)
+	if needed, extra := xrayconf.GeoData(p, mode); needed && assets == "" {
 		assets = filepath.Join(*f.dir, "geodata")
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-		err := geodata.Ensure(ctx, nil, assets, p, geodataMaxAge)
+		err := geodata.Ensure(ctx, nil, assets, p, geodataMaxAge, extra...)
 		cancel()
 		if err != nil {
 			return err
@@ -244,7 +247,6 @@ func cmdRun(args []string) error {
 	if err := engine.SetAssetDir(assets); err != nil {
 		return err
 	}
-	mode, _ := xrayconf.ParseMode(*f.mode)
 	inst, err := engine.Start(cfg, smart.Hooks(p, mode)...)
 	if err != nil {
 		return err

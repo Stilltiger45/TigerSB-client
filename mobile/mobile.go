@@ -22,6 +22,7 @@ import (
 
 	"github.com/Stilltiger45/TigerSB-client/internal/engine"
 	"github.com/Stilltiger45/TigerSB-client/internal/geodata"
+	"github.com/Stilltiger45/TigerSB-client/internal/meter"
 	"github.com/Stilltiger45/TigerSB-client/internal/netauto"
 	"github.com/Stilltiger45/TigerSB-client/internal/smart"
 	"github.com/Stilltiger45/TigerSB-client/internal/subscription"
@@ -36,6 +37,11 @@ var (
 	mu      sync.Mutex
 	dataDir string
 	inst    *core.Instance
+
+	// What Stats needs about the running VPN.
+	vpnTags, pingTags []string
+	probeURL          string
+	started           time.Time
 )
 
 // Init sets the app's private directory and version. Call it once before
@@ -85,7 +91,7 @@ func AddKey(key string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if err := geodata.Ensure(ctx, nil, assetDir(), p, geodataMaxAge); err != nil {
+	if err := ensureGeodata(ctx, p); err != nil {
 		return "", err
 	}
 	if err := subscription.Save(dataDir, st); err != nil {
@@ -112,7 +118,7 @@ func Refresh() (string, error) {
 	if err := subscription.Save(dataDir, st); err != nil {
 		return "", err
 	}
-	if err := geodata.Ensure(ctx, nil, assetDir(), p, geodataMaxAge); err != nil {
+	if err := ensureGeodata(ctx, p); err != nil {
 		return "", err
 	}
 	return info(st, p)
@@ -173,11 +179,11 @@ func Start(fd int, mode string, mtu int) error {
 	if err != nil {
 		return err
 	}
-	if xrayconf.HasGeoData(p) {
+	if needed, extra := xrayconf.GeoData(p, m); needed {
 		// Normally AddKey or Refresh already fetched the lists; this only
 		// downloads what is missing.
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-		err := geodata.Ensure(ctx, nil, assetDir(), p, 0)
+		err := geodata.Ensure(ctx, nil, assetDir(), p, 0, extra...)
 		cancel()
 		if err != nil {
 			return err
@@ -202,7 +208,35 @@ func Start(fd int, mode string, mtu int) error {
 		return err
 	}
 	inst = i
+	vpnTags, pingTags = xrayconf.Candidates(p)
+	probeURL = ""
+	if p.Probe != nil {
+		probeURL = p.Probe.URL
+	}
+	started = time.Now()
 	return nil
+}
+
+// Stats returns what the app shows about the running VPN as JSON:
+// {"up", "down": bytes through the servers since the start, "ping": ms to
+// the server in use or -1, "uptime": seconds since the start}. The ping takes
+// up to 5 seconds, so call it off the main thread.
+func Stats() (string, error) {
+	mu.Lock()
+	i, all, def, url, since := inst, vpnTags, pingTags, probeURL, started
+	mu.Unlock()
+	if i == nil {
+		return "", errors.New("VPN не запущен")
+	}
+	up, down := meter.Traffic(i, all)
+	ping := int64(-1)
+	if d := meter.Ping(i, def, url, 5*time.Second); d >= 0 {
+		ping = d.Milliseconds()
+	}
+	b, err := json.Marshal(map[string]int64{
+		"up": up, "down": down, "ping": ping, "uptime": int64(time.Since(since).Seconds()),
+	})
+	return string(b), err
 }
 
 // Stop stops the VPN. The app closes the TUN descriptor afterwards.
@@ -232,6 +266,16 @@ func PickMTU(transport string, linkMTU int) int {
 }
 
 func assetDir() string { return filepath.Join(dataDir, "geodata") }
+
+// ensureGeodata fetches the profile's lists and, if it can, the basic mode's
+// Russian IPs, so the mode can be switched without a download. Only the
+// profile's own lists are required here.
+func ensureGeodata(ctx context.Context, p *profile.Profile) error {
+	if geodata.Ensure(ctx, nil, assetDir(), p, geodataMaxAge, xrayconf.BasicDirectIPs...) == nil {
+		return nil
+	}
+	return geodata.Ensure(ctx, nil, assetDir(), p, geodataMaxAge)
+}
 
 func noKey(err error) error {
 	if errors.Is(err, subscription.ErrNoState) {
