@@ -6,6 +6,7 @@
 package mobile
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -45,24 +46,34 @@ func Init(dir, version string) {
 	subscription.UserAgent = "TigerSB-android/" + version
 }
 
+// SetDevice tells subscription servers which device asks. Panels with a
+// device limit (Remnawave HWID and similar) count devices by hwid.
+func SetDevice(hwid, osName, osVersion, model string) {
+	mu.Lock()
+	defer mu.Unlock()
+	subscription.ThisDevice = subscription.Device{HWID: hwid, OS: osName, OSVersion: osVersion, Model: model}
+}
+
 // profileInfo describes the imported profile for the app's screen.
 type profileInfo struct {
 	Name       string     `json:"name"`
 	Updated    time.Time  `json:"updated"`
 	Fetched    time.Time  `json:"fetched"`
 	HasRU      bool       `json:"hasRU"`
+	HasLists   bool       `json:"hasLists"`
+	Foreign    bool       `json:"foreign"`
 	Exits      []exitInfo `json:"exits"`
 	DirectApps []string   `json:"directApps"`
 }
 
-// exitInfo is one exit with its transports, best first.
+// exitInfo is one exit with its transports (display names), best first.
 type exitInfo struct {
 	ID         string   `json:"id"`
 	Role       string   `json:"role"`
 	Transports []string `json:"transports"`
 }
 
-// AddKey adds a key (tigersb://, https:// or vless://), downloads the
+// AddKey adds a key (tigersb://, https:// or a share link), downloads the
 // profile and the lists it needs, and returns the profile info as JSON.
 func AddKey(key string) (string, error) {
 	mu.Lock()
@@ -229,7 +240,16 @@ func noKey(err error) error {
 }
 
 func info(st *subscription.State, p *profile.Profile) (string, error) {
-	in := profileInfo{Name: p.Name, Updated: p.Updated, Fetched: st.Fetched, HasRU: p.HasRole(profile.RoleRU), DirectApps: p.Routing.Direct.Apps}
+	blocked := p.Routing.Blocked
+	in := profileInfo{
+		Name:       p.Name,
+		Updated:    p.Updated,
+		Fetched:    st.Fetched,
+		HasRU:      p.HasRole(profile.RoleRU),
+		HasLists:   len(blocked.Domains)+len(blocked.IPs) > 0,
+		Foreign:    st.Foreign,
+		DirectApps: p.Routing.Direct.Apps,
+	}
 	if in.Name == "" {
 		in.Name = p.ID
 	}
@@ -237,7 +257,7 @@ func info(st *subscription.State, p *profile.Profile) (string, error) {
 		ei := exitInfo{ID: e.ID, Role: string(e.Role)}
 		ts := slices.SortedStableFunc(slices.Values(e.Transports), func(a, b profile.Transport) int { return a.Prio - b.Prio })
 		for _, t := range ts {
-			ei.Transports = append(ei.Transports, t.ID)
+			ei.Transports = append(ei.Transports, cmp.Or(t.Name, t.ID))
 		}
 		in.Exits = append(in.Exits, ei)
 	}

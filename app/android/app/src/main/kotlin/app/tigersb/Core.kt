@@ -1,6 +1,9 @@
 package app.tigersb
 
+import android.annotation.SuppressLint
 import android.content.Context
+import android.os.Build
+import android.provider.Settings
 import android.os.Handler
 import android.os.Looper
 import app.tigersb.mobile.Mobile
@@ -18,6 +21,11 @@ object Core {
             val app = context.applicationContext
             val version = app.packageManager.getPackageInfo(app.packageName, 0).versionName ?: "dev"
             Mobile.init(app.filesDir.absolutePath, version)
+            // Panels with a device limit count devices by this id. ANDROID_ID
+            // stays the same for this app until a factory reset.
+            @SuppressLint("HardwareIds")
+            val hwid = Settings.Secure.getString(app.contentResolver, Settings.Secure.ANDROID_ID) ?: ""
+            Mobile.setDevice(hwid, "Android", Build.VERSION.RELEASE ?: "", Build.MODEL ?: "")
             ready = true
         }
     }

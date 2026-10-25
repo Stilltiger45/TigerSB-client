@@ -13,8 +13,7 @@ class FakeCore implements Core {
   final added = <String>[];
   int connects = 0;
 
-  ProfileInfo _profile(String name) =>
-      ProfileInfo(name: name, hasRU: true, fetched: DateTime.now(), exits: const []);
+  ProfileInfo _profile(String name) => ProfileInfo(name: name, hasRU: true, fetched: DateTime.now(), exits: const []);
 
   @override
   Future<ProfileInfo?> current() async => profile;
@@ -105,5 +104,24 @@ void main() {
     await tester.pumpAndSettle();
     expect(core.added, ['tigersb://add?url=https://x&pk=y']);
     expect(core.connects, 1);
+  });
+
+  testWidgets('another VPN\'s subscription: no mode choice, server count shown', (tester) async {
+    final core = FakeCore()
+      ..profile = ProfileInfo(
+        name: 'Чужой VPN',
+        hasRU: false,
+        hasLists: false,
+        foreign: true,
+        fetched: DateTime.now(),
+        exits: [
+          ExitInfo(id: 'sub', role: 'foreign', transports: ['NL', 'DE', 'FI']),
+        ],
+      );
+    await tester.pumpWidget(TigerApp(core: core));
+    await tester.pumpAndSettle();
+    expect(find.text('Умный'), findsNothing);
+    expect(find.textContaining('Серверов: 3'), findsOneWidget);
+    expect(find.textContaining('Весь трафик'), findsOneWidget);
   });
 }

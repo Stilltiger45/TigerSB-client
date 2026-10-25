@@ -10,26 +10,40 @@ class ProfileInfo {
     required this.hasRU,
     required this.fetched,
     required this.exits,
+    this.hasLists = true,
+    this.foreign = false,
   });
 
   final String name;
   final bool hasRU;
+
+  /// The profile has lists of blocked sites, so the smart mode differs from
+  /// sending everything through the VPN.
+  final bool hasLists;
+
+  /// Another VPN's subscription rather than a TigerSB panel.
+  final bool foreign;
   final DateTime? fetched;
   final List<ExitInfo> exits;
 
   factory ProfileInfo.fromJson(Map<String, dynamic> j) => ProfileInfo(
-        name: j['name'] as String? ?? '',
-        hasRU: j['hasRU'] as bool? ?? false,
-        fetched: DateTime.tryParse(j['fetched'] as String? ?? '')?.toLocal(),
-        exits: [
-          for (final e in (j['exits'] as List? ?? const []))
-            ExitInfo(
-              id: e['id'] as String,
-              role: e['role'] as String,
-              transports: List<String>.from(e['transports'] as List? ?? const []),
-            ),
-        ],
-      );
+    name: j['name'] as String? ?? '',
+    hasRU: j['hasRU'] as bool? ?? false,
+    hasLists: j['hasLists'] as bool? ?? true,
+    foreign: j['foreign'] as bool? ?? false,
+    fetched: DateTime.tryParse(j['fetched'] as String? ?? '')?.toLocal(),
+    exits: [
+      for (final e in (j['exits'] as List? ?? const []))
+        ExitInfo(
+          id: e['id'] as String,
+          role: e['role'] as String,
+          transports: List<String>.from(e['transports'] as List? ?? const []),
+        ),
+    ],
+  );
+
+  /// Servers that go abroad; with several the core uses the fastest.
+  int get servers => exits.where((e) => e.role == 'foreign').fold(0, (n, e) => n + e.transports.length);
 
   static ProfileInfo? parse(String? s) =>
       s == null || s.isEmpty ? null : ProfileInfo.fromJson(jsonDecode(s) as Map<String, dynamic>);
@@ -50,9 +64,9 @@ class VpnStatus {
   final String? error;
 
   static VpnStatus fromMap(Map<dynamic, dynamic> m) => VpnStatus(
-        Phase.values.firstWhere((p) => p.name == m['phase'], orElse: () => Phase.disconnected),
-        m['error'] as String?,
-      );
+    Phase.values.firstWhere((p) => p.name == m['phase'], orElse: () => Phase.disconnected),
+    m['error'] as String?,
+  );
 }
 
 /// Routing modes, as the core names them.

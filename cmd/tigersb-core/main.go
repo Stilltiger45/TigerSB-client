@@ -34,7 +34,7 @@ var version = "dev"
 const usage = `TigerSB client core
 
 Использование:
-  tigersb-core import <ключ>   добавить ключ (tigersb://, https:// или vless://) и скачать профиль
+  tigersb-core import <ключ>   добавить ключ (tigersb://, https:// или ссылку vless://, vmess://, trojan://, ss://)
   tigersb-core update          обновить профиль по подписке
   tigersb-core show            показать выходы и транспорты профиля
   tigersb-core config          напечатать конфиг Xray

@@ -65,8 +65,11 @@ type Exit struct {
 // Transport is one way of reaching an exit. Xray holds an Xray outbound
 // object without its tag: protocol, settings, streamSettings and mux.
 type Transport struct {
-	ID   string          `json:"id"`
-	Prio int             `json:"prio"`
+	ID   string `json:"id"`
+	Prio int    `json:"prio"`
+	// Name is an optional display name, such as the server name from a
+	// third-party subscription.
+	Name string          `json:"name,omitempty"`
 	Xray json.RawMessage `json:"xray"`
 }
 
