@@ -59,29 +59,33 @@ func selfSigned(t *testing.T) (certPEM, keyPEM string, sum string) {
 		hex.EncodeToString(s[:])
 }
 
-func freePort(t *testing.T, network string) int {
+// freePort finds a port that is free for both TCP and UDP: the SOCKS inbound
+// listens on both, and Windows keeps some UDP ports reserved even when the
+// same TCP port is free ("forbidden by its access permissions").
+func freePort(t *testing.T) int {
 	t.Helper()
-	if network == "udp" {
-		c, err := net.ListenPacket("udp", "127.0.0.1:0")
+	for range 50 {
+		l, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer c.Close()
-		return c.LocalAddr().(*net.UDPAddr).Port
+		port := l.Addr().(*net.TCPAddr).Port
+		c, err := net.ListenPacket("udp", fmt.Sprintf("127.0.0.1:%d", port))
+		l.Close()
+		if err == nil {
+			c.Close()
+			return port
+		}
 	}
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port
+	t.Fatal("no port free for both TCP and UDP")
+	return 0
 }
 
 // hysteriaServer runs Xray as a Hysteria 2 server with the password "pw" and
 // returns its UDP port.
 func hysteriaServer(t *testing.T, certPEM, keyPEM, obfs string) int {
 	t.Helper()
-	port := freePort(t, "udp")
+	port := freePort(t)
 	stream := map[string]any{
 		"network":  "hysteria",
 		"security": "tls",
@@ -118,7 +122,7 @@ func hysteriaServer(t *testing.T, certPEM, keyPEM, obfs string) int {
 // port and fetches url through it.
 func throughVPN(t *testing.T, p *profile.Profile, target string) string {
 	t.Helper()
-	port := freePort(t, "tcp")
+	port := freePort(t)
 	cfg, err := xrayconf.Build(p, xrayconf.Options{
 		Mode:     xrayconf.ModeAll,
 		LogLevel: "none",
