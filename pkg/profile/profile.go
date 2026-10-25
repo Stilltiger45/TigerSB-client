@@ -116,6 +116,7 @@ var allowedProtocols = map[string]bool{
 	"vmess":       true,
 	"trojan":      true,
 	"shadowsocks": true,
+	"hysteria":    true,
 }
 
 // allowedXrayKeys are the outbound fields a transport may set. The client

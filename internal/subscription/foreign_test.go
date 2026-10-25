@@ -16,7 +16,7 @@ import (
 
 const foreignLinks = `vless://5783a3e7-e373-51cd-8642-c83782b807c5@nl.example.org:443?security=reality&pbk=Y4CRAOigwd_rCfP7TmrAzkDtnlNMBXxThbt1Uy8lHwY&sni=www.example.com&sid=6ba8&flow=xtls-rprx-vision#🇳🇱 NL
 trojan://secret@de.example.org:443?type=ws&path=%2Fws#🇩🇪 DE
-hysteria2://pw@fi.example.org:443#FI
+wireguard://pw@fi.example.org:51820#FI
 `
 
 func TestForeignSubscriptionBase64WithHWID(t *testing.T) {

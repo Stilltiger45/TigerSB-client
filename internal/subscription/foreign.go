@@ -98,7 +98,7 @@ func fromXrayJSON(name string, body []byte) (*profile.Profile, error) {
 		for _, ob := range cfg.Outbounds {
 			var proto string
 			_ = json.Unmarshal(ob["protocol"], &proto)
-			if proto != "vless" && proto != "vmess" && proto != "trojan" && proto != "shadowsocks" {
+			if proto != "vless" && proto != "vmess" && proto != "trojan" && proto != "shadowsocks" && proto != "hysteria" {
 				continue
 			}
 			out := map[string]json.RawMessage{}
