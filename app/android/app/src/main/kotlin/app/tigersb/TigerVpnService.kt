@@ -333,7 +333,7 @@ class TigerVpnService : VpnService() {
             val old = network
             if (old == n) return@execute
             network = n
-            setUnderlyingNetworks(arrayOf(n))
+            // experiment: no setUnderlyingNetworks
             if (tun == null || old == null) return@execute
             // A network that flaps restarts the core once, after it settles.
             val wait = maxOf(NET_SETTLE_MS, lastNetRestart + NET_RESTART_GAP_MS - SystemClock.elapsedRealtime())
