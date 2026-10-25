@@ -40,6 +40,7 @@ tap() {
   fi
   if [ -z "$b" ]; then
     echo "no element $1"
+    annotate warning "no element $1" "$(grep -oE '(text|content-desc)="[^"]+"' "$out/ui.xml" | head -40)"
     return 1
   fi
   read -r x1 y1 x2 y2 < <(echo "$b" | tr -c '0-9' ' ')
@@ -78,7 +79,10 @@ adb shell "input text '$key'"
 adb shell input keyevent 111 # close the keyboard
 sleep 1
 tap "Подключить" || exit 1
-sleep 20
+sleep 5
+# The first connect asks to leave the app out of battery saving.
+tap "Allow" || tap "ALLOW" || true
+sleep 15
 
 log="$out/soak.txt"
 echo "time mode pid tun google ya.ru example rss_kb threads fds" > "$log"
