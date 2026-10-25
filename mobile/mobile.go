@@ -23,6 +23,7 @@ import (
 	"github.com/Stilltiger45/TigerSB-client/internal/engine"
 	"github.com/Stilltiger45/TigerSB-client/internal/geodata"
 	"github.com/Stilltiger45/TigerSB-client/internal/netauto"
+	"github.com/Stilltiger45/TigerSB-client/internal/smart"
 	"github.com/Stilltiger45/TigerSB-client/internal/subscription"
 	"github.com/Stilltiger45/TigerSB-client/internal/xrayconf"
 	"github.com/Stilltiger45/TigerSB-client/pkg/profile"
@@ -152,7 +153,7 @@ func Forget() error {
 	return err
 }
 
-// Start runs the VPN on the TUN file descriptor fd in mode "main" or "all".
+// Start runs the VPN on the TUN file descriptor fd in mode "auto", "main" or "all".
 // mtu is the MTU the app gave the TUN (see PickMTU).
 func Start(fd int, mode string, mtu int) error {
 	mu.Lock()
@@ -196,7 +197,7 @@ func Start(fd int, mode string, mtu int) error {
 	if err := os.Setenv("XRAY_TUN_FD", strconv.Itoa(fd)); err != nil {
 		return err
 	}
-	i, err := engine.Start(cfg)
+	i, err := engine.Start(cfg, smart.Hooks(p, m)...)
 	if err != nil {
 		return err
 	}

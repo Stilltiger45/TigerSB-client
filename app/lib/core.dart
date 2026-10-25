@@ -69,8 +69,9 @@ class VpnStatus {
   );
 }
 
-/// Routing modes, as the core names them.
-enum Mode { main, all }
+/// Routing modes, as the core names them: auto checks every site through all
+/// servers, main follows the profile's lists, all sends everything abroad.
+enum Mode { auto, main, all }
 
 /// Everything the screens need from the platform. [PlatformCore] talks to the
 /// Android side; tests use a fake.
@@ -134,7 +135,10 @@ class PlatformCore implements Core {
   Future<void> forget() => _call('forget');
 
   @override
-  Future<Mode> mode() async => (await _call<String>('mode')) == 'all' ? Mode.all : Mode.main;
+  Future<Mode> mode() async {
+    final s = await _call<String>('mode');
+    return Mode.values.firstWhere((m) => m.name == s, orElse: () => Mode.auto);
+  }
 
   @override
   Future<void> setMode(Mode m) => _call('setMode', {'mode': m.name});

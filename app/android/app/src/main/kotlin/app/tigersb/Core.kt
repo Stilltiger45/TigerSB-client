@@ -33,8 +33,11 @@ object Core {
     private fun prefs(context: Context) =
         context.applicationContext.getSharedPreferences("tigersb", Context.MODE_PRIVATE)
 
-    /** Routing mode: "main" (three directions) or "all" (everything abroad). */
-    fun mode(context: Context): String = prefs(context).getString("mode", "main") ?: "main"
+    /**
+     * Routing mode: "auto" (every site checked through all servers), "main"
+     * (the profile's lists) or "all" (everything abroad).
+     */
+    fun mode(context: Context): String = prefs(context).getString("mode", "auto") ?: "auto"
 
     fun setMode(context: Context, mode: String) {
         prefs(context).edit().putString("mode", mode).apply()

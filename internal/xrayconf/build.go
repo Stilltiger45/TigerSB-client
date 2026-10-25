@@ -14,6 +14,10 @@ import (
 type Mode string
 
 const (
+	// ModeAuto: every site is checked through all servers and goes through
+	// the fastest that opens it, or direct when none does. Banks and
+	// universities go direct without a check.
+	ModeAuto Mode = "auto"
 	// ModeMain: blocked sites via the foreign exit, everything else via the RU
 	// exit, banks and universities direct.
 	ModeMain Mode = "main"
@@ -26,10 +30,10 @@ const (
 // ParseMode reads a mode name.
 func ParseMode(s string) (Mode, error) {
 	switch m := Mode(s); m {
-	case ModeMain, ModeAll, ModeOff:
+	case ModeAuto, ModeMain, ModeAll, ModeOff:
 		return m, nil
 	}
-	return "", fmt.Errorf("неизвестный режим %q (ожидается main, all или off)", s)
+	return "", fmt.Errorf("неизвестный режим %q (ожидается auto, main, all или off)", s)
 }
 
 // Outbound and balancer tags. Transport tags are "<role>/<exit>/<transport>"
@@ -40,6 +44,9 @@ const (
 	TagDNS    = "dns-internal"
 	// TagDNSOut answers DNS queries that apps send into the TUN.
 	TagDNSOut = "dns-out"
+	// TagSmart is the per-site picker of ModeAuto (package smart), which the
+	// caller adds to Xray after creating it.
+	TagSmart = "smart"
 )
 
 // DefaultMTU is the TUN MTU when the caller does not pick one.
@@ -108,6 +115,7 @@ func Build(p *profile.Profile, opt Options) ([]byte, error) {
 	}
 	var balancers []any
 	var observed []string
+	var all []string
 	targets := map[profile.Role]target{}
 
 	if opt.Mode != ModeOff {
@@ -116,6 +124,7 @@ func Build(p *profile.Profile, opt Options) ([]byte, error) {
 			if err != nil {
 				return nil, err
 			}
+			all = append(all, tags...)
 			switch len(tags) {
 			case 0:
 			case 1:
@@ -142,6 +151,10 @@ func Build(p *profile.Profile, opt Options) ([]byte, error) {
 		// Without an RU exit the "everything else" direction stays direct.
 		ru = direct
 	}
+	dnsVia, hasDNSVia := foreign, hasForeign
+	if !hasForeign && opt.Mode == ModeAuto {
+		dnsVia, hasDNSVia = targets[profile.RoleRU]
+	}
 
 	directDomains, directIPs := directLists(p)
 	blocked := p.Routing.Blocked
@@ -160,8 +173,8 @@ func Build(p *profile.Profile, opt Options) ([]byte, error) {
 		outbounds = append(outbounds, map[string]any{"tag": TagDNSOut, "protocol": "dns"})
 		rules = append(rules, rule{Type: "field", InboundTag: tunTags, Port: "53", OutboundTag: TagDNSOut, RuleTag: "tun-dns"})
 	}
-	if hasForeign {
-		rules = append(rules, foreign.apply(rule{Type: "field", InboundTag: []string{TagDNS}, RuleTag: "dns"}))
+	if hasDNSVia {
+		rules = append(rules, dnsVia.apply(rule{Type: "field", InboundTag: []string{TagDNS}, RuleTag: "dns"}))
 	}
 	rules = append(rules, direct.apply(rule{Type: "field", IP: privateRanges, RuleTag: "private"}))
 	if len(tunTags) > 0 {
@@ -179,6 +192,15 @@ func Build(p *profile.Profile, opt Options) ([]byte, error) {
 
 	var rest target
 	switch opt.Mode {
+	case ModeAuto:
+		rest = target{outbound: TagSmart}
+		if len(all) == 0 {
+			rest = direct
+		} else if len(all) > 1 && len(observed) < 2 {
+			// The picker checks the fastest servers first, so all of them are
+			// measured, not only those behind a balancer.
+			observed = []string{string(profile.RoleForeign) + "/", string(profile.RoleRU) + "/"}
+		}
 	case ModeMain:
 		if len(blocked.Domains) > 0 {
 			rules = append(rules, foreign.apply(rule{Type: "field", Domain: blocked.Domains, RuleTag: "blocked-domains"}))
@@ -210,6 +232,8 @@ func Build(p *profile.Profile, opt Options) ([]byte, error) {
 	}
 	if len(balancers) > 0 {
 		cfg["routing"].(map[string]any)["balancers"] = balancers
+	}
+	if len(observed) > 0 {
 		probe := profile.DefaultProbeURL
 		interval := "1m"
 		if p.Probe != nil {
@@ -225,30 +249,57 @@ func Build(p *profile.Profile, opt Options) ([]byte, error) {
 			"enableConcurrency": true,
 		}
 	}
-	if hasForeign {
+	if hasDNSVia {
 		cfg["dns"] = dnsConfig(opt.Mode, blocked.Domains, directDomains)
 	}
 	return json.MarshalIndent(cfg, "", "  ")
 }
 
-// addTransports appends the outbounds of every exit with the role, best
-// priority first, and returns their tags.
-func addTransports(p *profile.Profile, role profile.Role, outbounds *[]any) ([]string, error) {
-	type item struct {
-		tag  string
-		prio int
-		xray json.RawMessage
+// Candidates returns the tags of the VPN outbounds Build makes for the
+// profile, foreign exits first, each role best priority first: the servers
+// ModeAuto checks a site through. def are the foreign ones, which carry
+// traffic that has no domain to check; without them all of them.
+func Candidates(p *profile.Profile) (all, def []string) {
+	for _, role := range []profile.Role{profile.RoleForeign, profile.RoleRU} {
+		for _, it := range transports(p, role) {
+			all = append(all, it.tag)
+		}
+		if role == profile.RoleForeign {
+			def = slices.Clone(all)
+		}
 	}
-	var items []item
+	if len(def) == 0 {
+		def = all
+	}
+	return all, def
+}
+
+type transportItem struct {
+	tag  string
+	prio int
+	xray json.RawMessage
+}
+
+// transports lists the transports of every exit with the role, best priority
+// first.
+func transports(p *profile.Profile, role profile.Role) []transportItem {
+	var items []transportItem
 	for _, e := range p.Exits {
 		if e.Role != role {
 			continue
 		}
 		for _, t := range e.Transports {
-			items = append(items, item{tag: string(role) + "/" + e.ID + "/" + t.ID, prio: t.Prio, xray: t.Xray})
+			items = append(items, transportItem{tag: string(role) + "/" + e.ID + "/" + t.ID, prio: t.Prio, xray: t.Xray})
 		}
 	}
-	slices.SortStableFunc(items, func(a, b item) int { return a.prio - b.prio })
+	slices.SortStableFunc(items, func(a, b transportItem) int { return a.prio - b.prio })
+	return items
+}
+
+// addTransports appends the outbounds of every exit with the role, best
+// priority first, and returns their tags.
+func addTransports(p *profile.Profile, role profile.Role, outbounds *[]any) ([]string, error) {
+	items := transports(p, role)
 	tags := make([]string, 0, len(items))
 	for _, it := range items {
 		var ob map[string]json.RawMessage
@@ -285,6 +336,13 @@ func dnsConfig(mode Mode, blocked, direct []string) map[string]any {
 			servers = append(servers, map[string]any{"address": "localhost", "domains": direct, "skipFallback": true})
 		}
 		servers = append(servers, DoHServer)
+	case ModeAuto:
+		if len(direct) > 0 {
+			servers = append(servers, map[string]any{"address": "localhost", "domains": direct, "skipFallback": true})
+		}
+		// When no server answers DNS the sites still have to open directly,
+		// so the provider's DNS backs up the encrypted one.
+		servers = append(servers, DoHServer, "localhost")
 	case ModeOff:
 		servers = append(servers, "localhost")
 	}
