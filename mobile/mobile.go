@@ -53,6 +53,7 @@ func Init(dir, version string) {
 	defer mu.Unlock()
 	dataDir = dir
 	subscription.UserAgent = "TigerSB-android/" + version
+	startJournal()
 }
 
 // SetDevice tells subscription servers which device asks. Panels with a
@@ -200,9 +201,11 @@ func Start(fd int, mode string, mtu int) error {
 			return err
 		}
 	}
+	trim(filepath.Join(dataDir, xrayLog))
 	cfg, err := xrayconf.Build(p, xrayconf.Options{
 		Mode:     m,
 		Inbounds: []xrayconf.Inbound{{Tag: "tun-in", Protocol: "tun", MTU: mtu}},
+		LogFile:  filepath.Join(dataDir, xrayLog),
 	})
 	if err != nil {
 		return err
@@ -246,6 +249,21 @@ func Stats() (string, error) {
 		"up": up, "down": down, "ping": ping, "uptime": int64(time.Since(since).Seconds()),
 	})
 	return string(b), err
+}
+
+// Healthy checks that a site opens through the server in use, within 6
+// seconds. False when the VPN is not running or the request fails.
+func Healthy() bool {
+	mu.Lock()
+	i, def, url := inst, pingTags, probeURL
+	mu.Unlock()
+	if i == nil {
+		return false
+	}
+	if len(def) == 0 {
+		return true // nothing to check through: everything goes direct
+	}
+	return meter.Ping(i, def, url, 6*time.Second) >= 0
 }
 
 // Protocol names the protocol of the server in use, such as
@@ -310,7 +328,7 @@ func Stop() error {
 	if inst == nil {
 		return nil
 	}
-	err := inst.Close()
+	err := engine.Stop(inst)
 	inst = nil
 	return err
 }

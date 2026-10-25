@@ -1,15 +1,19 @@
 package app.tigersb
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.net.Uri
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PowerManager
+import android.provider.Settings
 import android.view.WindowManager
 import app.tigersb.mobile.Mobile
 import org.json.JSONArray
@@ -84,6 +88,16 @@ class MainActivity : FlutterActivity() {
                         result.success(null)
                     }
                     "connect" -> connect(result)
+                    "shareJournal" -> background(result) {
+                        val text = Mobile.journal()
+                        main.post {
+                            val send = Intent(Intent.ACTION_SEND).setType("text/plain")
+                                .putExtra(Intent.EXTRA_SUBJECT, "Журнал TigerSB")
+                                .putExtra(Intent.EXTRA_TEXT, text)
+                            startActivity(Intent.createChooser(send, "Отправить журнал"))
+                        }
+                        null
+                    }
                     "disconnect" -> {
                         TigerVpnService.stop(this@MainActivity)
                         result.success(null)
@@ -148,6 +162,7 @@ class MainActivity : FlutterActivity() {
             // Only for the status notification; the VPN works without it.
             requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 2)
         }
+        keepAliveInBackground()
         val ask = VpnService.prepare(this)
         if (ask == null) {
             TigerVpnService.start(this)
@@ -157,6 +172,26 @@ class MainActivity : FlutterActivity() {
         pendingConnect?.success(false)
         pendingConnect = result
         startActivityForResult(ask, REQ_VPN)
+    }
+
+    /**
+     * Asks once to leave TigerSB out of battery saving: on many phones
+     * (Xiaomi, Huawei, Samsung) it otherwise stops the VPN minutes after the
+     * screen goes off.
+     */
+    private fun keepAliveInBackground() {
+        val prefs = getSharedPreferences("tigersb", MODE_PRIVATE)
+        if (prefs.getBoolean("askedBattery", false)) return
+        val pm = getSystemService(PowerManager::class.java)
+        if (pm.isIgnoringBatteryOptimizations(packageName)) return
+        prefs.edit().putBoolean("askedBattery", true).apply()
+        try {
+            @SuppressLint("BatteryLife")
+            val i = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName"))
+            startActivity(i)
+        } catch (e: Exception) {
+            Mobile.note("не удалось спросить про экономию батареи: ${e.message}")
+        }
     }
 
     @Deprecated("FlutterActivity still delivers results here")

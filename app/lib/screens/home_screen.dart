@@ -253,6 +253,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   'refresh' => _refresh(),
                   'copy' => _copyKey(),
                   'apps' => _openApps(),
+                  'journal' => widget.core.shareJournal(),
                   _ => _forget(),
                 },
                 itemBuilder: (_) => [
@@ -260,6 +261,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   if (widget.profile.key.isNotEmpty)
                     const PopupMenuItem(value: 'copy', child: Text('Скопировать ключ подписки')),
                   const PopupMenuItem(value: 'apps', child: Text('Приложения мимо VPN')),
+                  const PopupMenuItem(value: 'journal', child: Text('Отправить журнал')),
                   const PopupMenuItem(value: 'forget', child: Text('Сменить ключ')),
                 ],
               ),

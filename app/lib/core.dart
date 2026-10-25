@@ -134,6 +134,10 @@ abstract class Core {
   /// Saves the apps the user leaves out of the VPN; a running VPN reconnects.
   Future<void> setUserApps(List<String> packages);
 
+  /// Opens the system share sheet with the journal: what the VPN did, the
+  /// core's warnings and its last crash.
+  Future<void> shareJournal();
+
   /// Traffic and ping of the running VPN; takes up to a few seconds.
   Future<VpnStats> stats();
 
@@ -208,6 +212,9 @@ class PlatformCore implements Core {
 
   @override
   Future<void> setUserApps(List<String> packages) => _call('setUserApps', {'apps': packages});
+
+  @override
+  Future<void> shareJournal() => _call('shareJournal');
 
   @override
   Future<VpnStats> stats() async =>

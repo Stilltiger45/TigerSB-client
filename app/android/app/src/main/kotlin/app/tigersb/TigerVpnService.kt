@@ -42,6 +42,13 @@ class TigerVpnService : VpnService() {
         // How often the notification checks which protocol carries traffic.
         private const val PROTOCOL_EVERY_MS = 30_000L
 
+        // The watchdog checks the tunnel this often; after FAILS_TO_RESTART
+        // failed checks in a row it restarts the core, at most once per
+        // RESTART_GAP_MS.
+        private const val WATCH_EVERY_MS = 60_000L
+        private const val FAILS_TO_RESTART = 3
+        private const val RESTART_GAP_MS = 5 * 60_000L
+
         // Addresses inside the TUN. DNS goes to TUN_DNS, the core answers it.
         private const val TUN_ADDR = "172.19.0.1"
         private const val TUN_DNS = "172.19.0.2"
@@ -71,12 +78,27 @@ class TigerVpnService : VpnService() {
             main.postDelayed(this, PROTOCOL_EVERY_MS)
         }
     }
+    private var fails = 0
+    private var lastRestart = 0L
+    private val watchTick = object : Runnable {
+        override fun run() {
+            worker.execute { watch() }
+            main.postDelayed(this, WATCH_EVERY_MS)
+        }
+    }
+
+    // The network the core's connections use; a new one means a restart.
+    private var network: Network? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
-            worker.execute { shutdown() }
+            worker.execute {
+                note("отключение по кнопке")
+                shutdown()
+            }
             return START_NOT_STICKY
         }
+        if (intent == null) worker.execute { note("Android перезапустил службу VPN") }
         // ACTION_START from the app or the tile, or the system starting an
         // always-on VPN.
         startForegroundCompat(getString(R.string.vpn_connecting))
@@ -86,11 +108,21 @@ class TigerVpnService : VpnService() {
 
     override fun onRevoke() {
         // Another VPN app took over or the user turned us off in settings.
-        worker.execute { shutdown() }
+        worker.execute {
+            note("Android отозвал VPN: включён другой VPN или выключено в настройках")
+            shutdown()
+        }
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        if (level >= android.content.ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) worker.execute { note("мало памяти: уровень $level") }
     }
 
     override fun onDestroy() {
+        note("служба VPN остановлена")
         main.removeCallbacks(protocolTick)
+        main.removeCallbacks(watchTick)
         worker.execute { stopCore() }
         worker.shutdown()
         super.onDestroy()
@@ -131,6 +163,7 @@ class TigerVpnService : VpnService() {
             val pfd = b.establish() ?: throw IllegalStateException(getString(R.string.vpn_not_allowed))
             tun = pfd
             Mobile.start(pfd.fd.toLong(), mode, mtu.toLong())
+            note("подключено: режим $mode, MTU $mtu, ${transport.ifEmpty { "сеть ?" }}")
 
             profileName = profile.optString("name")
             protocol = Mobile.protocol()
@@ -139,8 +172,12 @@ class TigerVpnService : VpnService() {
             watchNetwork()
             main.removeCallbacks(protocolTick)
             main.postDelayed(protocolTick, PROTOCOL_EVERY_MS)
+            fails = 0
+            main.removeCallbacks(watchTick)
+            main.postDelayed(watchTick, WATCH_EVERY_MS)
         } catch (e: Exception) {
             Log.e(TAG, "connect", e)
+            note("ошибка подключения: ${e.message ?: e}")
             stopCore()
             VpnState.set(VpnState.Phase.ERROR, e.message ?: e.toString())
             stopForegroundCompat()
@@ -160,8 +197,45 @@ class TigerVpnService : VpnService() {
         startForegroundCompat(getString(R.string.vpn_connected, profileName), protocol)
     }
 
+    /**
+     * The watchdog. The core can lose its server without noticing: a dead
+     * session after the phone slept or switched networks. When a page has
+     * not opened through the server for three checks in a row, the core is
+     * restarted; when the core is gone, the tunnel is rebuilt.
+     */
+    private fun watch() {
+        if (tun == null) return
+        if (!Mobile.running()) {
+            note("сторож: ядро не работает, переподключаю")
+            connect()
+            return
+        }
+        if (Mobile.healthy()) {
+            if (fails > 0) note("сторож: сервер снова отвечает")
+            fails = 0
+            return
+        }
+        fails++
+        note("сторож: сервер не ответил ($fails)")
+        val now = System.currentTimeMillis()
+        if (fails >= FAILS_TO_RESTART && now - lastRestart > RESTART_GAP_MS) {
+            lastRestart = now
+            note("сторож: перезапускаю ядро")
+            connect()
+        }
+    }
+
+    private fun note(event: String) {
+        Log.i(TAG, event)
+        try {
+            Mobile.note(event)
+        } catch (_: Throwable) {
+        }
+    }
+
     private fun shutdown() {
         main.removeCallbacks(protocolTick)
+        main.removeCallbacks(watchTick)
         unwatchNetwork()
         stopCore()
         VpnState.set(VpnState.Phase.DISCONNECTED)
@@ -197,15 +271,25 @@ class TigerVpnService : VpnService() {
 
     /**
      * Follows the real network. The app itself is outside the VPN, so its
-     * default network is the Wi-Fi or mobile one. When the MTU that network
-     * needs differs, the tunnel is rebuilt with the new one.
+     * default network is the Wi-Fi or mobile one. When it changes, say from
+     * Wi-Fi to mobile, the core is restarted: its sessions to the servers
+     * belonged to the old network and would hang until they time out. When
+     * the MTU the network needs differs, the tunnel is rebuilt with it.
      */
     private fun watchNetwork() {
         if (networkCallback != null) return
         val cm = getSystemService(ConnectivityManager::class.java)
         val cb = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(network: Network) {
-                setUnderlyingNetworks(arrayOf(network))
+            override fun onAvailable(n: Network) {
+                setUnderlyingNetworks(arrayOf(n))
+                worker.execute {
+                    val old = network
+                    network = n
+                    if (tun != null && old != null && old != n) {
+                        note("сеть сменилась (${activeNetwork(n).first.ifEmpty { "?" }}), переподключаю")
+                        connect()
+                    }
+                }
             }
 
             override fun onLinkPropertiesChanged(network: Network, lp: LinkProperties) {
@@ -214,7 +298,7 @@ class TigerVpnService : VpnService() {
                     val (transport, linkMtu) = activeNetwork(network)
                     val want = Mobile.pickMTU(transport, linkMtu.toLong()).toInt()
                     if (want != mtu) {
-                        Log.i(TAG, "network changed, MTU $mtu -> $want")
+                        note("MTU сети $mtu -> $want, переподключаю")
                         connect()
                     }
                 }
@@ -227,6 +311,7 @@ class TigerVpnService : VpnService() {
     private fun unwatchNetwork() {
         val cb = networkCallback ?: return
         networkCallback = null
+        network = null
         try {
             getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(cb)
         } catch (_: IllegalArgumentException) {

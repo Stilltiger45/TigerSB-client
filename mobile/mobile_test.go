@@ -88,3 +88,29 @@ func TestStateKeyEncryptsSavedKey(t *testing.T) {
 		t.Fatalf("current %q %v", s, err)
 	}
 }
+
+func TestJournal(t *testing.T) {
+	dir := t.TempDir()
+	Init(dir, "test")
+	if j := Journal(); j != "Журнал пуст" {
+		t.Errorf("empty journal: %q", j)
+	}
+	Note("сторож: переподключаю")
+	os.WriteFile(filepath.Join(dir, xrayLog), []byte("warning one\nwarning two\n"), 0o600)
+	j := Journal()
+	if !strings.Contains(j, "сторож: переподключаю") || !strings.Contains(j, "warning two") || strings.Contains(j, "Сбой ядра") {
+		t.Errorf("journal %q", j)
+	}
+
+	// A log over the limit keeps its newer half, from a line start.
+	big := strings.Repeat("old line\n", maxLog/9+10) + "newest\n"
+	os.WriteFile(filepath.Join(dir, eventsFile), []byte(big), 0o600)
+	Note("after")
+	b, _ := os.ReadFile(filepath.Join(dir, eventsFile))
+	if len(b) > maxLog/2+100 || !strings.HasPrefix(string(b), "old line\n") || !strings.Contains(string(b), "newest\n") {
+		t.Errorf("trimmed log: %d bytes, starts %q", len(b), b[:20])
+	}
+	if Healthy() {
+		t.Error("healthy without a running VPN")
+	}
+}
