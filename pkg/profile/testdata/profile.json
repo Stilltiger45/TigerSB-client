@@ -1,0 +1,52 @@
+{
+  "v": 1,
+  "id": "home",
+  "name": "Домашняя сеть",
+  "updated": "2026-10-25T10:00:00Z",
+  "update": {"url": "https://panel.example.org/sub/abc", "every": "6h", "mirrors": ["https://mirror.example.org/sub/abc"]},
+  "exits": [
+    {
+      "id": "nl-1",
+      "role": "foreign",
+      "transports": [
+        {
+          "id": "xhttp-cdn",
+          "prio": 20,
+          "xray": {
+            "protocol": "vless",
+            "settings": {"vnext": [{"address": "cdn.example.org", "port": 443, "users": [{"id": "5783a3e7-e373-51cd-8642-c83782b807c5", "encryption": "none"}]}]},
+            "streamSettings": {"network": "xhttp", "security": "tls", "tlsSettings": {"serverName": "cdn.example.org", "fingerprint": "chrome"}, "xhttpSettings": {"path": "/x", "mode": "packet-up"}}
+          }
+        },
+        {
+          "id": "reality",
+          "prio": 10,
+          "xray": {
+            "protocol": "vless",
+            "settings": {"vnext": [{"address": "203.0.113.10", "port": 443, "users": [{"id": "5783a3e7-e373-51cd-8642-c83782b807c5", "encryption": "none", "flow": "xtls-rprx-vision"}]}]},
+            "streamSettings": {"network": "raw", "security": "reality", "realitySettings": {"serverName": "www.example.com", "fingerprint": "chrome", "publicKey": "Y4CRAOigwd_rCfP7TmrAzkDtnlNMBXxThbt1Uy8lHwY", "shortId": "6ba85179e30d4fc2"}}
+          }
+        }
+      ]
+    },
+    {
+      "id": "msk-1",
+      "role": "ru",
+      "transports": [
+        {
+          "id": "grpc",
+          "prio": 10,
+          "xray": {
+            "protocol": "vless",
+            "settings": {"vnext": [{"address": "198.51.100.20", "port": 443, "users": [{"id": "5783a3e7-e373-51cd-8642-c83782b807c5", "encryption": "none"}]}]},
+            "streamSettings": {"network": "grpc", "security": "reality", "realitySettings": {"serverName": "ya.ru", "fingerprint": "chrome", "publicKey": "Y4CRAOigwd_rCfP7TmrAzkDtnlNMBXxThbt1Uy8lHwY", "shortId": "6ba8"}, "grpcSettings": {"serviceName": "api"}}
+          }
+        }
+      ]
+    }
+  ],
+  "routing": {
+    "blocked": {"domains": ["youtube.com", "full:www.instagram.com", "regexp:^.*\\.googlevideo\\.com$"], "ips": ["149.154.160.0/20"]},
+    "direct": {"domains": ["domain:example-bank.ru"], "ips": ["93.184.215.14"], "apps": ["ru.sberbankmobile"]}
+  }
+}
