@@ -252,7 +252,7 @@ func cmdRun(args []string) error {
 	if err != nil {
 		return err
 	}
-	defer inst.Close()
+	defer engine.Stop(inst)
 	fmt.Printf("VPN запущен: %s, режим %s.", title(p), *f.mode)
 	if *f.socks != "" {
 		fmt.Printf(" SOCKS5 %s.", *f.socks)

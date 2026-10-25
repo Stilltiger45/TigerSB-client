@@ -73,6 +73,8 @@ type Options struct {
 	Mode     Mode
 	Inbounds []Inbound
 	LogLevel string
+	// LogFile, when set, gets Xray's log instead of stderr.
+	LogFile string
 }
 
 // privateRanges never leave the device's own network.
@@ -248,7 +250,7 @@ func Build(p *profile.Profile, opt Options) ([]byte, error) {
 	rules = append(rules, rest.apply(rule{Type: "field", Network: "tcp,udp", RuleTag: "rest"}))
 
 	cfg := map[string]any{
-		"log":       map[string]any{"loglevel": opt.LogLevel},
+		"log":       logConfig(opt),
 		"inbounds":  inbounds(opt.Inbounds),
 		"outbounds": outbounds,
 		"routing": map[string]any{
@@ -410,6 +412,15 @@ func dnsConfig(mode Mode, blocked, direct []string) map[string]any {
 		servers = append(servers, "localhost")
 	}
 	return map[string]any{"tag": TagDNS, "queryStrategy": "UseIPv4", "servers": servers}
+}
+
+func logConfig(opt Options) map[string]any {
+	l := map[string]any{"loglevel": opt.LogLevel}
+	if opt.LogFile != "" {
+		l["error"] = opt.LogFile
+		l["access"] = "none"
+	}
+	return l
 }
 
 func inbounds(in []Inbound) []any {

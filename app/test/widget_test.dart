@@ -81,6 +81,11 @@ class FakeCore implements Core {
     profile = _profile(profile!.name, userApps: packages);
   }
 
+  int journals = 0;
+
+  @override
+  Future<void> shareJournal() async => journals++;
+
   @override
   Future<String?> takeKey() async => null;
 
@@ -214,6 +219,12 @@ void main() {
     await tester.pumpAndSettle();
     expect(copied, key);
     expect(find.text('Ключ подписки скопирован'), findsOneWidget);
+
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Отправить журнал'));
+    await tester.pumpAndSettle();
+    expect(core.journals, 1);
   });
 
   testWidgets('the menu opens apps outside the VPN: MAX is locked, others toggle', (tester) async {
