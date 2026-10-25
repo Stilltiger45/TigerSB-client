@@ -112,11 +112,32 @@ for mode in $modes; do
   done
 done
 
+# Wi-Fi off and on again: the VPN must move to mobile data and back by itself.
+check() {
+  local pid g y e
+  pid=$(adb shell pidof app.tigersb | tr -d '\r')
+  g=$(http connectivitycheck.gstatic.com /generate_204)
+  y=$(http ya.ru /)
+  e=$(http example.com /)
+  line="$(date +%T) $1 ${pid:-none} - $g $y $e"
+  echo "$line" | tee -a "$log"
+  case "$line" in *FAIL* | *none*) failed=1 ;; esac
+}
+for i in $(seq "${SOAK_SWITCHES:-4}"); do
+  adb shell svc wifi disable
+  sleep 25
+  check mobile
+  adb shell svc wifi enable
+  sleep 30
+  check wifi
+done
+
 kill $logcat
-# Restarts of the core: a mode switch makes one, anything far above that is a loop.
+# Restarts of the core: the connect, a mode switch and a network switch make
+# one each; anything far above that is a loop.
 restarts=$(grep -c 'TigerSB.*подключено' "$out/logcat.txt")
 echo "core starts: $restarts" | tee -a "$log"
-if [ "$restarts" -gt 10 ]; then failed=1; fi
+if [ "$restarts" -gt $((4 + 2 * ${SOAK_SWITCHES:-4} + 4)) ]; then failed=1; fi
 noise='s_glBindAttribLocation|Choreographer|OpenGLRenderer|EGL_emulation|HostConnection|eglCodecCommon'
 annotate notice "soak" "$(cat "$log")"
 annotate warning "app log" "$(grep -E 'GoLog|TigerSB|AndroidRuntime|FATAL|panic|Fatal signal|lowmemory|ActivityManager.*tigersb' "$out/logcat.txt" | grep -vE "$noise" | tail -150)"

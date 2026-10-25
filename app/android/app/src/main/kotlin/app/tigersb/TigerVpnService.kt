@@ -12,6 +12,7 @@ import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.Network
 import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
 import android.os.Handler
@@ -51,8 +52,11 @@ class TigerVpnService : VpnService() {
         private const val FAILS_TO_RESTART = 3
         private const val RESTART_GAP_MS = 5 * 60_000L
 
-        // A network that flaps restarts the core at most this often.
-        private const val NET_RESTART_GAP_MS = 15_000L
+        // After a network change the core restarts once the network has
+        // been stable for NET_SETTLE_MS, and at most once per
+        // NET_RESTART_GAP_MS.
+        private const val NET_SETTLE_MS = 1_500L
+        private const val NET_RESTART_GAP_MS = 10_000L
 
         // Addresses inside the TUN. DNS goes to TUN_DNS, the core answers it.
         private const val TUN_ADDR = "172.19.0.1"
@@ -95,6 +99,7 @@ class TigerVpnService : VpnService() {
     // The network the core's connections use; a new one means a restart.
     private var network: Network? = null
     private var lastNetRestart = 0L
+    private val netRestart = Runnable { worker.execute { restartForNetwork() } }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
@@ -129,12 +134,14 @@ class TigerVpnService : VpnService() {
         note("служба VPN остановлена")
         main.removeCallbacks(protocolTick)
         main.removeCallbacks(watchTick)
+        main.removeCallbacks(netRestart)
         worker.execute { stopCore() }
         worker.shutdown()
         super.onDestroy()
     }
 
     private fun connect() {
+        main.removeCallbacks(netRestart)
         VpnState.set(VpnState.Phase.CONNECTING)
         try {
             Core.init(this)
@@ -245,6 +252,7 @@ class TigerVpnService : VpnService() {
     private fun shutdown() {
         main.removeCallbacks(protocolTick)
         main.removeCallbacks(watchTick)
+        main.removeCallbacks(netRestart)
         unwatchNetwork()
         stopCore()
         VpnState.set(VpnState.Phase.DISCONNECTED)
@@ -279,41 +287,26 @@ class TigerVpnService : VpnService() {
     }
 
     /**
-     * Follows the real network. The app itself is outside the VPN, so its
-     * default network is the Wi-Fi or mobile one. When it changes, say from
-     * Wi-Fi to mobile, the core is restarted: its sessions to the servers
-     * belonged to the old network and would hang until they time out. When
-     * the MTU the network needs differs, the tunnel is rebuilt with it.
+     * Follows the real network: the best one with internet that is not a
+     * VPN, the one Android would use without us. When it changes, say from
+     * Wi-Fi to mobile and back, the core is restarted: its sessions to the
+     * servers belonged to the old network and would hang until they time
+     * out. When the MTU the network needs differs, the tunnel is rebuilt
+     * with it. The default-network callback is no good here: Android may
+     * report our own tunnel as the default network.
      */
     private fun watchNetwork() {
         if (networkCallback != null) return
         val cm = getSystemService(ConnectivityManager::class.java)
+        val request = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            .build()
         val cb = object : ConnectivityManager.NetworkCallback() {
-            // Android 7 does not always follow onAvailable with the
-            // capabilities, so both lead here; a repeat does nothing.
-            override fun onAvailable(n: Network) {
-                cm.getNetworkCapabilities(n)?.let { onCapabilitiesChanged(n, it) }
-            }
+            override fun onAvailable(n: Network) = follow(n)
 
-            override fun onCapabilitiesChanged(n: Network, caps: NetworkCapabilities) {
-                // Android may report our own tunnel as the default network.
-                // Following it would restart the VPN on every restart.
-                if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return
-                worker.execute {
-                    val old = network
-                    if (old == n) return@execute
-                    network = n
-                    setUnderlyingNetworks(arrayOf(n))
-                    if (tun == null || old == null) return@execute
-                    val now = SystemClock.elapsedRealtime()
-                    if (now - lastNetRestart < NET_RESTART_GAP_MS) {
-                        note("сеть сменилась снова, жду: переподключения не чаще раза в ${NET_RESTART_GAP_MS / 1000} с")
-                        return@execute
-                    }
-                    lastNetRestart = now
-                    note("сеть сменилась (${activeNetwork(n).first.ifEmpty { "?" }}), переподключаю")
-                    connect()
-                }
+            override fun onLost(n: Network) {
+                worker.execute { if (n == network) note("сеть пропала, жду другую") }
             }
 
             override fun onLinkPropertiesChanged(network: Network, lp: LinkProperties) {
@@ -328,8 +321,33 @@ class TigerVpnService : VpnService() {
                 }
             }
         }
-        cm.registerDefaultNetworkCallback(cb)
+        // Both give the network that satisfies the request now and a new
+        // onAvailable when another one takes over.
+        if (Build.VERSION.SDK_INT >= 31) cm.registerBestMatchingNetworkCallback(request, cb, main)
+        else cm.requestNetwork(request, cb)
         networkCallback = cb
+    }
+
+    private fun follow(n: Network) {
+        worker.execute {
+            val old = network
+            if (old == n) return@execute
+            network = n
+            setUnderlyingNetworks(arrayOf(n))
+            if (tun == null || old == null) return@execute
+            // A network that flaps restarts the core once, after it settles.
+            val wait = maxOf(NET_SETTLE_MS, lastNetRestart + NET_RESTART_GAP_MS - SystemClock.elapsedRealtime())
+            main.removeCallbacks(netRestart)
+            main.postDelayed(netRestart, wait)
+        }
+    }
+
+    private fun restartForNetwork() {
+        val n = network ?: return
+        if (tun == null) return
+        lastNetRestart = SystemClock.elapsedRealtime()
+        note("сеть сменилась (${activeNetwork(n).first.ifEmpty { "?" }}), переподключаю")
+        connect()
     }
 
     private fun unwatchNetwork() {
