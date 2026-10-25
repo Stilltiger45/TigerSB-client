@@ -10,8 +10,9 @@ export PATH="$(go env GOPATH)/bin:$PATH"
 gomobile init
 
 mkdir -p app/android/app/libs
+# TARGETS lets CI add android/amd64 for the emulator.
 gomobile bind \
-  -target=android/arm64,android/arm \
+  -target="${TARGETS:-android/arm64,android/arm}" \
   -androidapi 24 \
   -javapkg app.tigersb \
   -trimpath \

@@ -124,3 +124,57 @@ jobs:
             **Android:** скачайте `TigerSB-${{ steps.ver.outputs.name }}-android.apk` и откройте его на телефоне. Если телефон старше 2017 года и приложение не ставится, возьмите `…-android-old-phones.apk`.
 
             После установки вставьте ключ или отсканируйте QR-код и нажмите «Подключить».
+
+  # Starts the release build on an emulator and checks that the key screen
+  # appears. Logcat and a screenshot are kept as the artifact
+  # TigerSB-android-smoke, so a startup failure can be read without a phone.
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.8
+          channel: stable
+          cache: true
+
+      - name: Go core (gomobile, x86_64 for the emulator)
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
+          TARGETS: android/amd64
+        run: scripts/build-core-android.sh
+
+      - name: Build APK
+        working-directory: app
+        run: flutter build apk --release --target-platform android-x64
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Launch on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: scripts/smoke-android.sh app/build/app/outputs/flutter-apk/app-release.apk smoke
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: TigerSB-android-smoke
+          path: smoke/
