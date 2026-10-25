@@ -86,3 +86,5 @@ cd app && flutter build apk --split-per-abi
 ## Лицензия
 
 GPL-3.0, см. [LICENSE](LICENSE). Клиент TUIC взят из sing-box (библиотека sing-quic), которая распространяется под GPL-3.0, поэтому и весь клиент открыт под этой лицензией.
+
+Сторонние Go-библиотеки и их лицензии перечислены в [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md). Серверная часть, [TigerSB-panel](https://github.com/Stilltiger45/TigerSB-panel), тоже под GPL-3.0.
