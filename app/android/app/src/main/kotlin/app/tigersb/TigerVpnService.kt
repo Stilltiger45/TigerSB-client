@@ -303,7 +303,10 @@ class TigerVpnService : VpnService() {
             .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
             .build()
         val cb = object : ConnectivityManager.NetworkCallback() {
-            override fun onAvailable(n: Network) = follow(n)
+            override fun onAvailable(n: Network) {
+                val caps = cm.getNetworkCapabilities(n) ?: return
+                if (!caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) follow(n)
+            }
 
             override fun onLost(n: Network) {
                 worker.execute { if (n == network) note("сеть пропала, жду другую") }
@@ -323,8 +326,7 @@ class TigerVpnService : VpnService() {
         }
         // Both give the network that satisfies the request now and a new
         // onAvailable when another one takes over.
-        if (Build.VERSION.SDK_INT >= 31) cm.registerBestMatchingNetworkCallback(request, cb, main)
-        else cm.requestNetwork(request, cb)
+        cm.registerDefaultNetworkCallback(cb)
         networkCallback = cb
     }
 
