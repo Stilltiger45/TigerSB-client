@@ -31,6 +31,10 @@ adb exec-out screencap -p > "$out/screen.png"
 adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1
 adb pull /sdcard/ui.xml "$out/ui.xml" >/dev/null 2>&1
 adb logcat -d -v brief > "$out/logcat.txt"
+# The emulator's GL driver writes to stderr, which the Go core sends to
+# logcat as GoLog; drop that noise from what gets reported.
+noise='s_glBindAttribLocation|Choreographer|OpenGLRenderer|EGL_emulation|HostConnection|eglCodecCommon'
+
 pid=$(adb shell pidof app.tigersb | tr -d '\r')
 echo "app pid: ${pid:-not running}"
 
@@ -39,12 +43,12 @@ if grep -q "Подключить" "$out/ui.xml" 2>/dev/null; then
   exit 0
 fi
 
-texts=$(grep -o 'text="[^"]*"' "$out/ui.xml" 2>/dev/null | sort -u | head -40 | tr '\n' ' ')
+texts=$(grep -oE '(text|content-desc)="[^"]+"' "$out/ui.xml" 2>/dev/null | sort -u | head -40 | tr '\n' ' ')
 annotate warning "UI" "pid=${pid:-none}; texts: ${texts:-none}"
 annotate error "crash" "$(grep -A30 -E 'FATAL EXCEPTION|Fatal signal|ANR in|panic:' "$out/logcat.txt" | head -150)"
 if [ -n "$pid" ]; then
-  annotate warning "app log" "$(grep -E "\( *$pid\)" "$out/logcat.txt" | grep -vE 'Choreographer|OpenGLRenderer|EGL_emulation|HostConnection' | tail -120)"
+  annotate warning "app log" "$(grep -E "\( *$pid\)" "$out/logcat.txt" | grep -vE "$noise" | tail -120)"
 fi
-annotate notice "tags" "$(grep -E 'flutter|GoLog|TigerSB|AndroidRuntime|DEBUG' "$out/logcat.txt" | tail -80)"
+annotate notice "tags" "$(grep -E 'flutter|GoLog|TigerSB|AndroidRuntime|DEBUG' "$out/logcat.txt" | grep -vE "$noise" | tail -80)"
 echo "::error::Экран ключа не появился"
 exit 1
