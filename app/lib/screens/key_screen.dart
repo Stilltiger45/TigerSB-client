@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../core.dart';
+import '../ui/buttons.dart';
+import '../ui/fx.dart';
+import '../ui/palette.dart';
 import 'scan_screen.dart';
 
 /// First screen: paste or scan the key, then the VPN starts at once.
@@ -73,74 +76,105 @@ class _KeyScreenState extends State<KeyScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Scaffold(
-      body: SafeArea(
-        child: Center(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.all(24),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxWidth: 480),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Icon(Icons.shield_outlined, size: 72, color: theme.colorScheme.primary),
-                  const SizedBox(height: 16),
-                  Text('TigerSB', textAlign: TextAlign.center, style: theme.textTheme.headlineMedium),
-                  const SizedBox(height: 8),
-                  Text(
-                    'Вставьте ключ или ссылку на подписку любого VPN, либо отсканируйте QR-код.',
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodyLarge,
-                  ),
-                  const SizedBox(height: 24),
-                  TextField(
-                    controller: _text,
-                    enabled: !_busy,
-                    minLines: 2,
-                    maxLines: 4,
-                    decoration: InputDecoration(
-                      border: const OutlineInputBorder(),
-                      labelText: 'Ключ',
-                      hintText: 'tigersb://…, https://… или vless://…',
-                      errorText: _error,
-                      errorMaxLines: 4,
+    return Ambient(
+      fx: _busy ? Fx.connecting : Fx.idle,
+      child: Scaffold(
+        backgroundColor: Colors.transparent,
+        body: SafeArea(
+          child: Center(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 460),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const _Logo(),
+                    const SizedBox(height: 18),
+                    const Text(
+                      'TIGERSB',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 40, fontWeight: FontWeight.w900, letterSpacing: 6, height: 1),
                     ),
-                    onSubmitted: (_) => _submit(),
-                  ),
-                  const SizedBox(height: 16),
-                  FilledButton.icon(
-                    onPressed: _busy ? null : _submit,
-                    icon: _busy
-                        ? const SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                        : const Icon(Icons.power_settings_new),
-                    label: Text(_busy ? 'Загружаю профиль…' : 'Подключить'),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: _busy ? null : _paste,
-                          icon: const Icon(Icons.content_paste),
-                          label: const Text('Вставить'),
-                        ),
+                    const SizedBox(height: 8),
+                    Text('V P N', textAlign: TextAlign.center, style: capsStyle.copyWith(letterSpacing: 6)),
+                    const SizedBox(height: 22),
+                    const Text(
+                      'Вставьте ключ или ссылку на подписку любого VPN, либо отсканируйте QR-код.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(color: Palette.muted, fontSize: 15, height: 1.4),
+                    ),
+                    const SizedBox(height: 26),
+                    TextField(
+                      controller: _text,
+                      enabled: !_busy,
+                      minLines: 2,
+                      maxLines: 4,
+                      style: const TextStyle(fontSize: 14),
+                      decoration: InputDecoration(
+                        labelText: 'Ключ',
+                        hintText: 'tigersb://…, https://… или vless://…',
+                        errorText: _error,
+                        errorMaxLines: 4,
                       ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: OutlinedButton.icon(
-                          onPressed: _busy ? null : _scan,
-                          icon: const Icon(Icons.qr_code_scanner),
-                          label: const Text('QR-код'),
+                      onSubmitted: (_) => _submit(),
+                    ),
+                    const SizedBox(height: 18),
+                    FireButton(
+                      onPressed: _busy ? null : _submit,
+                      busy: _busy,
+                      icon: Icons.power_settings_new_rounded,
+                      label: _busy ? 'Загружаю профиль…' : 'Подключить',
+                    ),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: GlassButton(
+                            onPressed: _busy ? null : _paste,
+                            icon: Icons.content_paste_rounded,
+                            label: 'Вставить',
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
-                ],
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: GlassButton(
+                            onPressed: _busy ? null : _scan,
+                            icon: Icons.qr_code_scanner_rounded,
+                            label: 'QR-код',
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// The tiger in a glass ring, glowing.
+class _Logo extends StatelessWidget {
+  const _Logo();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Container(
+        width: 132,
+        height: 132,
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          gradient: const RadialGradient(colors: [Color(0x1FFF7A1A), Color(0x05FFFFFF)]),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+          boxShadow: [BoxShadow(color: Palette.orange.withValues(alpha: 0.25), blurRadius: 50)],
+        ),
+        padding: const EdgeInsets.all(14),
+        child: Image.asset('assets/tiger.png'),
       ),
     );
   }
