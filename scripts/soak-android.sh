@@ -85,7 +85,7 @@ tap "Allow" || tap "ALLOW" || true
 sleep 15
 
 log="$out/soak.txt"
-echo "time mode pid tun google ya.ru example rss_kb threads fds" > "$log"
+echo "time mode pid tun_addrs google ya.ru example rss_kb threads fds" > "$log"
 failed=0
 for mode in $modes; do
   tap "$mode" || { failed=1; continue; }
@@ -93,7 +93,8 @@ for mode in $modes; do
   end=$((SECONDS + minutes * 60))
   while [ $SECONDS -lt $end ]; do
     pid=$(adb shell pidof app.tigersb | tr -d '\r')
-    tun=$(adb shell ip -o addr show tun0 2>/dev/null | grep -c inet)
+    # A reconnect may bring the tunnel up as tun1 while tun0 goes away.
+    tun=$(adb shell ip -o addr show 2>/dev/null | grep -cE ' tun[0-9]+ +inet')
     g=$(http connectivitycheck.gstatic.com /generate_204)
     y=$(http ya.ru /)
     e=$(http example.com /)
@@ -112,6 +113,10 @@ for mode in $modes; do
 done
 
 kill $logcat
+# Restarts of the core: a mode switch makes one, anything far above that is a loop.
+restarts=$(grep -c 'TigerSB.*подключено' "$out/logcat.txt")
+echo "core starts: $restarts" | tee -a "$log"
+if [ "$restarts" -gt 10 ]; then failed=1; fi
 noise='s_glBindAttribLocation|Choreographer|OpenGLRenderer|EGL_emulation|HostConnection|eglCodecCommon'
 annotate notice "soak" "$(cat "$log")"
 annotate warning "app log" "$(grep -E 'GoLog|TigerSB|AndroidRuntime|FATAL|panic|Fatal signal|lowmemory|ActivityManager.*tigersb' "$out/logcat.txt" | grep -vE "$noise" | tail -150)"
