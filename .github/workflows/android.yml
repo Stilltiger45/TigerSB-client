@@ -1,0 +1,107 @@
+name: Android
+
+# Every pull request builds a test APK. A tag like v0.1.0 builds the release
+# APKs and publishes them on the Releases page.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.8
+          channel: stable
+          cache: true
+
+      - name: Version
+        id: ver
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            echo "name=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=0.0.0" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Go core (gomobile)
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
+        run: scripts/build-core-android.sh
+
+      - name: Flutter checks
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter analyze
+          flutter test
+
+      # Without these secrets the APK is signed with a throwaway debug key and
+      # a later version will not install over it. See README.
+      - name: Signing key
+        working-directory: app/android
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE" ]; then
+            echo "::warning::Секреты подписи не заданы: APK подписан отладочным ключом"
+            exit 0
+          fi
+          echo "$KEYSTORE" | base64 -d > app/release.jks
+          {
+            echo "storeFile=release.jks"
+            echo "storePassword=$STORE_PASSWORD"
+            echo "keyAlias=$KEY_ALIAS"
+            echo "keyPassword=${KEY_PASSWORD:-$STORE_PASSWORD}"
+          } > key.properties
+
+      - name: Build APK
+        working-directory: app
+        run: |
+          flutter build apk --release --split-per-abi \
+            --target-platform android-arm,android-arm64 \
+            --build-name "${{ steps.ver.outputs.name }}" \
+            --build-number "${{ github.run_number }}"
+          mkdir -p ../dist
+          v="${{ steps.ver.outputs.name }}"
+          cp build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "../dist/TigerSB-$v-android.apk"
+          cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "../dist/TigerSB-$v-android-old-phones.apk"
+          ls -lh ../dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TigerSB-android
+          path: dist/*.apk
+
+      - name: Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.apk
+          body: |
+            **Android:** скачайте `TigerSB-${{ steps.ver.outputs.name }}-android.apk` и откройте его на телефоне. Если телефон старше 2017 года и приложение не ставится, возьмите `…-android-old-phones.apk`.
+
+            После установки вставьте ключ или отсканируйте QR-код и нажмите «Подключить».

@@ -56,10 +56,16 @@ type built struct {
 // build makes the config, checks that real Xray accepts it and decodes it.
 func build(t *testing.T, p *profile.Profile, mode xrayconf.Mode) (built, map[string]string) {
 	t.Helper()
-	cfg, err := xrayconf.Build(p, xrayconf.Options{
+	return buildOpt(t, p, xrayconf.Options{
 		Mode:     mode,
 		Inbounds: []xrayconf.Inbound{{Tag: "socks-in", Protocol: "socks", Listen: "127.0.0.1", Port: 10808}},
 	})
+}
+
+func buildOpt(t *testing.T, p *profile.Profile, opt xrayconf.Options) (built, map[string]string) {
+	t.Helper()
+	mode := opt.Mode
+	cfg, err := xrayconf.Build(p, opt)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,5 +233,26 @@ func TestBareVLESSMainModeUsesVPN(t *testing.T) {
 	_, dest := build(t, p, xrayconf.ModeMain)
 	if dest["rest"] != "foreign/link/vless" || dest["direct-domains"] != "direct" {
 		t.Errorf("rules %v", dest)
+	}
+}
+
+func TestTUNHijacksDNSAndRefusesIPv6(t *testing.T) {
+	b, dest := buildOpt(t, fixture(t), xrayconf.Options{
+		Mode:     xrayconf.ModeMain,
+		Inbounds: []xrayconf.Inbound{{Tag: "tun-in", Protocol: "tun", MTU: 1400}},
+	})
+	if dest["tun-dns"] != xrayconf.TagDNSOut || dest["ipv6"] != xrayconf.TagBlock || dest["rest"] != "ru/msk-1/grpc" {
+		t.Errorf("rules %v", dest)
+	}
+	// DNS to the TUN address must be answered before the private-range rule sends it direct.
+	if b.Routing.Rules[0].RuleTag != "tun-dns" {
+		t.Errorf("first rule %q", b.Routing.Rules[0].RuleTag)
+	}
+	found := false
+	for _, o := range b.Outbounds {
+		found = found || o.Tag == xrayconf.TagDNSOut && o.Protocol == "dns"
+	}
+	if !found {
+		t.Error("dns outbound missing")
 	}
 }

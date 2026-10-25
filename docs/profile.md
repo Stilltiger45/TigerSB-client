@@ -54,7 +54,8 @@
     "direct": {"domains": ["domain:example-bank.ru"], "ips": [], "apps": ["ru.sberbankmobile"]},
     "no_builtin_direct": false
   },
-  "probe": {"url": "https://www.gstatic.com/generate_204", "interval": "1m"}
+  "probe": {"url": "https://www.gstatic.com/generate_204", "interval": "1m"},
+  "geodata": {"geosite": "https://panel.example.org/geo/geosite.dat", "geoip": "https://panel.example.org/geo/geoip.dat"}
 }
 ```
 
@@ -69,8 +70,11 @@
 | `routing.direct` | что идёт напрямую: банки, вузы и другие сайты, которые ломаются с любым VPN. `apps` — пакеты Android, их трафик не попадает в VPN |
 | `no_builtin_direct` | выключить встроенный в клиент список банков, госуслуг и вузов |
 | `update` | откуда обновлять профиль; `mirrors` пробуются, если основной адрес недоступен |
+| `geodata` | откуда скачивать `geosite.dat` и `geoip.dat`, если списки используют `geosite:` или `geoip:`. Необязательно: по умолчанию файлы берутся из runetfreedom |
 
-Правила доменов: `domain:`, `full:`, `keyword:`, `regexp:`, `geosite:` или просто домен (читается как `domain:`). Правила адресов: адрес, подсеть или `geoip:`. Для `geosite:` и `geoip:` клиенту нужны `geosite.dat` и `geoip.dat` (например, из [runetfreedom/russia-v2ray-rules-dat](https://github.com/runetfreedom/russia-v2ray-rules-dat)).
+Правила доменов: `domain:`, `full:`, `keyword:`, `regexp:`, `geosite:` или просто домен (читается как `domain:`). Правила адресов: адрес, подсеть или `geoip:`.
+
+Для `geosite:` и `geoip:` клиент сам скачивает `geosite.dat` и `geoip.dat` (по умолчанию из [runetfreedom/russia-v2ray-rules-dat](https://github.com/runetfreedom/russia-v2ray-rules-dat)) и оставляет в них только те списки, которые есть в профиле: вместо 90 МБ на устройстве лежит 2–3 МБ. Файлы обновляются раз в сутки вместе с профилем. Если в файле нет нужного списка, профиль не применяется и клиент сообщает, какого списка не хватает.
 
 ## Маршрутизация
 
@@ -85,5 +89,7 @@
 | 5 | всё остальное | выход в РФ | за границу | напрямую |
 
 Если выхода в РФ нет, «всё остальное» в режиме `main` идёт напрямую. Если нет ни выхода в РФ, ни списков блокировок (одиночная ссылка `vless://`), «всё остальное» идёт за границу, чтобы VPN вообще работал.
+
+На Android весь трафик телефона идёт через системный VPN (TUN), на Windows так же будет в приложении. В этом режиме клиент дополнительно отвечает на DNS-запросы сам (заблокированные домены резолвятся через выход за границей, а не у провайдера) и отклоняет IPv6: DNS не выдаёт AAAA-записи, а приложения сразу переходят на IPv4, поэтому трафик не уходит мимо VPN и не ломается на серверах без IPv6.
 
 Когда у роли несколько транспортов, клиент собирает их в балансировщик Xray `leastPing` с замерами через `observatory`. Пока замеров нет, трафик идёт через транспорт с лучшим `prio`.

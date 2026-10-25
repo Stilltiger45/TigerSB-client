@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="vpn_channel">Состояние VPN</string>
+    <string name="vpn_connecting">Подключение…</string>
+    <string name="vpn_connected">Подключено: %1$s</string>
+    <string name="vpn_disconnect">Отключить</string>
+    <string name="vpn_no_key">Сначала добавьте ключ в приложении</string>
+    <string name="vpn_not_allowed">Android не дал включить VPN. Откройте приложение и разрешите подключение</string>
+</resources>

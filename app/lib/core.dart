@@ -1,0 +1,143 @@
+import 'dart:async';
+import 'dart:convert';
+
+import 'package:flutter/services.dart';
+
+/// The imported profile as the core describes it.
+class ProfileInfo {
+  ProfileInfo({
+    required this.name,
+    required this.hasRU,
+    required this.fetched,
+    required this.exits,
+  });
+
+  final String name;
+  final bool hasRU;
+  final DateTime? fetched;
+  final List<ExitInfo> exits;
+
+  factory ProfileInfo.fromJson(Map<String, dynamic> j) => ProfileInfo(
+        name: j['name'] as String? ?? '',
+        hasRU: j['hasRU'] as bool? ?? false,
+        fetched: DateTime.tryParse(j['fetched'] as String? ?? '')?.toLocal(),
+        exits: [
+          for (final e in (j['exits'] as List? ?? const []))
+            ExitInfo(
+              id: e['id'] as String,
+              role: e['role'] as String,
+              transports: List<String>.from(e['transports'] as List? ?? const []),
+            ),
+        ],
+      );
+
+  static ProfileInfo? parse(String? s) =>
+      s == null || s.isEmpty ? null : ProfileInfo.fromJson(jsonDecode(s) as Map<String, dynamic>);
+}
+
+class ExitInfo {
+  ExitInfo({required this.id, required this.role, required this.transports});
+  final String id;
+  final String role;
+  final List<String> transports;
+}
+
+enum Phase { disconnected, connecting, connected, error }
+
+class VpnStatus {
+  const VpnStatus(this.phase, [this.error]);
+  final Phase phase;
+  final String? error;
+
+  static VpnStatus fromMap(Map<dynamic, dynamic> m) => VpnStatus(
+        Phase.values.firstWhere((p) => p.name == m['phase'], orElse: () => Phase.disconnected),
+        m['error'] as String?,
+      );
+}
+
+/// Routing modes, as the core names them.
+enum Mode { main, all }
+
+/// Everything the screens need from the platform. [PlatformCore] talks to the
+/// Android side; tests use a fake.
+abstract class Core {
+  Future<ProfileInfo?> current();
+  Future<ProfileInfo> addKey(String key);
+  Future<ProfileInfo> refresh();
+  Future<void> forget();
+  Future<Mode> mode();
+  Future<void> setMode(Mode m);
+
+  /// Asks for the VPN permission if needed and starts the VPN. Returns false
+  /// when the user declined.
+  Future<bool> connect();
+  Future<void> disconnect();
+  Stream<VpnStatus> status();
+
+  /// A key the app was opened with (a tigersb:// link), once.
+  Future<String?> takeKey();
+
+  /// Keys that arrive while the app is open.
+  Stream<String> keys();
+}
+
+class CoreError implements Exception {
+  CoreError(this.message);
+  final String message;
+  @override
+  String toString() => message;
+}
+
+class PlatformCore implements Core {
+  PlatformCore() {
+    _ch.setMethodCallHandler((call) async {
+      if (call.method == 'key') _keys.add(call.arguments as String);
+    });
+  }
+
+  static const _ch = MethodChannel('tigersb/core');
+  static const _events = EventChannel('tigersb/status');
+  final _keys = StreamController<String>.broadcast();
+
+  Future<T?> _call<T>(String method, [Map<String, Object?>? args]) async {
+    try {
+      return await _ch.invokeMethod<T>(method, args);
+    } on PlatformException catch (e) {
+      throw CoreError(e.message ?? e.code);
+    }
+  }
+
+  @override
+  Future<ProfileInfo?> current() async => ProfileInfo.parse(await _call<String>('current'));
+
+  @override
+  Future<ProfileInfo> addKey(String key) async => ProfileInfo.parse(await _call<String>('addKey', {'key': key}))!;
+
+  @override
+  Future<ProfileInfo> refresh() async => ProfileInfo.parse(await _call<String>('refresh'))!;
+
+  @override
+  Future<void> forget() => _call('forget');
+
+  @override
+  Future<Mode> mode() async => (await _call<String>('mode')) == 'all' ? Mode.all : Mode.main;
+
+  @override
+  Future<void> setMode(Mode m) => _call('setMode', {'mode': m.name});
+
+  @override
+  Future<bool> connect() async => await _call<bool>('connect') ?? false;
+
+  @override
+  Future<void> disconnect() => _call('disconnect');
+
+  @override
+  Stream<VpnStatus> status() =>
+      _events.receiveBroadcastStream().map((e) => VpnStatus.fromMap(e as Map<dynamic, dynamic>));
+
+  @override
+  Future<String?> takeKey() => _call<String>('takeKey');
+
+  @override
+  Stream<String> keys() => _keys.stream;
+}
