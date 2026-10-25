@@ -1,0 +1,231 @@
+package xrayconf_test
+
+import (
+	"encoding/json"
+	"os"
+	"slices"
+	"testing"
+
+	"github.com/Stilltiger45/TigerSB-client/internal/engine"
+	"github.com/Stilltiger45/TigerSB-client/internal/xrayconf"
+	"github.com/Stilltiger45/TigerSB-client/pkg/profile"
+)
+
+func fixture(t *testing.T) *profile.Profile {
+	t.Helper()
+	b, err := os.ReadFile("../../pkg/profile/testdata/profile.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var p profile.Profile
+	if err := json.Unmarshal(b, &p); err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	return &p
+}
+
+type built struct {
+	Outbounds []struct {
+		Tag      string `json:"tag"`
+		Protocol string `json:"protocol"`
+	} `json:"outbounds"`
+	Routing struct {
+		Rules []struct {
+			RuleTag     string   `json:"ruleTag"`
+			OutboundTag string   `json:"outboundTag"`
+			BalancerTag string   `json:"balancerTag"`
+			Domain      []string `json:"domain"`
+		} `json:"rules"`
+		Balancers []struct {
+			Tag         string   `json:"tag"`
+			Selector    []string `json:"selector"`
+			FallbackTag string   `json:"fallbackTag"`
+		} `json:"balancers"`
+	} `json:"routing"`
+	Observatory *struct {
+		SubjectSelector []string `json:"subjectSelector"`
+	} `json:"observatory"`
+	DNS *struct {
+		Servers []json.RawMessage `json:"servers"`
+	} `json:"dns"`
+}
+
+// build makes the config, checks that real Xray accepts it and decodes it.
+func build(t *testing.T, p *profile.Profile, mode xrayconf.Mode) (built, map[string]string) {
+	t.Helper()
+	cfg, err := xrayconf.Build(p, xrayconf.Options{
+		Mode:     mode,
+		Inbounds: []xrayconf.Inbound{{Tag: "socks-in", Protocol: "socks", Listen: "127.0.0.1", Port: 10808}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.Load(cfg); err != nil {
+		t.Fatalf("mode %s: %v\n%s", mode, err, cfg)
+	}
+	var b built
+	if err := json.Unmarshal(cfg, &b); err != nil {
+		t.Fatal(err)
+	}
+	// ruleTag -> where it sends traffic
+	dest := map[string]string{}
+	for _, r := range b.Routing.Rules {
+		if r.BalancerTag != "" {
+			dest[r.RuleTag] = "balancer:" + r.BalancerTag
+		} else {
+			dest[r.RuleTag] = r.OutboundTag
+		}
+	}
+	return b, dest
+}
+
+func TestMainModeThreeDirections(t *testing.T) {
+	b, dest := build(t, fixture(t), xrayconf.ModeMain)
+
+	want := map[string]string{
+		"dns":             "balancer:foreign",
+		"private":         "direct",
+		"direct-domains":  "direct",
+		"direct-ips":      "direct",
+		"blocked-domains": "balancer:foreign",
+		"blocked-ips":     "balancer:foreign",
+		"rest":            "ru/msk-1/grpc",
+	}
+	for tag, to := range want {
+		if dest[tag] != to {
+			t.Errorf("rule %s goes to %q, want %q", tag, dest[tag], to)
+		}
+	}
+	// Direct rules must come before blocked ones: a bank on a blocked list still goes direct.
+	order := []string{}
+	for _, r := range b.Routing.Rules {
+		order = append(order, r.RuleTag)
+	}
+	if slices.Index(order, "direct-domains") > slices.Index(order, "blocked-domains") || order[len(order)-1] != "rest" {
+		t.Errorf("rule order %v", order)
+	}
+	for _, r := range b.Routing.Rules {
+		if r.RuleTag == "direct-domains" && !slices.Contains(r.Domain, "domain:example-bank.ru") || r.RuleTag == "direct-domains" && !slices.Contains(r.Domain, "domain:gosuslugi.ru") {
+			t.Errorf("direct domains miss the profile or built-in list: %v", r.Domain)
+		}
+	}
+
+	if len(b.Routing.Balancers) != 1 {
+		t.Fatalf("balancers: %+v", b.Routing.Balancers)
+	}
+	bal := b.Routing.Balancers[0]
+	if bal.Tag != "foreign" || bal.FallbackTag != "foreign/nl-1/reality" || !slices.Equal(bal.Selector, []string{"foreign/"}) {
+		t.Errorf("balancer %+v: the best priority transport must be the fallback", bal)
+	}
+	if b.Observatory == nil || !slices.Equal(b.Observatory.SubjectSelector, []string{"foreign/"}) {
+		t.Errorf("observatory %+v", b.Observatory)
+	}
+	if b.DNS == nil || len(b.DNS.Servers) != 2 {
+		t.Errorf("dns %+v", b.DNS)
+	}
+}
+
+func TestAllMode(t *testing.T) {
+	b, dest := build(t, fixture(t), xrayconf.ModeAll)
+	if dest["rest"] != "balancer:foreign" || dest["direct-domains"] != "direct" {
+		t.Errorf("rules %v", dest)
+	}
+	if _, ok := dest["blocked-domains"]; ok {
+		t.Error("all mode does not need blocked rules")
+	}
+	for _, o := range b.Outbounds {
+		if o.Tag == "ru/msk-1/grpc" {
+			return
+		}
+	}
+	t.Error("ru outbound missing")
+}
+
+func TestOffMode(t *testing.T) {
+	b, dest := build(t, fixture(t), xrayconf.ModeOff)
+	if dest["rest"] != "direct" {
+		t.Errorf("rules %v", dest)
+	}
+	for _, o := range b.Outbounds {
+		if o.Protocol == "vless" {
+			t.Errorf("off mode must not open VPN outbounds, got %s", o.Tag)
+		}
+	}
+	if b.DNS != nil || b.Observatory != nil {
+		t.Error("off mode needs no DNS over VPN or observatory")
+	}
+}
+
+func TestNoRUExitGoesDirect(t *testing.T) {
+	p := fixture(t)
+	p.Exits = p.Exits[:1]
+	_, dest := build(t, p, xrayconf.ModeMain)
+	if dest["rest"] != "direct" {
+		t.Errorf("rest goes to %q without an RU exit", dest["rest"])
+	}
+}
+
+func TestSingleTransportNoBalancer(t *testing.T) {
+	p := fixture(t)
+	p.Exits[0].Transports = p.Exits[0].Transports[1:]
+	b, dest := build(t, p, xrayconf.ModeMain)
+	if len(b.Routing.Balancers) != 0 || b.Observatory != nil {
+		t.Error("one transport per exit needs no balancer")
+	}
+	if dest["blocked-domains"] != "foreign/nl-1/reality" {
+		t.Errorf("blocked goes to %q", dest["blocked-domains"])
+	}
+}
+
+func TestNoBuiltinDirect(t *testing.T) {
+	p := fixture(t)
+	p.Routing.NoBuiltinDirect = true
+	b, _ := build(t, p, xrayconf.ModeMain)
+	for _, r := range b.Routing.Rules {
+		if r.RuleTag == "direct-domains" && !slices.Equal(r.Domain, []string{"domain:example-bank.ru"}) {
+			t.Errorf("direct domains %v", r.Domain)
+		}
+	}
+}
+
+func TestVLESSProfileBuilds(t *testing.T) {
+	link := "vless://5783a3e7-e373-51cd-8642-c83782b807c5@cdn.example.org:443?type=xhttp&security=tls&sni=cdn.example.org&path=%2Fx&mode=packet-up&alpn=h2,http/1.1&extra=%7B%22xPaddingBytes%22%3A%22100-1000%22%7D#cdn"
+	p, err := profile.FromVLESS(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range []xrayconf.Mode{xrayconf.ModeMain, xrayconf.ModeAll, xrayconf.ModeOff} {
+		build(t, p, m)
+	}
+	for _, link := range []string{
+		"vless://5783a3e7-e373-51cd-8642-c83782b807c5@1.2.3.4:443?type=grpc&security=tls&sni=a.example.org&serviceName=api&mode=multi",
+		"vless://5783a3e7-e373-51cd-8642-c83782b807c5@1.2.3.4:443?type=ws&security=tls&host=a.example.org&path=%2Fws",
+		"vless://5783a3e7-e373-51cd-8642-c83782b807c5@1.2.3.4:80?type=httpupgrade&path=%2Fu",
+	} {
+		p, err := profile.FromVLESS(link)
+		if err != nil {
+			t.Fatal(err)
+		}
+		build(t, p, xrayconf.ModeMain)
+	}
+}
+
+func TestParseMode(t *testing.T) {
+	if _, err := xrayconf.ParseMode("smart"); err == nil {
+		t.Error("unknown mode accepted")
+	}
+}
+
+func TestBareVLESSMainModeUsesVPN(t *testing.T) {
+	p, err := profile.FromVLESS("vless://5783a3e7-e373-51cd-8642-c83782b807c5@1.2.3.4:443?security=none")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, dest := build(t, p, xrayconf.ModeMain)
+	if dest["rest"] != "foreign/link/vless" || dest["direct-domains"] != "direct" {
+		t.Errorf("rules %v", dest)
+	}
+}
