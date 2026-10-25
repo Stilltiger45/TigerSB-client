@@ -68,6 +68,14 @@ class FakeCore implements Core {
 }
 
 void main() {
+  // The sparks and rings move forever; pumpAndSettle needs a still screen,
+  // as when the system asks to remove animations.
+  setUp(() {
+    TestWidgetsFlutterBinding.ensureInitialized().platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures(disableAnimations: true);
+  });
+  tearDown(() => TestWidgetsFlutterBinding.instance.platformDispatcher.clearAccessibilityFeaturesTestValue());
+
   testWidgets('a bad key shows the error, a good one connects', (tester) async {
     final core = FakeCore();
     await tester.pumpWidget(TigerApp(core: core));
@@ -185,5 +193,23 @@ void main() {
     await tester.pumpAndSettle();
     expect(copied, key);
     expect(find.text('Ключ подписки скопирован'), findsOneWidget);
+  });
+
+  testWidgets('every mode animates without errors', (tester) async {
+    tester.platformDispatcher.clearAccessibilityFeaturesTestValue();
+    final core = FakeCore()..profile = ProfileInfo(name: 'Дом', hasRU: true, fetched: DateTime.now(), exits: const []);
+    await tester.pumpWidget(TigerApp(core: core));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.tap(find.byKey(const Key('power')));
+    for (final m in ['Базовая', 'Все', 'Умная']) {
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.tap(find.text(m));
+      for (var i = 0; i < 30; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+    }
+    expect(tester.takeException(), isNull);
+    // Leave a still screen behind.
+    await tester.pumpWidget(const SizedBox());
   });
 }

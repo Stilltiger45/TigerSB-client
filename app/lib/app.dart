@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'core.dart';
+import 'ui/palette.dart';
 import 'screens/home_screen.dart';
 import 'screens/key_screen.dart';
 
@@ -13,12 +14,10 @@ class TigerApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const seed = Color(0xFFF08A24);
     return MaterialApp(
       title: 'TigerSB',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(colorSchemeSeed: seed, brightness: Brightness.light),
-      darkTheme: ThemeData(colorSchemeSeed: seed, brightness: Brightness.dark),
+      theme: tigerTheme(),
       home: Root(core: core),
     );
   }
@@ -96,7 +95,7 @@ class _RootState extends State<Root> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    if (_loading) return const Scaffold(backgroundColor: Palette.black);
     final p = _profile;
     if (p == null) {
       return KeyScreen(
