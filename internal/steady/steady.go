@@ -40,9 +40,10 @@ type Options struct {
 	// ProbeURL is what the check of the transport in use requests; empty
 	// means profile.DefaultProbeURL.
 	ProbeURL string
-	// Check is how often the transport in use is checked (20 s); Down is
-	// how long a transport that failed two checks in a row is avoided (2 min).
-	Check, Down time.Duration
+	// Check is how often the transport in use is checked (15 s), Recheck
+	// how soon after a failed check (3 s); Down is how long a transport that
+	// failed two checks in a row is avoided (2 min).
+	Check, Recheck, Down time.Duration
 }
 
 // Hooks returns the engine.Start hooks that add a picker for every role with
@@ -65,7 +66,10 @@ func Hooks(p *profile.Profile) []func(*core.Instance) error {
 // Attach adds a picker to a created, not yet started Xray instance.
 func Attach(inst *core.Instance, opt Options) error {
 	if opt.Check == 0 {
-		opt.Check = 20 * time.Second
+		opt.Check = 15 * time.Second
+	}
+	if opt.Recheck == 0 {
+		opt.Recheck = 3 * time.Second
 	}
 	if opt.Down == 0 {
 		opt.Down = 2 * time.Minute
@@ -76,14 +80,15 @@ func Attach(inst *core.Instance, opt Options) error {
 	}
 	obs, _ := inst.GetFeature(extension.ObservatoryType()).(extension.Observatory)
 	h := &Handler{
-		opt:  opt,
-		inst: inst,
-		ohm:  ohm,
-		obs:  obs,
-		seen: map[string]int64{},
-		rtt:  map[string]float64{},
-		down: map[string]time.Time{},
-		stop: make(chan struct{}),
+		opt:   opt,
+		inst:  inst,
+		ohm:   ohm,
+		obs:   obs,
+		seen:  map[string]int64{},
+		alive: map[string]bool{},
+		rtt:   map[string]float64{},
+		down:  map[string]time.Time{},
+		stop:  make(chan struct{}),
 	}
 	return ohm.AddHandler(context.Background(), h)
 }
@@ -126,8 +131,36 @@ func (h *Handler) SenderSettings() *serial.TypedMessage { return nil }
 func (h *Handler) ProxySettings() *serial.TypedMessage  { return nil }
 
 func (h *Handler) Start() error {
+	go h.prime()
 	go h.watch()
 	return nil
+}
+
+// prime checks every transport at once right after the start, so the first
+// connections do not wait for the observatory's round on a transport that
+// may be dead, as a UDP one often is on mobile networks.
+func (h *Handler) prime() {
+	var wg sync.WaitGroup
+	for _, t := range h.opt.Tags {
+		wg.Go(func() {
+			d := meter.Ping(h.inst, t, h.opt.ProbeURL, 6*time.Second)
+			select {
+			case <-h.stop:
+				return
+			default:
+			}
+			h.mu.Lock()
+			defer h.mu.Unlock()
+			if _, known := h.alive[t]; known {
+				return // the observatory was quicker
+			}
+			h.alive[t] = d >= 0
+			if d >= 0 {
+				h.rtt[t] = float64(d.Milliseconds())
+			}
+		})
+	}
+	wg.Wait()
 }
 
 func (h *Handler) Close() error {
@@ -188,9 +221,6 @@ const smoothing = 0.4
 
 // fold adds the observatory's new probes to the smoothed delays.
 func (h *Handler) fold(st []*observatory.OutboundStatus) {
-	if h.alive == nil {
-		h.alive = map[string]bool{}
-	}
 	for _, s := range st {
 		if !slices.Contains(h.opt.Tags, s.OutboundTag) || h.seen[s.OutboundTag] == s.LastTryTime {
 			continue
@@ -220,19 +250,20 @@ func (h *Handler) views(now time.Time) map[string]view {
 	return v
 }
 
-// watch checks the transport in use every Check; after two failures in a row
-// it is avoided for Down and the next best takes over.
+// watch checks the transport in use every Check, and again after Recheck
+// when a check fails; after two failures in a row it is avoided for Down and
+// the next best takes over.
 func (h *Handler) watch() {
-	t := time.NewTicker(h.opt.Check)
-	defer t.Stop()
+	wait := h.opt.Check
 	for {
 		select {
 		case <-h.stop:
 			return
-		case <-t.C:
+		case <-time.After(wait):
 		}
 		cur := h.Current()
 		ok := meter.Ping(h.inst, cur, h.opt.ProbeURL, 6*time.Second) >= 0
+		wait = h.opt.Check
 		h.mu.Lock()
 		if cur == h.cur {
 			if ok {
@@ -241,6 +272,8 @@ func (h *Handler) watch() {
 				errors.LogWarning(context.Background(), "steady: ", cur, " does not answer, leaving it")
 				h.down[cur] = time.Now().Add(h.opt.Down)
 				h.fails = 0
+			} else {
+				wait = h.opt.Recheck
 			}
 		}
 		h.mu.Unlock()

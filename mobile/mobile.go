@@ -37,7 +37,10 @@ import (
 const geodataMaxAge = 24 * time.Hour
 
 var (
-	mu         sync.Mutex
+	mu sync.Mutex
+	// netMu lets one AddKey or Refresh download at a time, without holding
+	// mu over the network.
+	netMu      sync.Mutex
 	dataDir    string
 	appVersion string
 	inst       *core.Instance
@@ -98,29 +101,34 @@ type exitInfo struct {
 // AddKey adds a key (tigersb://, https:// or a share link), downloads the
 // profile and the lists it needs, and returns the profile info as JSON.
 func AddKey(key string) (string, error) {
-	mu.Lock()
-	defer mu.Unlock()
+	netMu.Lock()
+	defer netMu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
+	// The download runs without mu: the app's screen asks the core for the
+	// profile meanwhile and must not wait for a slow network.
 	st, p, err := (&subscription.Client{}).Import(ctx, key)
 	if err != nil {
 		return "", err
 	}
-	if err := ensureGeodata(ctx, p); err != nil {
-		return "", err
-	}
+	mu.Lock()
+	defer mu.Unlock()
 	if err := subscription.Save(dataDir, st); err != nil {
 		return "", err
 	}
+	i := inst
+	inBackground(func() { fetchLists(i, p, geodataMaxAge, nil) })
 	return info(st, p)
 }
 
 // Refresh downloads the profile and the lists again. On failure the old
 // profile stays usable.
 func Refresh() (string, error) {
+	netMu.Lock()
+	defer netMu.Unlock()
 	mu.Lock()
-	defer mu.Unlock()
 	st, err := subscription.Load(dataDir)
+	mu.Unlock()
 	if err != nil {
 		return "", noKey(err)
 	}
@@ -130,12 +138,13 @@ func Refresh() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	mu.Lock()
+	defer mu.Unlock()
 	if err := subscription.Save(dataDir, st); err != nil {
 		return "", err
 	}
-	if err := ensureGeodata(ctx, p); err != nil {
-		return "", err
-	}
+	i := inst
+	inBackground(func() { fetchLists(i, p, geodataMaxAge, nil) })
 	return info(st, p)
 }
 
@@ -194,15 +203,11 @@ func Start(fd int, mode string, mtu int) error {
 	if err != nil {
 		return err
 	}
-	if needed, extra := xrayconf.GeoData(p, m); needed {
-		// Normally AddKey or Refresh already fetched the lists; this only
-		// downloads what is missing.
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-		err := geodata.Ensure(ctx, nil, assetDir(), p, 0, extra...)
-		cancel()
-		if err != nil {
-			return err
-		}
+	// Normally AddKey or Refresh already fetched the lists. When they are
+	// missing, the VPN starts without them and fetches them through itself.
+	needed, extra := xrayconf.GeoData(p, m)
+	noGeo := needed && !geodata.Ready(assetDir(), p, extra...)
+	if needed && !noGeo {
 		if err := engine.SetAssetDir(assetDir()); err != nil {
 			return err
 		}
@@ -217,6 +222,7 @@ func Start(fd int, mode string, mtu int) error {
 		Inbounds: []xrayconf.Inbound{{Tag: "tun-in", Protocol: "tun", MTU: mtu}},
 		LogFile:  filepath.Join(dataDir, xrayLog),
 		Evasion:  ev != nil,
+		NoGeo:    noGeo,
 	})
 	if err != nil {
 		return err
@@ -232,6 +238,11 @@ func Start(fd int, mode string, mtu int) error {
 	inst = i
 	if ev != nil {
 		go tune(i, network)
+	}
+	if noGeo {
+		Note("списков маршрутизации ещё нет: подключаю без них и скачиваю через VPN")
+		need := append([]string{}, extra...)
+		inBackground(func() { fetchLists(i, p, 0, need) })
 	}
 	vpnTags, pingTags = xrayconf.Candidates(p)
 	protocols = xrayconf.Protocols(p)
@@ -430,16 +441,6 @@ func PickMTU(transport string, linkMTU int) int {
 }
 
 func assetDir() string { return filepath.Join(dataDir, "geodata") }
-
-// ensureGeodata fetches the profile's lists and, if it can, the basic mode's
-// Russian IPs, so the mode can be switched without a download. Only the
-// profile's own lists are required here.
-func ensureGeodata(ctx context.Context, p *profile.Profile) error {
-	if geodata.Ensure(ctx, nil, assetDir(), p, geodataMaxAge, xrayconf.BasicDirectIPs...) == nil {
-		return nil
-	}
-	return geodata.Ensure(ctx, nil, assetDir(), p, geodataMaxAge)
-}
 
 func noKey(err error) error {
 	if errors.Is(err, subscription.ErrNoState) {

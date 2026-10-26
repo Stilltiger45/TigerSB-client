@@ -88,8 +88,14 @@ func TestEnsureTrimsAndXrayLoads(t *testing.T) {
 	}
 
 	dir := t.TempDir()
+	if geodata.Ready(dir, p) {
+		t.Error("ready before the download")
+	}
 	if err := geodata.Ensure(context.Background(), srv.Client(), dir, p, 0); err != nil {
 		t.Fatal(err)
+	}
+	if !geodata.Ready(dir, p) || geodata.Ready(dir, p, "geoip:ru") {
+		t.Error("ready must hold exactly for the downloaded lists")
 	}
 	fi, _ := os.Stat(filepath.Join(dir, geodata.GeoSiteFile))
 	if fi.Size() >= int64(len(site)) {

@@ -120,6 +120,7 @@ func TestJournal(t *testing.T) {
 func initTemp(t *testing.T) string {
 	dir := t.TempDir()
 	Init(dir, "test")
+	inBackground = func(func()) {}
 	t.Cleanup(func() { debug.SetCrashOutput(nil, debug.CrashOptions{}) })
 	return dir
 }
