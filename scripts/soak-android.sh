@@ -143,8 +143,24 @@ restarts=$(grep -c 'TigerSB.*подключено' "$out/logcat.txt")
 echo "core starts: $restarts" | tee -a "$log"
 if [ "$restarts" -gt $((4 + 2 * ${SOAK_SWITCHES:-4} + 4)) ]; then failed=1; fi
 
+# The app's own journal and the core's crash trace, if any, go into the
+# summary: the app log annotation is cut to its last lines.
+files=/data/data/app.tigersb/files
+adb shell ls -l $files > "$out/files.txt" 2>&1
+adb shell cat $files/events.log > "$out/events.log" 2>&1
+adb shell cat $files/crash.log > "$out/crash.log" 2>&1
+{
+  echo "--- process deaths and crashes"
+  grep -E 'has died|Process app.tigersb|ANR in app.tigersb|FATAL EXCEPTION|Fatal signal|panic:|lowmemorykiller.*Kill' "$out/logcat.txt" | grep -vE 'uiautomator' | head -20
+  echo "--- crash.log"
+  head -40 "$out/crash.log"
+  echo "--- files"
+  cat "$out/files.txt"
+  echo "--- DPI tuning"
+  grep 'обход DPI' "$out/events.log" | tail -15
+} | cut -c1-300 | tee -a "$log"
+
 # The smart mode tunes its DPI evasion on every core start.
-adb shell cat /data/data/app.tigersb/files/events.log > "$out/events.log" 2>/dev/null
 tunes=$(grep -c 'обход DPI' "$out/events.log")
 echo "DPI tunings: $tunes" | tee -a "$log"
 case " $modes " in *" Умная "*) if [ "$tunes" = 0 ]; then failed=1; fi ;; esac
@@ -161,7 +177,7 @@ if [ -n "$dpi" ]; then
   echo "DPI box: $box" | tee -a "$log"
   if [ "${box##* }" = 0 ] || [ -z "$box" ]; then failed=1; fi
 fi
-noise='s_glBindAttribLocation|Choreographer|OpenGLRenderer|EGL_emulation|HostConnection|eglCodecCommon'
+noise='s_glBindAttribLocation|Choreographer|OpenGLRenderer|EGL_emulation|HostConnection|eglCodecCommon|GnssNetworkConnectivityHandler|registerNetworkAgent|uiautomator|RuntimeInit|boot image|lock profiling|Shutting down VM'
 annotate notice "soak" "$(cat "$log")"
 annotate warning "app log" "$(grep -E 'GoLog|TigerSB|AndroidRuntime|FATAL|panic|Fatal signal|lowmemory|ActivityManager.*tigersb' "$out/logcat.txt" | grep -vE "$noise" | tail -150)"
 annotate notice "server" "$(tail -60 "$out/server.log")"

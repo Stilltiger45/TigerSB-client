@@ -20,16 +20,19 @@ type Preset struct {
 
 // Presets are what ModeAuto can use when a site or a server does not open
 // plainly, mildest first. Preset k (from 1) is Presets[k-1]; package smart
-// picks the one that works best on the network the phone is on.
+// picks the one that works best on the network the phone is on. Each splits
+// only the start of a connection into a capped number of pieces (maxSplit):
+// that is enough for DPI and cheap for the phone, while splitting whole
+// packets into tiny segments floods the network.
 var Presets = []Preset{
 	{
 		Name:     "ClientHello по 100–200 байт, шум 10–20 байт",
-		Fragment: map[string]any{"packets": "tlshello", "length": "100-200", "interval": "10-20"},
+		Fragment: map[string]any{"packets": "tlshello", "length": "100-200", "interval": "10-20", "maxSplit": "4-8"},
 		Noises:   []map[string]any{{"type": "rand", "packet": "10-20", "delay": "10-16"}},
 	},
 	{
 		Name:     "ClientHello по 10–30 байт, шум 2 × 50–100 байт",
-		Fragment: map[string]any{"packets": "tlshello", "length": "10-30", "interval": "5-10"},
+		Fragment: map[string]any{"packets": "tlshello", "length": "10-30", "interval": "5-10", "maxSplit": "10-20"},
 		Noises: []map[string]any{
 			{"type": "rand", "packet": "50-100", "delay": "5-10"},
 			{"type": "rand", "packet": "50-100", "delay": "5-10"},
@@ -37,9 +40,10 @@ var Presets = []Preset{
 	},
 	{
 		// Splits the start of any protocol, not only TLS: plain VLESS and
-		// Shadowsocks headers too.
+		// Shadowsocks headers too. Only the first packet, and only its first
+		// pieces: the rest goes in one segment.
 		Name:     "начало соединения по 1–5 байт, шум 1–5 байт",
-		Fragment: map[string]any{"packets": "1-3", "length": "1-5", "interval": "1-3"},
+		Fragment: map[string]any{"packets": "1-1", "length": "1-5", "interval": "1-3", "maxSplit": "4-8"},
 		Noises:   []map[string]any{{"type": "rand", "packet": "1-5", "delay": "5-10"}},
 	},
 }
