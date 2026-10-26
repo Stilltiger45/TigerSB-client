@@ -93,6 +93,14 @@ func Ensure(ctx context.Context, c *http.Client, dir string, p *profile.Profile,
 	return nil
 }
 
+// Ready reports whether dir already holds every list the profile uses, so a
+// start needs no download.
+func Ready(dir string, p *profile.Profile, extraIPs ...string) bool {
+	sites, ips := Codes(p, extraIPs...)
+	return (len(sites) == 0 || missing(filepath.Join(dir, GeoSiteFile), sites) == nil) &&
+		(len(ips) == 0 || missing(filepath.Join(dir, GeoIPFile), ips) == nil)
+}
+
 func ensureFile(ctx context.Context, c *http.Client, path, url string, codes []string, maxAge time.Duration) error {
 	complete := false
 	if fi, err := os.Stat(path); err == nil {

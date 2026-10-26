@@ -75,3 +75,32 @@ func TestLeavesDeadTransport(t *testing.T) {
 	}
 	t.Errorf("still on %s", Current(inst, "pick/foreign"))
 }
+
+// TestPrimeLeavesDeadTransport has no observatory at all: the check of every
+// transport right after the start alone moves the picker off the dead one.
+func TestPrimeLeavesDeadTransport(t *testing.T) {
+	site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer site.Close()
+	cfg, _ := json.Marshal(map[string]any{
+		"log": map[string]any{"loglevel": "none"},
+		"outbounds": []any{
+			map[string]any{"tag": "foreign/x/dead", "protocol": "blackhole"},
+			map[string]any{"tag": "foreign/x/live", "protocol": "freedom"},
+		},
+	})
+	inst, err := engine.Start(cfg, func(inst *core.Instance) error {
+		return Attach(inst, Options{Tag: "pick/foreign", Tags: []string{"foreign/x/dead", "foreign/x/live"}, ProbeURL: site.URL})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer inst.Close()
+	for deadline := time.Now().Add(8 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		if Current(inst, "pick/foreign") == "foreign/x/live" {
+			return
+		}
+	}
+	t.Errorf("still on %s", Current(inst, "pick/foreign"))
+}

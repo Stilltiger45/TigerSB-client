@@ -83,6 +83,9 @@ type Options struct {
 	// Evasion adds, in ModeAuto, the DPI presets and the copies of the VPN
 	// outbounds that dial through them (see Presets).
 	Evasion bool
+	// NoGeo leaves out the geosite: and geoip: lists, for a start before
+	// geosite.dat and geoip.dat are downloaded: the rest of the routing works.
+	NoGeo bool
 }
 
 // privateRanges never leave the device's own network.
@@ -182,6 +185,10 @@ func Build(p *profile.Profile, opt Options) ([]byte, error) {
 		directDomains, directIPs = nil, nil
 	}
 	blocked := p.Routing.Blocked
+	if opt.NoGeo {
+		directDomains, directIPs = withoutGeo(directDomains), withoutGeo(directIPs)
+		blocked.Domains, blocked.IPs = withoutGeo(blocked.Domains), withoutGeo(blocked.IPs)
+	}
 
 	var tunTags []string
 	for _, ib := range opt.Inbounds {
@@ -470,6 +477,13 @@ func inbounds(in []Inbound) []any {
 		out = append(out, in)
 	}
 	return out
+}
+
+// withoutGeo returns list without its geosite: and geoip: entries.
+func withoutGeo(list []string) []string {
+	return slices.DeleteFunc(slices.Clone(list), func(s string) bool {
+		return strings.HasPrefix(s, "geosite:") || strings.HasPrefix(s, "geoip:")
+	})
 }
 
 // GeoData returns whether the mode's config refers to geosite: or geoip:

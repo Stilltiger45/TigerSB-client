@@ -95,7 +95,26 @@ class _RootState extends State<Root> {
 
   @override
   Widget build(BuildContext context) {
-    if (_loading) return const Scaffold(backgroundColor: Palette.black);
+    if (_loading) {
+      // The core answers at once, but show what is going on if it does not.
+      return Scaffold(
+        backgroundColor: Palette.black,
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Image.asset('assets/tiger.png', width: 96, height: 96),
+              const SizedBox(height: 24),
+              const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(strokeWidth: 2.5, color: Palette.orange),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
     final p = _profile;
     if (p == null) {
       return KeyScreen(

@@ -158,6 +158,7 @@ class TigerVpnService : VpnService() {
             val profile = JSONObject(info)
             val mode = Core.mode(this)
 
+            seedNetwork()
             val (transport, linkMtu) = activeNetwork(network)
             mtu = Mobile.pickMTU(transport, linkMtu.toLong()).toInt()
             // The smart mode tunes its DPI evasion per kind of network.
@@ -229,6 +230,11 @@ class TigerVpnService : VpnService() {
         if (tun == null) return
         if (!Mobile.running()) {
             note("сторож: ядро не работает, переподключаю")
+            connect()
+            return
+        }
+        // The core started without the routing lists and has fetched them.
+        if (Mobile.takeRestart()) {
             connect()
             return
         }
@@ -338,7 +344,8 @@ class TigerVpnService : VpnService() {
             override fun onLinkPropertiesChanged(network: Network, lp: LinkProperties) {
                 onWorker {
                     if (tun == null || network != this@TigerVpnService.network) return@onWorker
-                    val (transport, linkMtu) = activeNetwork(network)
+                    seedNetwork()
+            val (transport, linkMtu) = activeNetwork(network)
                     val want = Mobile.pickMTU(transport, linkMtu.toLong()).toInt()
                     if (want != mtu) {
                         note("MTU сети $mtu -> $want, переподключаю")
@@ -352,6 +359,22 @@ class TigerVpnService : VpnService() {
     }
 
     /** Follows the best of [nets]; the current one stays on a tie. */
+    /**
+     * Before the first connect the network the core starts on is the one
+     * Android uses now. Without it, the first network the callback reports,
+     * often mobile data while Wi-Fi is up, would count as the one in use and
+     * the next report would restart the fresh core.
+     */
+    private fun seedNetwork() {
+        if (network != null) return
+        val cm = getSystemService(ConnectivityManager::class.java)
+        val n = cm.activeNetwork ?: return
+        val caps = cm.getNetworkCapabilities(n) ?: return
+        if (caps.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) return
+        network = n
+        nets[n] = caps
+    }
+
     private fun pickNetwork() {
         fun score(c: NetworkCapabilities) =
             (if (c.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) 4 else 0) +

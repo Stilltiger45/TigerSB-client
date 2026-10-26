@@ -1,6 +1,7 @@
 package xrayconf_test
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"slices"
@@ -474,5 +475,27 @@ func TestEvasionOutbounds(t *testing.T) {
 		if xrayconf.BaseTag(o.Tag) != o.Tag || o.Tag == xrayconf.DPITag(1) {
 			t.Errorf("all mode got %s", o.Tag)
 		}
+	}
+}
+
+// TestNoGeo builds a config that starts before geosite.dat and geoip.dat are
+// downloaded: their lists are left out, the rest of the routing stays.
+func TestNoGeo(t *testing.T) {
+	t.Setenv("XRAY_LOCATION_ASSET", t.TempDir())
+	for _, m := range []xrayconf.Mode{xrayconf.ModeAuto, xrayconf.ModeBasic, xrayconf.ModeMain} {
+		cfg, err := xrayconf.Build(fixture(t), xrayconf.Options{Mode: m, NoGeo: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if bytes.Contains(cfg, []byte("geoip:")) || bytes.Contains(cfg, []byte("geosite:")) {
+			t.Errorf("mode %s still refers to the lists:\n%s", m, cfg)
+		}
+		if _, err := engine.Load(cfg); err != nil {
+			t.Errorf("mode %s without the lists: %v", m, err)
+		}
+	}
+	_, dest := buildOpt(t, fixture(t), xrayconf.Options{Mode: xrayconf.ModeBasic, NoGeo: true})
+	if dest["direct-domains"] != "direct" || dest["rest"] != "pick/foreign" {
+		t.Errorf("basic mode without the lists: %v", dest)
 	}
 }
