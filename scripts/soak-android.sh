@@ -6,6 +6,14 @@
 # left in $2; failures and the app's log are repeated as annotations.
 # SOAK_MODES picks the modes, SOAK_DPI=1 puts the server behind a stand-in for
 # DPI that cuts plain VLESS, so only the smart mode's evasion gets through.
+# SOAK_SCENARIOS adds the tests of an unsteady network, run in the mode that
+# sends everything through the VPN:
+#   switches  Wi-Fi off and on SOAK_SWITCHES times, quickly;
+#   outage    no internet at all for SOAK_OUTAGE_MINUTES (10), then back at once;
+#   mobile    SOAK_MOBILE_MINUTES (30) on mobile data with the signal cut for a
+#             minute halfway, then Wi-Fi back on.
+# After each event a site is opened through the VPN every second: how soon it
+# opens and the longest stretch it did not go to net.txt.
 set -uo pipefail
 apk=$1
 out=$2
@@ -49,9 +57,10 @@ tap() {
   adb shell input tap $(((x1 + x2) / 2)) $(((y1 + y2) / 2))
 }
 
-# One HTTP request from the emulator's shell, through the VPN like any app.
+# One HTTP request from the emulator's shell, through the VPN like any app;
+# $3 is how many seconds it may take (8).
 http() {
-  adb shell "printf 'GET $2 HTTP/1.1\r\nHost: $1\r\nConnection: close\r\n\r\n' | toybox nc -w 8 $1 80 2>&1 | head -1" |
+  adb shell "printf 'GET $2 HTTP/1.1\r\nHost: $1\r\nConnection: close\r\n\r\n' | toybox nc -w ${3:-8} $1 80 2>&1 | head -1" |
     tr -d '\r' | grep -oE 'HTTP/1.[01] [0-9]+' || echo FAIL
 }
 
@@ -116,7 +125,6 @@ for mode in $modes; do
   done
 done
 
-# Wi-Fi off and on again: the VPN must move to mobile data and back by itself.
 check() {
   local pid g y e
   pid=$(adb shell pidof app.tigersb | tr -d '\r')
@@ -127,21 +135,117 @@ check() {
   echo "$line" | tee -a "$log"
   case "$line" in *FAIL* | *none*) failed=1 ;; esac
 }
-for i in $(seq "${SOAK_SWITCHES:-4}"); do
+
+# After an event, opens a site through the VPN every second for $2 seconds
+# and notes how soon it opened and the longest stretch it did not; more than
+# $3 seconds for either fails the run.
+net=$out/net.txt
+measure() {
+  local label=$1 window=$2 limit=$3
+  local start=$SECONDS first=- gap=0 down= polls=0 fails=0 now
+  while [ $((SECONDS - start)) -lt "$window" ]; do
+    polls=$((polls + 1))
+    now=$SECONDS
+    if [ "$(http example.com / 3)" != FAIL ]; then
+      [ "$first" = - ] && first=$((now - start))
+      [ -n "$down" ] && gap=$((now - down > gap ? now - down : gap))
+      down=
+    else
+      fails=$((fails + 1))
+      [ -z "$down" ] && down=$now
+    fi
+    sleep 1
+  done
+  [ -n "$down" ] && gap=$((SECONDS - down > gap ? SECONDS - down : gap))
+  local verdict=ok
+  if [ "$first" = - ] || [ "$first" -gt "$limit" ] || [ "$gap" -gt "$limit" ]; then
+    verdict=FAIL
+    failed=1
+  fi
+  echo "$(date +%T) $label: открылся через ${first} с, самый долгий перерыв ${gap} с, неудач $fails из $polls — $verdict" | tee -a "$net"
+}
+
+# No internet at all on the phone's network: nothing leaves the emulator but
+# through the tunnel, which then has nowhere to go. adb keeps working.
+cut() {
+  for t in iptables ip6tables; do
+    adb shell "$t -I OUTPUT 1 -o tun+ -j ACCEPT; $t -I OUTPUT 2 -o lo -j ACCEPT; $t -I OUTPUT 3 -p tcp --sport 5555 -j ACCEPT; $t -I OUTPUT 4 -j DROP"
+  done
+}
+uncut() {
+  for t in iptables ip6tables; do
+    adb shell "$t -D OUTPUT -j DROP; $t -D OUTPUT -p tcp --sport 5555 -j ACCEPT; $t -D OUTPUT -o lo -j ACCEPT; $t -D OUTPUT -o tun+ -j ACCEPT"
+  done
+}
+
+scenarios=${SOAK_SCENARIOS:-switches}
+switches=${SOAK_SWITCHES:-4}
+case " $scenarios " in *" switches "* | *" outage "* | *" mobile "*)
+  tap "Все" || failed=1
+  sleep 10
+  ;;
+esac
+
+# Wi-Fi off and on again, quickly: the VPN must move to mobile data and back
+# by itself, keeping the tunnel.
+case " $scenarios " in *" switches "*)
+  for i in $(seq "$switches"); do
+    adb shell svc wifi disable
+    measure "Wi-Fi→мобильная $i" 15 15
+    adb shell svc wifi enable
+    measure "мобильная→Wi-Fi $i" 15 15
+  done
+  ;;
+esac
+
+# The internet goes for minutes and comes back at once: the VPN must not
+# churn meanwhile and must carry traffic again within seconds.
+case " $scenarios " in *" outage "*)
+  check "до обрыва"
+  cut
+  end=$((SECONDS + ${SOAK_OUTAGE_MINUTES:-10} * 60))
+  while [ $SECONDS -lt $end ]; do
+    sleep 60
+    pid=$(adb shell pidof app.tigersb | tr -d '\r')
+    echo "$(date +%T) без интернета: приложение ${pid:-none}" | tee -a "$log"
+    [ -z "$pid" ] && failed=1
+  done
+  uncut
+  measure "после ${SOAK_OUTAGE_MINUTES:-10} мин без интернета" 60 30
+  ;;
+esac
+
+# Long on mobile data, the signal cut for a minute halfway (Android keeps the
+# network), then Wi-Fi back.
+case " $scenarios " in *" mobile "*)
+  minutes_m=${SOAK_MOBILE_MINUTES:-30}
   adb shell svc wifi disable
-  sleep 25
-  check mobile
+  measure "Wi-Fi выключен" 15 15
+  half=$((SECONDS + minutes_m * 30))
+  end=$((SECONDS + minutes_m * 60))
+  cutdone=
+  while [ $SECONDS -lt $end ]; do
+    check мобильная
+    if [ -z "$cutdone" ] && [ $SECONDS -ge $half ]; then
+      cutdone=1
+      cut
+      sleep 60
+      uncut
+      measure "мобильная: после обрыва сигнала на 1 мин" 60 30
+    fi
+    sleep 30
+  done
   adb shell svc wifi enable
-  sleep 30
-  check wifi
-done
+  measure "мобильная→Wi-Fi после $minutes_m мин" 30 15
+  ;;
+esac
 
 kill $logcat
 # Restarts of the core: the connect, a mode switch and a network switch make
 # one each; anything far above that is a loop.
 restarts=$(grep -c 'TigerSB.*подключено' "$out/logcat.txt")
 echo "core starts: $restarts" | tee -a "$log"
-if [ "$restarts" -gt $((4 + 2 * ${SOAK_SWITCHES:-4} + 4)) ]; then failed=1; fi
+if [ "$restarts" -gt $((4 + 2 * switches + 4)) ]; then failed=1; fi
 
 # The app's own journal and the core's crash trace, if any, go into the
 # summary: the app log annotation is cut to its last lines.
@@ -158,6 +262,8 @@ adb shell cat $files/crash.log > "$out/crash.log" 2>&1
   cat "$out/files.txt"
   echo "--- DPI tuning"
   grep 'обход DPI' "$out/events.log" | tail -15
+  echo "--- network"
+  cat "$net" 2>/dev/null
 } | cut -c1-300 | tee -a "$log"
 
 # The smart mode tunes its DPI evasion on every core start.
@@ -181,7 +287,8 @@ noise='s_glBindAttribLocation|Choreographer|OpenGLRenderer|EGL_emulation|HostCon
 annotate notice "soak" "$(cat "$log")"
 annotate warning "app log" "$(grep -E 'GoLog|TigerSB|AndroidRuntime|FATAL|panic|Fatal signal|lowmemory|ActivityManager.*tigersb' "$out/logcat.txt" | grep -vE "$noise" | tail -150)"
 annotate notice "server" "$(tail -60 "$out/server.log")"
-annotate notice "events" "$(tail -80 "$out/events.log")"
+annotate notice "events" "$(grep -vE 'обход DPI' "$out/events.log" | tail -80)"
+annotate notice "network" "$(cat "$net" 2>/dev/null)"
 if [ $failed = 1 ]; then
   echo "::error::VPN не выдержал длительный тест, см. soak.txt"
   exit 1

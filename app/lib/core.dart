@@ -13,6 +13,7 @@ class ProfileInfo {
     this.hasLists = true,
     this.foreign = false,
     this.key = '',
+    this.signed = false,
     this.shieldApps = const [],
     this.userApps = const [],
   });
@@ -32,6 +33,10 @@ class ProfileInfo {
   /// The key the profile was imported from, to copy and share.
   final String key;
 
+  /// A TigerSB panel's profile whose signature was checked: a check mark
+  /// shows by its name.
+  final bool signed;
+
   /// Apps always left out of the VPN (MAX, VK, Yandex, banks, government).
   final List<String> shieldApps;
 
@@ -44,6 +49,7 @@ class ProfileInfo {
     hasLists: j['hasLists'] as bool? ?? true,
     foreign: j['foreign'] as bool? ?? false,
     key: j['key'] as String? ?? '',
+    signed: j['signed'] as bool? ?? false,
     shieldApps: List<String>.from(j['shieldApps'] as List? ?? const []),
     userApps: List<String>.from(j['userApps'] as List? ?? const []),
     fetched: DateTime.tryParse(j['fetched'] as String? ?? '')?.toLocal(),

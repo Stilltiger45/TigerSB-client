@@ -25,7 +25,7 @@ func TestImportCurrentForget(t *testing.T) {
 		t.Fatal(err)
 	}
 	var in profileInfo
-	if err := json.Unmarshal([]byte(s), &in); err != nil || in.Name != "Дом" || len(in.Exits) != 1 || in.HasRU || in.Key != key {
+	if err := json.Unmarshal([]byte(s), &in); err != nil || in.Name != "Дом" || len(in.Exits) != 1 || in.HasRU || in.Key != key || in.Signed {
 		t.Fatalf("info %s: %v", s, err)
 	}
 	if again, _ := Current(); again != s {

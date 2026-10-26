@@ -23,6 +23,7 @@ import android.util.Log
 import app.tigersb.mobile.Mobile
 import org.json.JSONObject
 import java.io.File
+import java.net.InetAddress
 import java.util.concurrent.Executors
 import java.util.concurrent.RejectedExecutionException
 
@@ -47,18 +48,23 @@ class TigerVpnService : VpnService() {
         private const val PROTOCOL_EVERY_MS = 30_000L
 
         // The watchdog checks the channel this often, and RECHECK_MS after a
-        // failed check; after FAILS_TO_RESTART failed checks in a row it
-        // restarts the core, at most once per RESTART_GAP_MS.
-        private const val WATCH_EVERY_MS = 30_000L
+        // failed check. After FAILS_TO_RESET failed checks in a row it
+        // reopens the connections to the servers, after FAILS_TO_RESTART it
+        // restarts the core, at most once per RESTART_GAP_MS. While the
+        // phone's network itself has no internet it only looks every
+        // OFFLINE_RECHECK_MS for its return.
+        private const val WATCH_EVERY_MS = 20_000L
         private const val RECHECK_MS = 3_000L
-        private const val FAILS_TO_RESTART = 3
+        private const val OFFLINE_RECHECK_MS = 2_000L
+        private const val FAILS_TO_RESET = 2
+        private const val FAILS_TO_RESTART = 4
         private const val RESTART_GAP_MS = 2 * 60_000L
 
-        // After a network change the core restarts once the network has
+        // After a network change the VPN moves to it once the network has
         // been stable for NET_SETTLE_MS, and at most once per
-        // NET_RESTART_GAP_MS.
-        private const val NET_SETTLE_MS = 1_500L
-        private const val NET_RESTART_GAP_MS = 10_000L
+        // NET_SWITCH_GAP_MS.
+        private const val NET_SETTLE_MS = 1_000L
+        private const val NET_SWITCH_GAP_MS = 5_000L
 
         // Addresses inside the TUN. DNS goes to TUN_DNS, the core answers it.
         private const val TUN_ADDR = "172.19.0.1"
@@ -77,6 +83,14 @@ class TigerVpnService : VpnService() {
 
     // All core calls run here, one at a time, off the main thread.
     private val worker = Executors.newSingleThreadExecutor()
+
+    // The watchdog's checks take seconds when the channel is down, so they
+    // run here: a change of network never waits for them.
+    private val checker = Executors.newSingleThreadExecutor()
+    private var checking = false
+    // Grows with every connect and change of network, so that a check begun
+    // before it is not judged after it.
+    private var epoch = 0
     private var tun: ParcelFileDescriptor? = null
     private var mtu = 0
     private var networkCallback: ConnectivityManager.NetworkCallback? = null
@@ -91,6 +105,8 @@ class TigerVpnService : VpnService() {
     }
     private var fails = 0
     private var lastRestart = 0L
+    // The phone's network had no internet at the last check.
+    private var offline = false
     private val watchTick = object : Runnable {
         override fun run() {
             worker.execute { watch() }
@@ -98,13 +114,15 @@ class TigerVpnService : VpnService() {
         }
     }
 
-    // The network the core's connections use; a new one means a restart.
+    // The network the core's connections use, and its addresses: a new
+    // network, or a lost address, means the connections are reopened.
     private var network: Network? = null
-    private var lastNetRestart = 0L
+    private var addrs = emptySet<InetAddress>()
+    private var lastNetSwitch = 0L
 
     // Networks with internet that are not a VPN, as the worker last heard.
     private val nets = HashMap<Network, NetworkCapabilities>()
-    private val netRestart = Runnable { onWorker { restartForNetwork() } }
+    private val netSwitch = Runnable { onWorker { switchNetwork() } }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
@@ -139,17 +157,19 @@ class TigerVpnService : VpnService() {
         note("служба VPN остановлена")
         main.removeCallbacks(protocolTick)
         main.removeCallbacks(watchTick)
-        main.removeCallbacks(netRestart)
+        main.removeCallbacks(netSwitch)
         worker.execute {
             unwatchNetwork()
             stopCore()
         }
         worker.shutdown()
+        checker.shutdown()
         super.onDestroy()
     }
 
     private fun connect() {
-        main.removeCallbacks(netRestart)
+        epoch++
+        main.removeCallbacks(netSwitch)
         VpnState.set(VpnState.Phase.CONNECTING)
         try {
             Core.init(this)
@@ -160,6 +180,7 @@ class TigerVpnService : VpnService() {
             val mode = Core.mode(this)
 
             seedNetwork()
+            network?.let { addrs = addresses(it) }
             val (transport, linkMtu) = activeNetwork(network)
             mtu = Mobile.pickMTU(transport, linkMtu.toLong()).toInt()
             // The smart mode tunes its DPI evasion per kind of network.
@@ -197,6 +218,7 @@ class TigerVpnService : VpnService() {
             main.removeCallbacks(protocolTick)
             main.postDelayed(protocolTick, PROTOCOL_EVERY_MS)
             fails = 0
+            offline = false
             main.removeCallbacks(watchTick)
             main.postDelayed(watchTick, WATCH_EVERY_MS)
         } catch (e: Exception) {
@@ -223,13 +245,17 @@ class TigerVpnService : VpnService() {
 
     /**
      * The watchdog. The core can lose its server without noticing: a dead
-     * session after the phone slept or switched networks. Every check asks
-     * t.me and YouTube through the server in use (Mobile.healthy); a failed
-     * one is repeated after 3 seconds, and after three failures in a row the
-     * core is restarted. When the core is gone, the tunnel is rebuilt.
+     * session after the phone slept, or after the mobile signal dropped for a
+     * while with Android still holding the network. Every check asks t.me and
+     * YouTube through the server in use (Mobile.healthy); a failed one is
+     * repeated after 3 seconds. Two failures in a row reopen the connections
+     * to the servers, four restart the core. When the phone's network itself
+     * has no internet, nothing is restarted: the watchdog waits for it and
+     * reopens the connections the moment it is back, so the apps do not hang
+     * on the dead ones. When the core is gone, the tunnel is rebuilt.
      */
     private fun watch() {
-        if (tun == null) return
+        if (tun == null || checking) return
         if (!Mobile.running()) {
             note("сторож: ядро не работает, переподключаю")
             connect()
@@ -240,11 +266,47 @@ class TigerVpnService : VpnService() {
             connect()
             return
         }
-        if (Mobile.healthy()) {
-            if (fails > 0) note("сторож: сервер снова отвечает")
+        checking = true
+        val wasOffline = offline
+        val began = epoch
+        try {
+            checker.execute {
+                var online = if (wasOffline) Mobile.online() else true
+                val healthy = online && Mobile.healthy()
+                if (!healthy && !wasOffline) online = Mobile.online()
+                onWorker {
+                    checking = false
+                    // A check from before a connect or a change of network
+                    // says nothing about now: check again soon.
+                    if (began == epoch) judge(healthy, online) else recheck(RECHECK_MS)
+                }
+            }
+        } catch (_: RejectedExecutionException) {
+            checking = false
+        }
+    }
+
+    private fun judge(healthy: Boolean, online: Boolean) {
+        if (tun == null) return
+        if (healthy) {
+            if (offline || fails >= FAILS_TO_RESET) {
+                note("сторож: канал вернулся, переоткрыто соединений: ${Mobile.resetConnections()}")
+            } else if (fails > 0) {
+                note("сторож: сервер снова отвечает")
+            }
             fails = 0
+            offline = false
             return
         }
+        if (!online) {
+            if (!offline) note("сторож: в сети телефона нет интернета, жду его")
+            offline = true
+            recheck(OFFLINE_RECHECK_MS)
+            return
+        }
+        // The internet is back, but not the channel: reopen at once.
+        val back = offline
+        offline = false
         fails++
         note("сторож: сервер не ответил ($fails)")
         val now = System.currentTimeMillis()
@@ -254,9 +316,16 @@ class TigerVpnService : VpnService() {
             connect()
             return
         }
+        if (back || fails == FAILS_TO_RESET) {
+            note("сторож: переоткрыто соединений: ${Mobile.resetConnections()}")
+        }
         // One failure may be a lost packet: check again soon.
+        recheck(RECHECK_MS)
+    }
+
+    private fun recheck(delayMs: Long) {
         main.removeCallbacks(watchTick)
-        main.postDelayed(watchTick, RECHECK_MS)
+        main.postDelayed(watchTick, delayMs)
     }
 
     /** Open files of the app: a number that keeps growing is a leak. */
@@ -273,7 +342,7 @@ class TigerVpnService : VpnService() {
     private fun shutdown() {
         main.removeCallbacks(protocolTick)
         main.removeCallbacks(watchTick)
-        main.removeCallbacks(netRestart)
+        main.removeCallbacks(netSwitch)
         unwatchNetwork()
         stopCore()
         VpnState.set(VpnState.Phase.DISCONNECTED)
@@ -350,12 +419,18 @@ class TigerVpnService : VpnService() {
             override fun onLinkPropertiesChanged(network: Network, lp: LinkProperties) {
                 onWorker {
                     if (tun == null || network != this@TigerVpnService.network) return@onWorker
-                    seedNetwork()
-            val (transport, linkMtu) = activeNetwork(network)
+                    // The operator gave the phone another address: the
+                    // connections from the old one are dead.
+                    val now = lp.linkAddresses.map { it.address }.toSet()
+                    val lost = !now.containsAll(addrs)
+                    addrs = now
+                    val (transport, linkMtu) = activeNetwork(network)
                     val want = Mobile.pickMTU(transport, linkMtu.toLong()).toInt()
-                    if (want != mtu) {
+                    if (want < mtu) {
                         note("MTU сети $mtu -> $want, переподключаю")
                         connect()
+                    } else if (lost) {
+                        note("адрес в сети сменился, переоткрыто соединений: ${Mobile.resetConnections()}")
                     }
                 }
             }
@@ -364,7 +439,6 @@ class TigerVpnService : VpnService() {
         networkCallback = cb
     }
 
-    /** Follows the best of [nets]; the current one stays on a tie. */
     /**
      * Before the first connect the network the core starts on is the one
      * Android uses now. Without it, the first network the callback reports,
@@ -381,6 +455,7 @@ class TigerVpnService : VpnService() {
         nets[n] = caps
     }
 
+    /** Follows the best of [nets]; the current one stays on a tie. */
     private fun pickNetwork() {
         fun score(c: NetworkCapabilities) =
             (if (c.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)) 4 else 0) +
@@ -406,24 +481,50 @@ class TigerVpnService : VpnService() {
         network = n
         setUnderlyingNetworks(arrayOf(n))
         if (tun == null || old == null) return
-        // A network that flaps restarts the core once, after it settles.
-        val wait = maxOf(NET_SETTLE_MS, lastNetRestart + NET_RESTART_GAP_MS - SystemClock.elapsedRealtime())
-        main.removeCallbacks(netRestart)
-        main.postDelayed(netRestart, wait)
+        // A network that flaps is followed once, after it settles.
+        val wait = maxOf(NET_SETTLE_MS, lastNetSwitch + NET_SWITCH_GAP_MS - SystemClock.elapsedRealtime())
+        main.removeCallbacks(netSwitch)
+        main.postDelayed(netSwitch, wait)
     }
 
-    private fun restartForNetwork() {
+    /**
+     * Moves the VPN to the new network without rebuilding the tunnel: the
+     * connections of the old network are closed, so the apps reconnect at
+     * once over the new one (Mobile.switchNetwork). Only a path that needs a
+     * smaller MTU than the tunnel has rebuilds it; a wider one keeps the
+     * tunnel's until the next connect.
+     */
+    private fun switchNetwork() {
         val n = network ?: return
         if (tun == null) return
-        lastNetRestart = SystemClock.elapsedRealtime()
-        note("сеть сменилась (${activeNetwork(n).first.ifEmpty { "?" }}), переподключаю")
-        connect()
+        lastNetSwitch = SystemClock.elapsedRealtime()
+        epoch++
+        addrs = addresses(n)
+        val (transport, linkMtu) = activeNetwork(n)
+        val kind = transport.ifEmpty { "?" }
+        val want = Mobile.pickMTU(transport, linkMtu.toLong()).toInt()
+        if (want < mtu) {
+            note("сеть сменилась ($kind), MTU $mtu -> $want, переподключаю")
+            connect()
+            return
+        }
+        val closed = Mobile.switchNetwork(transport)
+        note("сеть сменилась ($kind): переоткрыто соединений $closed, туннель тот же")
+        fails = 0
+        offline = false
+        // Check the channel on the new network soon.
+        recheck(RECHECK_MS)
     }
+
+    private fun addresses(n: Network): Set<InetAddress> =
+        getSystemService(ConnectivityManager::class.java).getLinkProperties(n)
+            ?.linkAddresses?.map { it.address }?.toSet() ?: emptySet()
 
     private fun unwatchNetwork() {
         val cb = networkCallback ?: return
         networkCallback = null
         network = null
+        addrs = emptySet()
         nets.clear()
         try {
             getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(cb)

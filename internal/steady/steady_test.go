@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/xtls/xray-core/core"
+	"github.com/xtls/xray-core/features/outbound"
 
 	"github.com/Stilltiger45/TigerSB-client/internal/engine"
 )
@@ -103,4 +104,56 @@ func TestPrimeLeavesDeadTransport(t *testing.T) {
 		}
 	}
 	t.Errorf("still on %s", Current(inst, "pick/ru"))
+}
+
+// TestRenewForgetsOldNetwork checks that a transport avoided on the old
+// network is checked again and taken back after a change of network.
+func TestRenewForgetsOldNetwork(t *testing.T) {
+	site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer site.Close()
+	cfg, _ := json.Marshal(map[string]any{
+		"log": map[string]any{"loglevel": "none"},
+		"outbounds": []any{
+			map[string]any{"tag": "ru/x/live", "protocol": "freedom"},
+			map[string]any{"tag": "ru/x/dead", "protocol": "blackhole"},
+		},
+	})
+	inst, err := engine.Start(cfg, func(inst *core.Instance) error {
+		return Attach(inst, Options{Tag: "pick/ru", Tags: []string{"ru/x/live", "ru/x/dead"}, ProbeURL: site.URL})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer inst.Close()
+	ohm, _ := inst.GetFeature(outbound.ManagerType()).(outbound.Manager)
+	h := ohm.GetHandler("pick/ru").(*Handler)
+	for deadline := time.Now().Add(8 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		h.mu.Lock()
+		primed := len(h.alive) == 2
+		h.mu.Unlock()
+		if primed {
+			break
+		}
+	}
+	// On the old network the live one failed its checks.
+	h.mu.Lock()
+	h.down["ru/x/live"] = time.Now().Add(time.Hour)
+	h.mu.Unlock()
+	usable := func() bool {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		return h.views(time.Now())["ru/x/live"].alive
+	}
+	if usable() {
+		t.Fatal("the avoided transport counts as usable")
+	}
+	Renew(inst)
+	for deadline := time.Now().Add(8 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
+		if usable() {
+			return
+		}
+	}
+	t.Error("the transport avoided on the old network is still avoided")
 }
