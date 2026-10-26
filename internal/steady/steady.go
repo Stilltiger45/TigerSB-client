@@ -37,8 +37,8 @@ type Options struct {
 	// Tags are the transports, best priority first. The first carries
 	// traffic until the observatory has measured them.
 	Tags []string
-	// ProbeURL is what the check of the transport in use requests; empty
-	// means profile.DefaultProbeURL.
+	// ProbeURL is what the checks request through an exit in Russia; through
+	// a server abroad they request meter.ChannelURLs (see meter.CheckURLs).
 	ProbeURL string
 	// Check is how often the transport in use is checked (15 s), Recheck
 	// how soon after a failed check (3 s); Down is how long a transport that
@@ -143,7 +143,7 @@ func (h *Handler) prime() {
 	var wg sync.WaitGroup
 	for _, t := range h.opt.Tags {
 		wg.Go(func() {
-			d := meter.Ping(h.inst, t, h.opt.ProbeURL, 6*time.Second)
+			d := meter.Check(h.inst, t, meter.CheckURLs(t, h.opt.ProbeURL), 5*time.Second)
 			select {
 			case <-h.stop:
 				return
@@ -262,7 +262,7 @@ func (h *Handler) watch() {
 		case <-time.After(wait):
 		}
 		cur := h.Current()
-		ok := meter.Ping(h.inst, cur, h.opt.ProbeURL, 6*time.Second) >= 0
+		ok := meter.Check(h.inst, cur, meter.CheckURLs(cur, h.opt.ProbeURL), 5*time.Second) >= 0
 		wait = h.opt.Check
 		h.mu.Lock()
 		if cur == h.cur {

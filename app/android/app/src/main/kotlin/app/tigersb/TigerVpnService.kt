@@ -46,12 +46,13 @@ class TigerVpnService : VpnService() {
         // How often the notification checks which protocol carries traffic.
         private const val PROTOCOL_EVERY_MS = 30_000L
 
-        // The watchdog checks the tunnel this often; after FAILS_TO_RESTART
-        // failed checks in a row it restarts the core, at most once per
-        // RESTART_GAP_MS.
-        private const val WATCH_EVERY_MS = 60_000L
+        // The watchdog checks the channel this often, and RECHECK_MS after a
+        // failed check; after FAILS_TO_RESTART failed checks in a row it
+        // restarts the core, at most once per RESTART_GAP_MS.
+        private const val WATCH_EVERY_MS = 30_000L
+        private const val RECHECK_MS = 3_000L
         private const val FAILS_TO_RESTART = 3
-        private const val RESTART_GAP_MS = 5 * 60_000L
+        private const val RESTART_GAP_MS = 2 * 60_000L
 
         // After a network change the core restarts once the network has
         // been stable for NET_SETTLE_MS, and at most once per
@@ -222,9 +223,10 @@ class TigerVpnService : VpnService() {
 
     /**
      * The watchdog. The core can lose its server without noticing: a dead
-     * session after the phone slept or switched networks. When a page has
-     * not opened through the server for three checks in a row, the core is
-     * restarted; when the core is gone, the tunnel is rebuilt.
+     * session after the phone slept or switched networks. Every check asks
+     * t.me and YouTube through the server in use (Mobile.healthy); a failed
+     * one is repeated after 3 seconds, and after three failures in a row the
+     * core is restarted. When the core is gone, the tunnel is rebuilt.
      */
     private fun watch() {
         if (tun == null) return
@@ -250,7 +252,11 @@ class TigerVpnService : VpnService() {
             lastRestart = now
             note("сторож: перезапускаю ядро")
             connect()
+            return
         }
+        // One failure may be a lost packet: check again soon.
+        main.removeCallbacks(watchTick)
+        main.postDelayed(watchTick, RECHECK_MS)
     }
 
     /** Open files of the app: a number that keeps growing is a leak. */

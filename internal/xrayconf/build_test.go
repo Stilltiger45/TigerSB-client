@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/Stilltiger45/TigerSB-client/internal/engine"
@@ -497,5 +498,47 @@ func TestNoGeo(t *testing.T) {
 	_, dest := buildOpt(t, fixture(t), xrayconf.Options{Mode: xrayconf.ModeBasic, NoGeo: true})
 	if dest["direct-domains"] != "direct" || dest["rest"] != "pick/foreign" {
 		t.Errorf("basic mode without the lists: %v", dest)
+	}
+}
+
+// TestLinkTunesServerConnections checks the LTE mode's socket options on the
+// connections to the servers, and only there.
+func TestLinkTunesServerConnections(t *testing.T) {
+	cfg, err := xrayconf.Build(fixture(t), xrayconf.Options{Mode: xrayconf.ModeAuto, Evasion: true, Link: xrayconf.Link{Mobile: true, MSS: 1420}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := engine.Load(cfg); err != nil {
+		t.Fatal(err)
+	}
+	var c struct {
+		Outbounds []struct {
+			Tag    string `json:"tag"`
+			Stream struct {
+				Sockopt map[string]any `json:"sockopt"`
+			} `json:"streamSettings"`
+		} `json:"outbounds"`
+	}
+	if err := json.Unmarshal(cfg, &c); err != nil {
+		t.Fatal(err)
+	}
+	servers := 0
+	for _, ob := range c.Outbounds {
+		so := ob.Stream.Sockopt
+		switch {
+		case strings.HasPrefix(ob.Tag, "foreign/") || strings.HasPrefix(ob.Tag, "ru/") || strings.HasPrefix(ob.Tag, "dpi/"):
+			servers++
+			if so["tcpMaxSeg"] != 1420.0 || so["tcpKeepAliveIdle"] != 30.0 || so["tcpUserTimeout"] != 30000.0 {
+				t.Errorf("%s: sockopt %v", ob.Tag, so)
+			}
+			if strings.Contains(ob.Tag, ":") && so["dialerProxy"] == nil {
+				t.Errorf("%s lost its preset", ob.Tag)
+			}
+		case so["tcpMaxSeg"] != nil:
+			t.Errorf("%s is not a server but got %v", ob.Tag, so)
+		}
+	}
+	if servers == 0 {
+		t.Fatal("no server outbounds")
 	}
 }

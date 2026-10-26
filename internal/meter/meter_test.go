@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -76,5 +77,48 @@ func TestTrafficAndPing(t *testing.T) {
 	}
 	if d := meter.Ping(inst, "", "", time.Second); d != -1 {
 		t.Errorf("ping without servers: %v", d)
+	}
+}
+
+// TestCheckKeepAlive checks two sites with two requests each, the second on
+// the connection of the first, and a dead outbound that fails in time.
+func TestCheckKeepAlive(t *testing.T) {
+	var conns, reqs atomic.Int32
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reqs.Add(1)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	srv.Config.ConnState = func(_ net.Conn, s http.ConnState) {
+		if s == http.StateNew {
+			conns.Add(1)
+		}
+	}
+	srv.Start()
+	defer srv.Close()
+	cfg, _ := json.Marshal(map[string]any{
+		"log": map[string]any{"loglevel": "none"},
+		"outbounds": []any{
+			map[string]any{"tag": "foreign/a", "protocol": "freedom", "settings": map[string]any{"redirect": strings.TrimPrefix(srv.URL, "http://")}},
+			map[string]any{"tag": "foreign/dead", "protocol": "blackhole"},
+		},
+	})
+	inst, err := engine.Start(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer inst.Close()
+	urls := []string{"http://t.example/", "http://yt.example/generate_204"}
+	if d := meter.Check(inst, "foreign/a", urls, 5*time.Second); d < 0 {
+		t.Fatal("live outbound failed the check")
+	}
+	if reqs.Load() != 4 || conns.Load() != 2 {
+		t.Errorf("%d requests over %d connections, want 4 over 2", reqs.Load(), conns.Load())
+	}
+	start := time.Now()
+	if d := meter.Check(inst, "foreign/dead", urls, time.Second); d >= 0 {
+		t.Error("dead outbound passed the check")
+	}
+	if time.Since(start) > 3*time.Second {
+		t.Error("the check of a dead outbound overran its timeout")
 	}
 }

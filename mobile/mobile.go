@@ -223,6 +223,7 @@ func Start(fd int, mode string, mtu int) error {
 		LogFile:  filepath.Join(dataDir, xrayLog),
 		Evasion:  ev != nil,
 		NoGeo:    noGeo,
+		Link:     currentLink(),
 	})
 	if err != nil {
 		return err
@@ -267,7 +268,8 @@ func Stats() (string, error) {
 	}
 	up, down := meter.Traffic(i, all)
 	ping := int64(-1)
-	if d := meter.Ping(i, inUse(i, def), url, 5*time.Second); d >= 0 {
+	tag := inUse(i, def)
+	if d := meter.Check(i, tag, meter.CheckURLs(xrayconf.BaseTag(tag), url), 5*time.Second); d >= 0 {
 		ping = d.Milliseconds()
 	}
 	b, err := json.Marshal(map[string]int64{
@@ -276,8 +278,10 @@ func Stats() (string, error) {
 	return string(b), err
 }
 
-// Healthy checks that a site opens through the server in use, within 6
-// seconds. False when the VPN is not running or the request fails.
+// Healthy checks the channel through the server in use like the app's ping:
+// t.me and YouTube through a server abroad, two requests each over one
+// connection, within 5 seconds. False when the VPN is not running or nothing
+// answers.
 func Healthy() bool {
 	mu.Lock()
 	i, def, url := inst, pingTags, probeURL
@@ -288,7 +292,8 @@ func Healthy() bool {
 	if len(def) == 0 {
 		return true // nothing to check through: everything goes direct
 	}
-	return meter.Ping(i, inUse(i, def), url, 6*time.Second) >= 0
+	tag := inUse(i, def)
+	return meter.Check(i, tag, meter.CheckURLs(xrayconf.BaseTag(tag), url), 5*time.Second) >= 0
 }
 
 // inUse returns the outbound most traffic goes through now: the smart
@@ -435,9 +440,88 @@ func savedPresets() map[string]int {
 
 // PickMTU chooses the TUN MTU for the network the phone uses now: transport
 // is "wifi", "cellular", "ethernet" or "", linkMTU is what the system reports
-// for that network (0 if unknown).
+// for that network (0 if unknown). It measures how large a packet reaches the
+// server without being split (netauto.PathMTU), which takes up to a few
+// seconds, so call it off the main thread, before Start: Start tunes the
+// connections to the servers for the same network.
 func PickMTU(transport string, linkMTU int) int {
-	return netauto.MTU(netauto.Transport(transport), linkMTU)
+	t := netauto.Transport(transport)
+	path := pathMTU(t)
+	mtu := netauto.MTU(t, linkMTU, path)
+	linkMu.Lock()
+	link = xrayconf.Link{Mobile: t == netauto.Cellular, MSS: netauto.MSS(path)}
+	linkMu.Unlock()
+	return mtu
+}
+
+var (
+	linkMu sync.Mutex
+	// link is what PickMTU found about the network, for Start.
+	link xrayconf.Link
+	// lastPath is the last measurement, reused for a while on the same
+	// network and server.
+	lastPath struct {
+		key  string
+		at   time.Time
+		size int
+	}
+)
+
+// pathReuse is how long a measured path stays trusted.
+const pathReuse = 5 * time.Minute
+
+// pathFallback answers pings from Russia when the server does not: the path to
+// it shows at least what the phone's own network carries.
+const pathFallback = "77.88.8.8"
+
+// pathMTU measures the path to the profile's server, or to pathFallback when
+// the server drops pings; 0 when neither answers.
+func pathMTU(t netauto.Transport) int {
+	mu.Lock()
+	host := ""
+	if st, err := subscription.Load(dataDir); err == nil {
+		if p, err := st.Open(); err == nil {
+			host = xrayconf.ServerHost(p)
+		}
+	}
+	mu.Unlock()
+	key := string(t) + " " + host
+	linkMu.Lock()
+	if lastPath.key == key && time.Since(lastPath.at) < pathReuse {
+		size := lastPath.size
+		linkMu.Unlock()
+		return size
+	}
+	linkMu.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	size, to := 0, "до сервера"
+	if host != "" {
+		size = netauto.PathMTU(ctx, host)
+	}
+	if size == 0 {
+		size, to = netauto.PathMTU(ctx, pathFallback), "до Яндекса"
+	}
+	kind := cmp.Or(string(t), "сеть ?")
+	if t == netauto.Cellular {
+		kind += ", режим LTE"
+	}
+	if size > 0 {
+		Note(fmt.Sprintf("%s: путь %s пропускает %d байт без дробления", kind, to, size))
+	} else {
+		Note(kind + ": путь не измерить, ping не отвечает")
+	}
+	linkMu.Lock()
+	lastPath.key, lastPath.at, lastPath.size = key, time.Now(), size
+	linkMu.Unlock()
+	return size
+}
+
+func currentLink() xrayconf.Link {
+	linkMu.Lock()
+	defer linkMu.Unlock()
+	return link
 }
 
 func assetDir() string { return filepath.Join(dataDir, "geodata") }

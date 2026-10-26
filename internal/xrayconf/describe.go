@@ -78,3 +78,36 @@ func Protocols(p *profile.Profile) map[string]string {
 	}
 	return m
 }
+
+// ServerHost returns the address of the profile's best server, abroad if
+// there is one: what the app measures the network path to. "" when no
+// transport names one.
+func ServerHost(p *profile.Profile) string {
+	for _, role := range []profile.Role{profile.RoleForeign, profile.RoleRU} {
+		for _, it := range transports(p, role) {
+			var ob struct {
+				Settings struct {
+					Address string `json:"address"`
+					Vnext   []struct {
+						Address string `json:"address"`
+					} `json:"vnext"`
+					Servers []struct {
+						Address string `json:"address"`
+					} `json:"servers"`
+				} `json:"settings"`
+			}
+			if json.Unmarshal(it.xray, &ob) != nil {
+				continue
+			}
+			switch s := ob.Settings; {
+			case len(s.Vnext) > 0 && s.Vnext[0].Address != "":
+				return s.Vnext[0].Address
+			case len(s.Servers) > 0 && s.Servers[0].Address != "":
+				return s.Servers[0].Address
+			case s.Address != "":
+				return s.Address
+			}
+		}
+	}
+	return ""
+}
