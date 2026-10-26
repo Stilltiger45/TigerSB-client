@@ -39,6 +39,7 @@ import (
 	"github.com/xtls/xray-core/features/stats"
 	"github.com/xtls/xray-core/transport"
 
+	"github.com/Stilltiger45/TigerSB-client/internal/engine"
 	"github.com/Stilltiger45/TigerSB-client/internal/xrayconf"
 	"github.com/Stilltiger45/TigerSB-client/pkg/profile"
 )
@@ -118,7 +119,7 @@ func Attach(inst *core.Instance, tag string, xray json.RawMessage) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	client, err := tuic.NewClient(tuic.ClientOptions{
 		Context:           ctx,
-		Dialer:            N.SystemDialer,
+		Dialer:            trackedDialer{N.SystemDialer},
 		ServerAddress:     server,
 		TLSConfig:         &stdConfig{tlsConf},
 		UUID:              id,
@@ -342,4 +343,25 @@ func or(a, b string) string {
 		return a
 	}
 	return b
+}
+
+// trackedDialer dials like the system dialer and hands what it opens to
+// engine.Track, so that a change of network closes TUIC's connections like
+// Xray's own.
+type trackedDialer struct{ N.Dialer }
+
+func (d trackedDialer) DialContext(ctx context.Context, network string, dest M.Socksaddr) (gonet.Conn, error) {
+	c, err := d.Dialer.DialContext(ctx, network, dest)
+	if err == nil {
+		engine.Track(c)
+	}
+	return c, err
+}
+
+func (d trackedDialer) ListenPacket(ctx context.Context, dest M.Socksaddr) (gonet.PacketConn, error) {
+	c, err := d.Dialer.ListenPacket(ctx, dest)
+	if err == nil {
+		engine.Track(c)
+	}
+	return c, err
 }

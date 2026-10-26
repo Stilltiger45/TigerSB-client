@@ -287,3 +287,35 @@ func TestTUICUnpinnedInsecureRefused(t *testing.T) {
 		t.Fatal("started without checking the certificate")
 	}
 }
+
+// TestTUICAfterNetworkChange checks that a change of network closes TUIC's
+// connection too and that the next request opens a new one.
+func TestTUICAfterNetworkChange(t *testing.T) {
+	site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, "через tuic") }))
+	defer site.Close()
+	port := tuicServer(t)
+	p, err := profile.FromVLESS(fmt.Sprintf("tuic://%s:pw@127.0.0.1:%d?sni=tuic.example.org&alpn=h3&allow_insecure=1#TUIC", testUUID, port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := certpin.Profile(context.Background(), p); err != nil {
+		t.Fatal(err)
+	}
+	_, socks, _ := start(t, p)
+	if got, err := get(t, socks, site.URL); err != nil || got != "через tuic" {
+		t.Fatalf("before: got %q, %v", got, err)
+	}
+	if n := engine.CloseConnections(); n == 0 {
+		t.Fatal("TUIC's connection was not closed")
+	}
+	var got string
+	for range 3 {
+		if got, err = get(t, socks, site.URL); err == nil {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if got != "через tuic" {
+		t.Fatalf("after: got %q, %v", got, err)
+	}
+}

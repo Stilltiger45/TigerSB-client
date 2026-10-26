@@ -190,3 +190,20 @@ func (h *Handler) forgetEvasive() {
 		}
 	}
 }
+
+// Renew prepares the picker of the instance for a new network: it takes
+// preset, the one that last worked on that kind of network (0 keeps the one
+// in use), and forgets every site's pick, which was made on the old network,
+// so each is checked again on its next connection. Run Tune afterwards.
+func Renew(inst *core.Instance, preset int) {
+	h := handlerOf(inst)
+	if h == nil {
+		return
+	}
+	if h.opt.Evasion != nil && preset >= 1 && preset <= len(xrayconf.Presets) {
+		h.preset.Store(int32(preset))
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	clear(h.cache)
+}

@@ -89,6 +89,9 @@ type profileInfo struct {
 	UserApps   []string `json:"userApps"`
 	// Key is the key the user imported, to copy and share.
 	Key string `json:"key"`
+	// Signed marks a profile from a TigerSB panel whose signature the app
+	// checked (a tigersb:// key): the app shows a check mark by its name.
+	Signed bool `json:"signed"`
 }
 
 // exitInfo is one exit with its transports (display names), best first.
@@ -223,7 +226,6 @@ func Start(fd int, mode string, mtu int) error {
 		LogFile:  filepath.Join(dataDir, xrayLog),
 		Evasion:  ev != nil,
 		NoGeo:    noGeo,
-		Link:     currentLink(),
 	})
 	if err != nil {
 		return err
@@ -412,11 +414,13 @@ func SetNetwork(transport string) {
 // tune picks the DPI preset for the network the core started on, notes the
 // result in the journal and remembers it for the next start there.
 func tune(i *core.Instance, kind string) {
+	tuneMu.Lock()
 	res, err := smart.Tune(i, 8*time.Second)
+	tuneMu.Unlock()
 	mu.Lock()
 	defer mu.Unlock()
-	if inst != i || err != nil {
-		return // stopped or restarted meanwhile
+	if inst != i || err != nil || network != kind {
+		return // stopped, restarted or moved to another network meanwhile
 	}
 	Note("обход DPI (" + cmp.Or(kind, "сеть ?") + "): " + res.String())
 	saved := savedPresets()
@@ -426,6 +430,10 @@ func tune(i *core.Instance, kind string) {
 		os.WriteFile(filepath.Join(dataDir, presetsFile), b, 0o600)
 	}
 }
+
+// tuneMu lets one tuning run at a time: a quick change of networks starts a
+// new one while the last still runs.
+var tuneMu sync.Mutex
 
 const presetsFile = "dpi.json"
 
@@ -442,22 +450,19 @@ func savedPresets() map[string]int {
 // is "wifi", "cellular", "ethernet" or "", linkMTU is what the system reports
 // for that network (0 if unknown). It measures how large a packet reaches the
 // server without being split (netauto.PathMTU), which takes up to a few
-// seconds, so call it off the main thread, before Start: Start tunes the
-// connections to the servers for the same network.
+// seconds, so call it off the main thread, before Start or SwitchNetwork:
+// the connections dialled from then on are tuned for this network (the LTE
+// mode on mobile data, segments sized to the path).
 func PickMTU(transport string, linkMTU int) int {
 	t := netauto.Transport(transport)
 	path := pathMTU(t)
 	mtu := netauto.MTU(t, linkMTU, path)
-	linkMu.Lock()
-	link = xrayconf.Link{Mobile: t == netauto.Cellular, MSS: netauto.MSS(path)}
-	linkMu.Unlock()
+	engine.SetLink(engine.Link{Mobile: t == netauto.Cellular, MSS: netauto.MSS(path)})
 	return mtu
 }
 
 var (
 	linkMu sync.Mutex
-	// link is what PickMTU found about the network, for Start.
-	link xrayconf.Link
 	// lastPath is the last measurement, reused for a while on the same
 	// network and server.
 	lastPath struct {
@@ -494,14 +499,17 @@ func pathMTU(t netauto.Transport) int {
 	}
 	linkMu.Unlock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	// Both paths are measured at once: a reconnect waits for this.
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
+	fallback := make(chan int, 1)
+	go func() { fallback <- netauto.PathMTU(ctx, pathFallback) }()
 	size, to := 0, "до сервера"
 	if host != "" {
 		size = netauto.PathMTU(ctx, host)
 	}
 	if size == 0 {
-		size, to = netauto.PathMTU(ctx, pathFallback), "до Яндекса"
+		size, to = <-fallback, "до Яндекса"
 	}
 	kind := cmp.Or(string(t), "сеть ?")
 	if t == netauto.Cellular {
@@ -516,12 +524,6 @@ func pathMTU(t netauto.Transport) int {
 	lastPath.key, lastPath.at, lastPath.size = key, time.Now(), size
 	linkMu.Unlock()
 	return size
-}
-
-func currentLink() xrayconf.Link {
-	linkMu.Lock()
-	defer linkMu.Unlock()
-	return link
 }
 
 func assetDir() string { return filepath.Join(dataDir, "geodata") }
@@ -545,6 +547,7 @@ func info(st *subscription.State, p *profile.Profile) (string, error) {
 		ShieldApps: xrayconf.ShieldApps,
 		UserApps:   userApps(),
 		Key:        st.Key,
+		Signed:     st.PK != "",
 	}
 	for _, a := range slices.Concat(in.ShieldApps, p.Routing.Direct.Apps, in.UserApps) {
 		if !slices.Contains(in.DirectApps, a) {

@@ -18,6 +18,14 @@ on:
         description: "1 — сервер за имитацией DPI, которая режет обычный VLESS"
         required: false
         default: "0"
+      scenarios:
+        description: "Нестабильная сеть: switches (частые переключения), outage (10 мин без интернета), mobile (30 мин на мобильной, обрыв, затем Wi-Fi)"
+        required: false
+        default: "switches"
+      switches:
+        description: "Сколько раз переключать Wi-Fi↔мобильная"
+        required: false
+        default: "4"
   push:
     branches: ["claude/soak*"]
 
@@ -27,7 +35,7 @@ permissions:
 jobs:
   soak:
     runs-on: ubuntu-latest
-    timeout-minutes: 80
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
 
@@ -68,6 +76,8 @@ jobs:
           SOAK_MINUTES: ${{ inputs.minutes || '12' }}
           SOAK_MODES: ${{ inputs.modes || 'Умная Базовая Все' }}
           SOAK_DPI: ${{ inputs.dpi || '0' }}
+          SOAK_SCENARIOS: ${{ inputs.scenarios || 'switches' }}
+          SOAK_SWITCHES: ${{ inputs.switches || '4' }}
         with:
           api-level: 34
           arch: x86_64

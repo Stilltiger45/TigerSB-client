@@ -246,6 +246,13 @@ class _HomeScreenState extends State<HomeScreen> {
               Image.asset('assets/tiger.png', width: 30, height: 30),
               const SizedBox(width: 10),
               Flexible(child: Text(widget.profile.name, overflow: TextOverflow.ellipsis)),
+              if (widget.profile.signed) ...[
+                const SizedBox(width: 6),
+                const Tooltip(
+                  message: 'Профиль подписан панелью TigerSB',
+                  child: Icon(Icons.verified_rounded, size: 18, color: Palette.orange),
+                ),
+              ],
             ],
           ),
           actions: [

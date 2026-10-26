@@ -106,6 +106,28 @@ func Current(inst *core.Instance, tag string) string {
 	return ""
 }
 
+// Renew makes the pickers of the instance start over on a new network: what
+// they measured and the transports they avoid belong to the old one, where a
+// UDP transport may have failed that works here. Every transport is checked
+// again at once.
+func Renew(inst *core.Instance) {
+	ohm, _ := inst.GetFeature(outbound.ManagerType()).(outbound.Manager)
+	if ohm == nil {
+		return
+	}
+	for _, oh := range ohm.ListHandlers(context.Background()) {
+		if h, ok := oh.(*Handler); ok {
+			h.mu.Lock()
+			clear(h.alive)
+			clear(h.rtt)
+			clear(h.down)
+			h.fails, h.measured = 0, false
+			h.mu.Unlock()
+			go h.prime()
+		}
+	}
+}
+
 // Handler is the picker. It implements Xray's outbound.Handler.
 type Handler struct {
 	opt  Options
