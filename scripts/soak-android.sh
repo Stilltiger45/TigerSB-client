@@ -4,6 +4,8 @@
 # checking every 20 seconds that the app lives, the tunnel is up and sites
 # open, and recording the app's memory, threads and open files. Everything is
 # left in $2; failures and the app's log are repeated as annotations.
+# SOAK_MODES picks the modes, SOAK_DPI=1 puts the server behind a stand-in for
+# DPI that cuts plain VLESS, so only the smart mode's evasion gets through.
 set -uo pipefail
 apk=$1
 out=$2
@@ -54,7 +56,9 @@ http() {
 }
 
 go build -o soak-server ./scripts/soak
-./soak-server -port $port > "$out/server.log" 2>&1 &
+dpi=
+if [ "${SOAK_DPI:-0}" = 1 ]; then dpi=-dpi; fi
+./soak-server -port $port $dpi > "$out/server.log" 2>&1 &
 server=$!
 trap 'kill $server' EXIT
 
@@ -138,10 +142,30 @@ kill $logcat
 restarts=$(grep -c 'TigerSB.*подключено' "$out/logcat.txt")
 echo "core starts: $restarts" | tee -a "$log"
 if [ "$restarts" -gt $((4 + 2 * ${SOAK_SWITCHES:-4} + 4)) ]; then failed=1; fi
+
+# The smart mode tunes its DPI evasion on every core start.
+adb shell cat /data/data/app.tigersb/files/events.log > "$out/events.log" 2>/dev/null
+tunes=$(grep -c 'обход DPI' "$out/events.log")
+echo "DPI tunings: $tunes" | tee -a "$log"
+case " $modes " in *" Умная "*) if [ "$tunes" = 0 ]; then failed=1; fi ;; esac
+kill $server
+sleep 1
+if [ -n "$dpi" ]; then
+  # Plain VLESS is cut, so the tuning must find the preset that splits the
+  # connection start, and traffic must have passed the DPI box.
+  if ! grep -q 'обход DPI.*набор 3' "$out/events.log"; then
+    echo "no tuning picked preset 3" | tee -a "$log"
+    failed=1
+  fi
+  box=$(grep -oE 'dpi: blocked [0-9]+, passed [0-9]+' "$out/server.log" | tail -1)
+  echo "DPI box: $box" | tee -a "$log"
+  if [ "${box##* }" = 0 ] || [ -z "$box" ]; then failed=1; fi
+fi
 noise='s_glBindAttribLocation|Choreographer|OpenGLRenderer|EGL_emulation|HostConnection|eglCodecCommon'
 annotate notice "soak" "$(cat "$log")"
 annotate warning "app log" "$(grep -E 'GoLog|TigerSB|AndroidRuntime|FATAL|panic|Fatal signal|lowmemory|ActivityManager.*tigersb' "$out/logcat.txt" | grep -vE "$noise" | tail -150)"
 annotate notice "server" "$(tail -60 "$out/server.log")"
+annotate notice "events" "$(tail -80 "$out/events.log")"
 if [ $failed = 1 ]; then
   echo "::error::VPN не выдержал длительный тест, см. soak.txt"
   exit 1

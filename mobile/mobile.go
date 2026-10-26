@@ -26,6 +26,7 @@ import (
 	"github.com/Stilltiger45/TigerSB-client/internal/meter"
 	"github.com/Stilltiger45/TigerSB-client/internal/netauto"
 	"github.com/Stilltiger45/TigerSB-client/internal/smart"
+	"github.com/Stilltiger45/TigerSB-client/internal/steady"
 	"github.com/Stilltiger45/TigerSB-client/internal/subscription"
 	"github.com/Stilltiger45/TigerSB-client/internal/tuic"
 	"github.com/Stilltiger45/TigerSB-client/internal/xrayconf"
@@ -40,6 +41,8 @@ var (
 	dataDir    string
 	appVersion string
 	inst       *core.Instance
+	// network is the kind of network the phone is on (SetNetwork).
+	network string
 
 	// What Stats needs about the running VPN.
 	vpnTags, pingTags []string
@@ -205,10 +208,15 @@ func Start(fd int, mode string, mtu int) error {
 		}
 	}
 	trim(filepath.Join(dataDir, xrayLog))
+	var ev *smart.Evasion
+	if m == xrayconf.ModeAuto {
+		ev = smart.NewEvasion(p, savedPresets()[network])
+	}
 	cfg, err := xrayconf.Build(p, xrayconf.Options{
 		Mode:     m,
 		Inbounds: []xrayconf.Inbound{{Tag: "tun-in", Protocol: "tun", MTU: mtu}},
 		LogFile:  filepath.Join(dataDir, xrayLog),
+		Evasion:  ev != nil,
 	})
 	if err != nil {
 		return err
@@ -217,11 +225,14 @@ func Start(fd int, mode string, mtu int) error {
 	if err := os.Setenv("XRAY_TUN_FD", strconv.Itoa(fd)); err != nil {
 		return err
 	}
-	i, err := engine.Start(cfg, append(tuic.Hooks(p), smart.Hooks(p, m)...)...)
+	i, err := engine.Start(cfg, slices.Concat(tuic.Hooks(p), steady.Hooks(p), smart.Hooks(p, m, ev))...)
 	if err != nil {
 		return err
 	}
 	inst = i
+	if ev != nil {
+		go tune(i, network)
+	}
 	vpnTags, pingTags = xrayconf.Candidates(p)
 	protocols = xrayconf.Protocols(p)
 	probeURL = ""
@@ -245,7 +256,7 @@ func Stats() (string, error) {
 	}
 	up, down := meter.Traffic(i, all)
 	ping := int64(-1)
-	if d := meter.Ping(i, def, url, 5*time.Second); d >= 0 {
+	if d := meter.Ping(i, inUse(i, def), url, 5*time.Second); d >= 0 {
 		ping = d.Milliseconds()
 	}
 	b, err := json.Marshal(map[string]int64{
@@ -266,7 +277,22 @@ func Healthy() bool {
 	if len(def) == 0 {
 		return true // nothing to check through: everything goes direct
 	}
-	return meter.Ping(i, def, url, 6*time.Second) >= 0
+	return meter.Ping(i, inUse(i, def), url, 6*time.Second) >= 0
+}
+
+// inUse returns the outbound most traffic goes through now: the smart
+// picker's choice for traffic without a domain, the transport a pick
+// outbound keeps, or the fastest of def.
+func inUse(i *core.Instance, def []string) string {
+	if t := smart.InUse(i); t != "" {
+		return t
+	}
+	for _, role := range []profile.Role{profile.RoleForeign, profile.RoleRU} {
+		if t := steady.Current(i, xrayconf.PickTag(role)); t != "" {
+			return t
+		}
+	}
+	return meter.Fastest(i, def)
 }
 
 // About returns, as JSON, the versions the app's about screen shows: the app
@@ -287,7 +313,12 @@ func Protocol() string {
 	if inst == nil || len(pingTags) == 0 {
 		return ""
 	}
-	return protocols[meter.Fastest(inst, pingTags)]
+	tag := inUse(inst, pingTags)
+	name := protocols[xrayconf.BaseTag(tag)]
+	if tag != xrayconf.BaseTag(tag) && name != "" {
+		name += " · обход DPI"
+	}
+	return name
 }
 
 // SetStateKey sets the 32-byte key that encrypts the saved subscription (see
@@ -351,6 +382,44 @@ func Running() bool {
 	mu.Lock()
 	defer mu.Unlock()
 	return inst != nil
+}
+
+// SetNetwork tells the core what network the phone is on now: "wifi",
+// "cellular", "ethernet" or "". Call it before Start: the smart mode
+// remembers the DPI preset that worked on each kind of network.
+func SetNetwork(transport string) {
+	mu.Lock()
+	defer mu.Unlock()
+	network = transport
+}
+
+// tune picks the DPI preset for the network the core started on, notes the
+// result in the journal and remembers it for the next start there.
+func tune(i *core.Instance, kind string) {
+	res, err := smart.Tune(i, 8*time.Second)
+	mu.Lock()
+	defer mu.Unlock()
+	if inst != i || err != nil {
+		return // stopped or restarted meanwhile
+	}
+	Note("обход DPI (" + cmp.Or(kind, "сеть ?") + "): " + res.String())
+	saved := savedPresets()
+	if saved[kind] != res.Preset {
+		saved[kind] = res.Preset
+		b, _ := json.Marshal(saved)
+		os.WriteFile(filepath.Join(dataDir, presetsFile), b, 0o600)
+	}
+}
+
+const presetsFile = "dpi.json"
+
+// savedPresets reads the DPI preset that worked last on each kind of network.
+func savedPresets() map[string]int {
+	m := map[string]int{}
+	if b, err := os.ReadFile(filepath.Join(dataDir, presetsFile)); err == nil {
+		json.Unmarshal(b, &m)
+	}
+	return m
 }
 
 // PickMTU chooses the TUN MTU for the network the phone uses now: transport

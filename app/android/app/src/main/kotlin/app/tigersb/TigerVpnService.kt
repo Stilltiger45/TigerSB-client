@@ -160,6 +160,8 @@ class TigerVpnService : VpnService() {
 
             val (transport, linkMtu) = activeNetwork(network)
             mtu = Mobile.pickMTU(transport, linkMtu.toLong()).toInt()
+            // The smart mode tunes its DPI evasion per kind of network.
+            Mobile.setNetwork(transport)
 
             val b = Builder()
                 .setSession("TigerSB")

@@ -10,6 +10,14 @@ on:
         description: "Минут в каждом режиме"
         required: false
         default: "12"
+      modes:
+        description: "Режимы через пробел"
+        required: false
+        default: "Умная Базовая Все"
+      dpi:
+        description: "1 — сервер за имитацией DPI, которая режет обычный VLESS"
+        required: false
+        default: "0"
   push:
     branches: ["claude/soak*"]
 
@@ -58,6 +66,8 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         env:
           SOAK_MINUTES: ${{ inputs.minutes || '12' }}
+          SOAK_MODES: ${{ inputs.modes || 'Умная Базовая Все' }}
+          SOAK_DPI: ${{ inputs.dpi || '0' }}
         with:
           api-level: 34
           arch: x86_64
@@ -68,5 +78,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: TigerSB-android-soak
+          name: TigerSB-android-soak-${{ inputs.dpi || '0' }}
           path: soak/

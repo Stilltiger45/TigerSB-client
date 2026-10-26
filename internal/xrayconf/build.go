@@ -40,8 +40,8 @@ func ParseMode(s string) (Mode, error) {
 	return "", fmt.Errorf("неизвестный режим %q (ожидается auto, basic, main, all или off)", s)
 }
 
-// Outbound and balancer tags. Transport tags are "<role>/<exit>/<transport>"
-// so a balancer selects a role by prefix.
+// Outbound tags. Transport tags are "<role>/<exit>/<transport>" so the
+// observatory selects a role by prefix.
 const (
 	TagDirect = "direct"
 	TagBlock  = "block"
@@ -52,6 +52,11 @@ const (
 	// caller adds to Xray after creating it.
 	TagSmart = "smart"
 )
+
+// PickTag is the outbound that carries a role's traffic when the role has
+// several transports: package steady adds it to Xray and keeps the fastest
+// live transport behind it without flapping between them.
+func PickTag(role profile.Role) string { return "pick/" + string(role) }
 
 // DefaultMTU is the TUN MTU when the caller does not pick one.
 const DefaultMTU = 1500
@@ -75,6 +80,9 @@ type Options struct {
 	LogLevel string
 	// LogFile, when set, gets Xray's log instead of stderr.
 	LogFile string
+	// Evasion adds, in ModeAuto, the DPI presets and the copies of the VPN
+	// outbounds that dial through them (see Presets).
+	Evasion bool
 }
 
 // privateRanges never leave the device's own network.
@@ -92,17 +100,15 @@ type rule struct {
 	Port        string   `json:"port,omitempty"`
 	Network     string   `json:"network,omitempty"`
 	OutboundTag string   `json:"outboundTag,omitempty"`
-	BalancerTag string   `json:"balancerTag,omitempty"`
 	RuleTag     string   `json:"ruleTag,omitempty"`
 }
 
 type target struct {
 	outbound string
-	balancer string
 }
 
 func (t target) apply(r rule) rule {
-	r.OutboundTag, r.BalancerTag = t.outbound, t.balancer
+	r.OutboundTag = t.outbound
 	return r
 }
 
@@ -119,7 +125,6 @@ func Build(p *profile.Profile, opt Options) ([]byte, error) {
 		map[string]any{"tag": TagDirect, "protocol": "freedom", "settings": map[string]any{"domainStrategy": "UseIPv4"}},
 		map[string]any{"tag": TagBlock, "protocol": "blackhole"},
 	}
-	var balancers []any
 	var observed []string
 	var all []string
 	targets := map[profile.Role]target{}
@@ -136,16 +141,8 @@ func Build(p *profile.Profile, opt Options) ([]byte, error) {
 			case 1:
 				targets[role] = target{outbound: tags[0]}
 			default:
-				// The first tag has the best priority: it carries traffic until
-				// the observatory has measured the others.
-				balancers = append(balancers, map[string]any{
-					"tag":         string(role),
-					"selector":    []string{string(role) + "/"},
-					"strategy":    map[string]any{"type": "leastPing"},
-					"fallbackTag": tags[0],
-				})
 				observed = append(observed, string(role)+"/")
-				targets[role] = target{balancer: string(role)}
+				targets[role] = target{outbound: PickTag(role)}
 			}
 		}
 	}
@@ -169,6 +166,11 @@ func Build(p *profile.Profile, opt Options) ([]byte, error) {
 	dnsVia, hasDNSVia := foreign, hasForeign
 	if opt.Mode != ModeMain {
 		dnsVia, hasDNSVia = vpn, hasVPN
+	}
+	if opt.Mode == ModeAuto && opt.Evasion && hasVPN {
+		// Encrypted DNS has no name to check: the picker sends it through
+		// the server in use, or its copy through a preset when DPI cuts them.
+		dnsVia = target{outbound: TagSmart}
 	}
 
 	directDomains, directIPs := directLists(p)
@@ -221,12 +223,20 @@ func Build(p *profile.Profile, opt Options) ([]byte, error) {
 	var rest target
 	switch opt.Mode {
 	case ModeAuto:
+		if opt.Evasion && len(all) > 0 {
+			extra, err := evasionOutbounds(p)
+			if err != nil {
+				return nil, err
+			}
+			outbounds = append(outbounds, extra...)
+		}
 		rest = target{outbound: TagSmart}
 		if len(all) == 0 {
 			rest = direct
-		} else if len(all) > 1 && len(observed) < 2 {
+		} else if (len(all) > 1 || opt.Evasion) && len(observed) < 2 {
 			// The picker checks the fastest servers first, so all of them are
-			// measured, not only those behind a balancer.
+			// measured, not only those behind a pick outbound; with evasion
+			// even a single one, to know when DPI cuts it.
 			observed = []string{string(profile.RoleForeign) + "/", string(profile.RoleRU) + "/"}
 		}
 	case ModeMain:
@@ -263,9 +273,6 @@ func Build(p *profile.Profile, opt Options) ([]byte, error) {
 			"statsOutboundUplink":   true,
 			"statsOutboundDownlink": true,
 		}},
-	}
-	if len(balancers) > 0 {
-		cfg["routing"].(map[string]any)["balancers"] = balancers
 	}
 	if len(observed) > 0 {
 		probe := profile.DefaultProbeURL
@@ -306,6 +313,15 @@ func Candidates(p *profile.Profile) (all, def []string) {
 		def = all
 	}
 	return all, def
+}
+
+// Transports returns the tags of the role's transports, best priority first.
+func Transports(p *profile.Profile, role profile.Role) []string {
+	var tags []string
+	for _, it := range transports(p, role) {
+		tags = append(tags, it.tag)
+	}
+	return tags
 }
 
 type transportItem struct {
@@ -358,7 +374,7 @@ type Outbound struct {
 }
 
 // TUIC lists the profile's TUIC transports. Xray has no TUIC, so Build leaves
-// them out of the config but uses their tags in balancers and rules like any
+// them out of the config but uses their tags in pick outbounds and rules like any
 // other; the caller adds an outbound handler for each before starting Xray.
 func TUIC(p *profile.Profile) []Outbound {
 	var out []Outbound

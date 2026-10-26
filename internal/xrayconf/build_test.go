@@ -36,14 +36,9 @@ type built struct {
 		Rules []struct {
 			RuleTag     string   `json:"ruleTag"`
 			OutboundTag string   `json:"outboundTag"`
-			BalancerTag string   `json:"balancerTag"`
 			Domain      []string `json:"domain"`
 		} `json:"rules"`
-		Balancers []struct {
-			Tag         string   `json:"tag"`
-			Selector    []string `json:"selector"`
-			FallbackTag string   `json:"fallbackTag"`
-		} `json:"balancers"`
+		Balancers []json.RawMessage `json:"balancers"`
 	} `json:"routing"`
 	Observatory *struct {
 		SubjectSelector []string `json:"subjectSelector"`
@@ -79,11 +74,7 @@ func buildOpt(t *testing.T, p *profile.Profile, opt xrayconf.Options) (built, ma
 	// ruleTag -> where it sends traffic
 	dest := map[string]string{}
 	for _, r := range b.Routing.Rules {
-		if r.BalancerTag != "" {
-			dest[r.RuleTag] = "balancer:" + r.BalancerTag
-		} else {
-			dest[r.RuleTag] = r.OutboundTag
-		}
+		dest[r.RuleTag] = r.OutboundTag
 	}
 	return b, dest
 }
@@ -92,12 +83,12 @@ func TestMainModeThreeDirections(t *testing.T) {
 	b, dest := build(t, fixture(t), xrayconf.ModeMain)
 
 	want := map[string]string{
-		"dns":             "balancer:foreign",
+		"dns":             "pick/foreign",
 		"private":         "direct",
 		"direct-domains":  "direct",
 		"direct-ips":      "direct",
-		"blocked-domains": "balancer:foreign",
-		"blocked-ips":     "balancer:foreign",
+		"blocked-domains": "pick/foreign",
+		"blocked-ips":     "pick/foreign",
 		"rest":            "ru/msk-1/grpc",
 	}
 	for tag, to := range want {
@@ -119,12 +110,12 @@ func TestMainModeThreeDirections(t *testing.T) {
 		}
 	}
 
-	if len(b.Routing.Balancers) != 1 {
-		t.Fatalf("balancers: %+v", b.Routing.Balancers)
+	// Package steady keeps a transport behind pick/foreign, not an Xray balancer.
+	if len(b.Routing.Balancers) != 0 {
+		t.Errorf("balancers: %s", b.Routing.Balancers)
 	}
-	bal := b.Routing.Balancers[0]
-	if bal.Tag != "foreign" || bal.FallbackTag != "foreign/nl-1/reality" || !slices.Equal(bal.Selector, []string{"foreign/"}) {
-		t.Errorf("balancer %+v: the best priority transport must be the fallback", bal)
+	if got := xrayconf.Transports(fixture(t), profile.RoleForeign); !slices.Equal(got, []string{"foreign/nl-1/reality", "foreign/nl-1/xhttp-cdn"}) {
+		t.Errorf("foreign transports %v, best priority first", got)
 	}
 	if b.Observatory == nil || !slices.Equal(b.Observatory.SubjectSelector, []string{"foreign/"}) {
 		t.Errorf("observatory %+v", b.Observatory)
@@ -136,7 +127,7 @@ func TestMainModeThreeDirections(t *testing.T) {
 
 func TestAllMode(t *testing.T) {
 	b, dest := build(t, fixture(t), xrayconf.ModeAll)
-	if dest["rest"] != "balancer:foreign" || dest["private"] != "direct" {
+	if dest["rest"] != "pick/foreign" || dest["private"] != "direct" {
 		t.Errorf("rules %v", dest)
 	}
 	if _, ok := dest["direct-domains"]; ok {
@@ -177,12 +168,12 @@ func TestNoRUExitGoesDirect(t *testing.T) {
 	}
 }
 
-func TestSingleTransportNoBalancer(t *testing.T) {
+func TestSingleTransportNoPicker(t *testing.T) {
 	p := fixture(t)
 	p.Exits[0].Transports = p.Exits[0].Transports[1:]
 	b, dest := build(t, p, xrayconf.ModeMain)
-	if len(b.Routing.Balancers) != 0 || b.Observatory != nil {
-		t.Error("one transport per exit needs no balancer")
+	if b.Observatory != nil {
+		t.Error("one transport per exit needs no observatory")
 	}
 	if dest["blocked-domains"] != "foreign/nl-1/reality" {
 		t.Errorf("blocked goes to %q", dest["blocked-domains"])
@@ -267,7 +258,7 @@ func TestAutoMode(t *testing.T) {
 	p := fixture(t)
 	b, dest := build(t, p, xrayconf.ModeAuto)
 	want := map[string]string{
-		"dns":            "balancer:foreign",
+		"dns":            "pick/foreign",
 		"private":        "direct",
 		"direct-domains": "direct",
 		"direct-ips":     "direct",
@@ -317,7 +308,7 @@ func TestAutoModeOnlyRU(t *testing.T) {
 
 func TestBasicMode(t *testing.T) {
 	b, dest := build(t, fixture(t), xrayconf.ModeBasic)
-	if dest["rest"] != "balancer:foreign" || dest["direct-domains"] != "direct" || dest["direct-ips"] != "direct" {
+	if dest["rest"] != "pick/foreign" || dest["direct-domains"] != "direct" || dest["direct-ips"] != "direct" {
 		t.Errorf("rules %v", dest)
 	}
 	if _, ok := dest["blocked-domains"]; ok {
@@ -371,7 +362,7 @@ func TestBasicModeOnlyRU(t *testing.T) {
 func TestAIServicesGoAbroad(t *testing.T) {
 	for _, mode := range []xrayconf.Mode{xrayconf.ModeAuto, xrayconf.ModeMain, xrayconf.ModeBasic, xrayconf.ModeAll} {
 		b, dest := build(t, fixture(t), mode)
-		if dest["foreign-only"] != "balancer:foreign" {
+		if dest["foreign-only"] != "pick/foreign" {
 			t.Errorf("%s: AI services go to %q", mode, dest["foreign-only"])
 		}
 		for _, r := range b.Routing.Rules {
@@ -420,5 +411,68 @@ func TestShieldAlwaysDirect(t *testing.T) {
 	_, dest := build(t, fixture(t), xrayconf.ModeOff)
 	if _, ok := dest["shield"]; ok {
 		t.Error("off mode needs no shield rule")
+	}
+}
+
+func TestEvasionOutbounds(t *testing.T) {
+	p := fixture(t)
+	opt := xrayconf.Options{
+		Mode:     xrayconf.ModeAuto,
+		Inbounds: []xrayconf.Inbound{{Tag: "socks-in", Protocol: "socks", Listen: "127.0.0.1", Port: 10808}},
+		Evasion:  true,
+	}
+	b, _ := buildOpt(t, p, opt)
+	tags := map[string]bool{}
+	for _, o := range b.Outbounds {
+		tags[o.Tag] = true
+	}
+	variants := xrayconf.Variants(p)
+	if len(variants) == 0 {
+		t.Fatal("no transport gets a copy per preset")
+	}
+	for k := 1; k <= len(xrayconf.Presets); k++ {
+		if !tags[xrayconf.DPITag(k)] {
+			t.Errorf("preset %d outbound missing", k)
+		}
+		for _, v := range variants {
+			vt := xrayconf.VariantTag(k, v)
+			if !tags[vt] || xrayconf.BaseTag(vt) != v {
+				t.Errorf("copy %s missing or does not name its transport", vt)
+			}
+		}
+	}
+
+	cfg, err := xrayconf.Build(p, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var raw struct {
+		Outbounds []struct {
+			Tag    string `json:"tag"`
+			Stream struct {
+				Sockopt struct {
+					DialerProxy string `json:"dialerProxy"`
+				} `json:"sockopt"`
+			} `json:"streamSettings"`
+		} `json:"outbounds"`
+	}
+	json.Unmarshal(cfg, &raw)
+	for _, o := range raw.Outbounds {
+		if want := xrayconf.DPITag(2); o.Tag == xrayconf.VariantTag(2, variants[0]) && o.Stream.Sockopt.DialerProxy != want {
+			t.Errorf("%s dials through %q, want %q", o.Tag, o.Stream.Sockopt.DialerProxy, want)
+		}
+	}
+
+	if _, dest := buildOpt(t, p, opt); dest["dns"] != xrayconf.TagSmart {
+		t.Errorf("encrypted DNS goes to %q, want the picker", dest["dns"])
+	}
+
+	// Only the smart mode uses the presets.
+	opt.Mode = xrayconf.ModeAll
+	b, _ = buildOpt(t, p, opt)
+	for _, o := range b.Outbounds {
+		if xrayconf.BaseTag(o.Tag) != o.Tag || o.Tag == xrayconf.DPITag(1) {
+			t.Errorf("all mode got %s", o.Tag)
+		}
 	}
 }
