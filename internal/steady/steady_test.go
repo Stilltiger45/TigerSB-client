@@ -52,28 +52,28 @@ func TestLeavesDeadTransport(t *testing.T) {
 	cfg, _ := json.Marshal(map[string]any{
 		"log": map[string]any{"loglevel": "none"},
 		"outbounds": []any{
-			map[string]any{"tag": "foreign/x/dead", "protocol": "blackhole"},
-			map[string]any{"tag": "foreign/x/live", "protocol": "freedom"},
+			map[string]any{"tag": "ru/x/dead", "protocol": "blackhole"},
+			map[string]any{"tag": "ru/x/live", "protocol": "freedom"},
 		},
 		"observatory": map[string]any{
-			"subjectSelector": []string{"foreign/"},
+			"subjectSelector": []string{"ru/"},
 			"probeURL":        site.URL,
 			"probeInterval":   "1s",
 		},
 	})
 	inst, err := engine.Start(cfg, func(inst *core.Instance) error {
-		return Attach(inst, Options{Tag: "pick/foreign", Tags: []string{"foreign/x/dead", "foreign/x/live"}, ProbeURL: site.URL})
+		return Attach(inst, Options{Tag: "pick/ru", Tags: []string{"ru/x/dead", "ru/x/live"}, ProbeURL: site.URL})
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer inst.Close()
 	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
-		if Current(inst, "pick/foreign") == "foreign/x/live" {
+		if Current(inst, "pick/ru") == "ru/x/live" {
 			return
 		}
 	}
-	t.Errorf("still on %s", Current(inst, "pick/foreign"))
+	t.Errorf("still on %s", Current(inst, "pick/ru"))
 }
 
 // TestPrimeLeavesDeadTransport has no observatory at all: the check of every
@@ -86,21 +86,21 @@ func TestPrimeLeavesDeadTransport(t *testing.T) {
 	cfg, _ := json.Marshal(map[string]any{
 		"log": map[string]any{"loglevel": "none"},
 		"outbounds": []any{
-			map[string]any{"tag": "foreign/x/dead", "protocol": "blackhole"},
-			map[string]any{"tag": "foreign/x/live", "protocol": "freedom"},
+			map[string]any{"tag": "ru/x/dead", "protocol": "blackhole"},
+			map[string]any{"tag": "ru/x/live", "protocol": "freedom"},
 		},
 	})
 	inst, err := engine.Start(cfg, func(inst *core.Instance) error {
-		return Attach(inst, Options{Tag: "pick/foreign", Tags: []string{"foreign/x/dead", "foreign/x/live"}, ProbeURL: site.URL})
+		return Attach(inst, Options{Tag: "pick/ru", Tags: []string{"ru/x/dead", "ru/x/live"}, ProbeURL: site.URL})
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer inst.Close()
 	for deadline := time.Now().Add(8 * time.Second); time.Now().Before(deadline); time.Sleep(100 * time.Millisecond) {
-		if Current(inst, "pick/foreign") == "foreign/x/live" {
+		if Current(inst, "pick/ru") == "ru/x/live" {
 			return
 		}
 	}
-	t.Errorf("still on %s", Current(inst, "pick/foreign"))
+	t.Errorf("still on %s", Current(inst, "pick/ru"))
 }

@@ -86,6 +86,77 @@ type Options struct {
 	// NoGeo leaves out the geosite: and geoip: lists, for a start before
 	// geosite.dat and geoip.dat are downloaded: the rest of the routing works.
 	NoGeo bool
+	// Link tunes the connections to the servers for the network in use.
+	Link Link
+}
+
+// Link describes the network the phone is on, for the connections to the
+// servers. The panel's own socket options always win.
+type Link struct {
+	// Mobile is the LTE mode: TCP keepalives every 10 s after 30 s of
+	// silence hold the operator's NAT open, and a connection whose data goes
+	// unacknowledged for 30 s, lost in a handover, is dropped and redialled
+	// instead of hanging.
+	Mobile bool
+	// MSS, when set, caps the TCP segments to the servers so that a path
+	// narrower than 1500 bytes never has to split them (netauto.MSS).
+	MSS int
+}
+
+// sockopt returns the socket options of the link, none for a plain one.
+func (l Link) sockopt() map[string]any {
+	o := map[string]any{}
+	if l.Mobile {
+		o["tcpKeepAliveIdle"] = 30
+		o["tcpKeepAliveInterval"] = 10
+		o["tcpUserTimeout"] = 30000
+	}
+	if l.MSS > 0 {
+		o["tcpMaxSeg"] = l.MSS
+	}
+	return o
+}
+
+// tuneLink adds the link's socket options to the outbounds that dial the
+// servers (and the presets, which dial them too), keeping any the panel set.
+func tuneLink(outbounds []any, l Link) ([]any, error) {
+	add := l.sockopt()
+	if len(add) == 0 {
+		return outbounds, nil
+	}
+	out := make([]any, len(outbounds))
+	for i, ob := range outbounds {
+		raw, err := json.Marshal(ob)
+		if err != nil {
+			return nil, err
+		}
+		var m map[string]any
+		if err := json.Unmarshal(raw, &m); err != nil {
+			return nil, err
+		}
+		tag, _ := m["tag"].(string)
+		if !strings.HasPrefix(tag, string(profile.RoleForeign)+"/") && !strings.HasPrefix(tag, string(profile.RoleRU)+"/") && !strings.HasPrefix(tag, "dpi/") {
+			out[i] = ob
+			continue
+		}
+		stream, _ := m["streamSettings"].(map[string]any)
+		if stream == nil {
+			stream = map[string]any{}
+		}
+		so, _ := stream["sockopt"].(map[string]any)
+		if so == nil {
+			so = map[string]any{}
+		}
+		for k, v := range add {
+			if _, ok := so[k]; !ok {
+				so[k] = v
+			}
+		}
+		stream["sockopt"] = so
+		m["streamSettings"] = stream
+		out[i] = m
+	}
+	return out, nil
 }
 
 // privateRanges never leave the device's own network.
@@ -266,6 +337,10 @@ func Build(p *profile.Profile, opt Options) ([]byte, error) {
 	}
 	rules = append(rules, rest.apply(rule{Type: "field", Network: "tcp,udp", RuleTag: "rest"}))
 
+	outbounds, err := tuneLink(outbounds, opt.Link)
+	if err != nil {
+		return nil, err
+	}
 	cfg := map[string]any{
 		"log":       logConfig(opt),
 		"inbounds":  inbounds(opt.Inbounds),
