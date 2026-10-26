@@ -2,6 +2,7 @@ package app.tigersb
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -97,6 +98,16 @@ class MainActivity : FlutterActivity() {
                             startActivity(Intent.createChooser(send, "Отправить журнал"))
                         }
                         null
+                    }
+                    "about" -> background(result) { Mobile.about() }
+                    "openUrl" -> {
+                        val ok = try {
+                            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(call.argument<String>("url") ?: "")))
+                            true
+                        } catch (_: ActivityNotFoundException) {
+                            false
+                        }
+                        result.success(ok)
                     }
                     "disconnect" -> {
                         TigerVpnService.stop(this@MainActivity)

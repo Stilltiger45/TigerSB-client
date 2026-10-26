@@ -38,3 +38,5 @@ jobs:
       - run: scripts/check-licenses.sh
       - name: THIRD_PARTY_NOTICES.md up to date
         run: scripts/check-licenses.sh --notices | diff -u <(sed -n '/^| Модуль/,$p' THIRD_PARTY_NOTICES.md) -
+      - name: app/assets/licenses.json up to date
+        run: go run ./scripts/licensetexts && git diff --exit-code app/assets/licenses.json

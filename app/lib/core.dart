@@ -68,6 +68,17 @@ class ExitInfo {
   final List<String> transports;
 }
 
+/// Versions for the about screen.
+class AboutInfo {
+  const AboutInfo({this.version = '', this.xray = '', this.go = ''});
+  final String version;
+  final String xray;
+  final String go;
+
+  factory AboutInfo.fromJson(Map<String, dynamic> j) =>
+      AboutInfo(version: j['version'] as String? ?? '', xray: j['xray'] as String? ?? '', go: j['go'] as String? ?? '');
+}
+
 enum Phase { disconnected, connecting, connected, error }
 
 class VpnStatus {
@@ -137,6 +148,12 @@ abstract class Core {
   /// Opens the system share sheet with the journal: what the VPN did, the
   /// core's warnings and its last crash.
   Future<void> shareJournal();
+
+  /// The app's version and the versions of what is inside.
+  Future<AboutInfo> about();
+
+  /// Opens a link in the browser. False when there is nothing to open it.
+  Future<bool> openUrl(String url);
 
   /// Traffic and ping of the running VPN; takes up to a few seconds.
   Future<VpnStats> stats();
@@ -215,6 +232,13 @@ class PlatformCore implements Core {
 
   @override
   Future<void> shareJournal() => _call('shareJournal');
+
+  @override
+  Future<AboutInfo> about() async =>
+      AboutInfo.fromJson(jsonDecode(await _call<String>('about') ?? '{}') as Map<String, dynamic>);
+
+  @override
+  Future<bool> openUrl(String url) async => await _call<bool>('openUrl', {'url': url}) ?? false;
 
   @override
   Future<VpnStats> stats() async =>

@@ -10,6 +10,7 @@ import '../ui/glass.dart';
 import '../ui/mode_switch.dart';
 import '../ui/palette.dart';
 import '../ui/power_button.dart';
+import 'about_screen.dart';
 import 'apps_screen.dart';
 
 /// Main screen: one big button, the mode and the profile.
@@ -167,6 +168,9 @@ class _HomeScreenState extends State<HomeScreen> {
     ),
   );
 
+  void _openAbout() =>
+      Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => AboutScreen(core: widget.core)));
+
   Future<void> _forget() async {
     final ok = await showDialog<bool>(
       context: context,
@@ -254,6 +258,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   'copy' => _copyKey(),
                   'apps' => _openApps(),
                   'journal' => widget.core.shareJournal(),
+                  'about' => _openAbout(),
                   _ => _forget(),
                 },
                 itemBuilder: (_) => [
@@ -262,6 +267,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     const PopupMenuItem(value: 'copy', child: Text('Скопировать ключ подписки')),
                   const PopupMenuItem(value: 'apps', child: Text('Приложения мимо VPN')),
                   const PopupMenuItem(value: 'journal', child: Text('Отправить журнал')),
+                  const PopupMenuItem(value: 'about', child: Text('О приложении')),
                   const PopupMenuItem(value: 'forget', child: Text('Сменить ключ')),
                 ],
               ),

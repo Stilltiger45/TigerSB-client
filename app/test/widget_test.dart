@@ -1,10 +1,13 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tigersb/app.dart';
 import 'package:tigersb/core.dart';
+import 'package:tigersb/licenses.dart';
+import 'package:tigersb/screens/about_screen.dart';
 
 class FakeCore implements Core {
   ProfileInfo? profile;
@@ -82,6 +85,16 @@ class FakeCore implements Core {
   }
 
   int journals = 0;
+  final opened = <String>[];
+
+  @override
+  Future<AboutInfo> about() async => const AboutInfo(version: '0.1.0', xray: '26.3.27', go: 'go1.26.0');
+
+  @override
+  Future<bool> openUrl(String url) async {
+    opened.add(url);
+    return true;
+  }
 
   @override
   Future<void> shareJournal() async => journals++;
@@ -255,6 +268,33 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('MAX'), findsNothing);
     expect(find.text('Игра'), findsOneWidget);
+  });
+
+  testWidgets('the menu opens about: version, source link and every license', (tester) async {
+    final core = FakeCore()..profile = ProfileInfo(name: 'Дом', hasRU: true, fetched: DateTime.now(), exits: const []);
+    await tester.pumpWidget(TigerApp(core: core));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('О приложении'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Версия 0.1.0'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Исходный код на GitHub'), 200);
+    await tester.tap(find.text('Исходный код на GitHub'));
+    expect(core.opened, [sourceUrl]);
+
+    await tester.scrollUntilVisible(find.text('Лицензии компонентов'), 200);
+    expect(find.text('26.3.27 · MPL 2.0'), findsOneWidget);
+    await tester.tap(find.text('Лицензии компонентов'));
+    await tester.pumpAndSettle();
+    expect(find.byType(LicensePage), findsOneWidget);
+  });
+
+  test('the licenses list TigerSB and the Go libraries of the core', () async {
+    registerLicenses();
+    final packages = <String>{await for (final l in LicenseRegistry.licenses) ...l.packages};
+    expect(packages, containsAll(['TigerSB', 'Go', 'github.com/xtls/xray-core', 'github.com/sagernet/sing-quic']));
   });
 
   testWidgets('every mode animates without errors', (tester) async {
