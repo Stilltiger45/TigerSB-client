@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/xtls/xray-core/core"
+
 	"github.com/Stilltiger45/TigerSB-client/internal/engine"
 	"github.com/Stilltiger45/TigerSB-client/internal/smart"
 )
@@ -55,8 +57,8 @@ func freePort(t *testing.T) int {
 }
 
 // start runs Xray with a SOCKS inbound whose traffic all goes to the picker,
-// and returns an HTTP client that uses it.
-func start(t *testing.T, routes []route, opt smart.Options) *http.Client {
+// and returns an HTTP client that uses it. extra are more outbounds.
+func start(t *testing.T, routes []route, opt smart.Options, extra ...any) (*http.Client, *core.Instance) {
 	t.Helper()
 	port := freePort(t)
 	var outbounds []any
@@ -72,6 +74,7 @@ func start(t *testing.T, routes []route, opt smart.Options) *http.Client {
 			"settings": map[string]any{"redirect": r.site.addr()},
 		})
 	}
+	outbounds = append(outbounds, extra...)
 	cfg, _ := json.Marshal(map[string]any{
 		"log": map[string]any{"loglevel": "none"},
 		"inbounds": []any{map[string]any{
@@ -103,7 +106,7 @@ func start(t *testing.T, routes []route, opt smart.Options) *http.Client {
 			DisableKeepAlives: true,
 		},
 		Timeout: 10 * time.Second,
-	}
+	}, inst
 }
 
 func get(t *testing.T, c *http.Client, u string) string {
@@ -135,7 +138,7 @@ func TestPicksServerThatOpensSite(t *testing.T) {
 	refusing := newSite(t, "refusing", http.StatusForbidden)
 	open := newSite(t, "open", http.StatusOK)
 	home := newSite(t, "home", http.StatusOK)
-	c := start(t, []route{
+	c, _ := start(t, []route{
 		{"direct", home},
 		{"foreign/dead", nil},
 		{"foreign/refusing", refusing},
@@ -162,7 +165,7 @@ func TestPicksServerThatOpensSite(t *testing.T) {
 
 func TestNothingWorksGoesDirect(t *testing.T) {
 	home := newSite(t, "home", http.StatusOK)
-	c := start(t, []route{
+	c, _ := start(t, []route{
 		{"direct", home},
 		{"foreign/a", nil},
 		{"foreign/b", nil},
@@ -175,7 +178,7 @@ func TestNothingWorksGoesDirect(t *testing.T) {
 func TestRefusedAbroadOpenAtHomeGoesDirect(t *testing.T) {
 	refusing := newSite(t, "refusing", http.StatusForbidden)
 	home := newSite(t, "home", http.StatusOK)
-	c := start(t, []route{
+	c, _ := start(t, []route{
 		{"direct", home},
 		{"foreign/refusing", refusing},
 		{"foreign/dead", nil},
@@ -188,7 +191,7 @@ func TestRefusedAbroadOpenAtHomeGoesDirect(t *testing.T) {
 func TestRefusedEverywhereKeepsServer(t *testing.T) {
 	refusing := newSite(t, "refusing", http.StatusForbidden)
 	homeRefusing := newSite(t, "home", http.StatusForbidden)
-	c := start(t, []route{
+	c, _ := start(t, []route{
 		{"direct", homeRefusing},
 		{"foreign/refusing", refusing},
 	}, smart.Options{Candidates: []string{"foreign/refusing"}})
@@ -201,7 +204,7 @@ func TestNoDomainUsesDefault(t *testing.T) {
 	a := newSite(t, "a", http.StatusOK)
 	b := newSite(t, "b", http.StatusOK)
 	home := newSite(t, "home", http.StatusOK)
-	c := start(t, []route{
+	c, _ := start(t, []route{
 		{"direct", home},
 		{"foreign/a", a},
 		{"ru/b", b},

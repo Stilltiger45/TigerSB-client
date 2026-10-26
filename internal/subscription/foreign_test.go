@@ -48,7 +48,7 @@ func TestForeignSubscriptionBase64WithHWID(t *testing.T) {
 		t.Fatalf("transports %+v", ts)
 	}
 
-	// All servers go into one balancer that real Xray accepts.
+	// All servers go behind one pick outbound, in a config real Xray accepts.
 	cfg, err := xrayconf.Build(p, xrayconf.Options{Inbounds: []xrayconf.Inbound{{Tag: "tun-in", Protocol: "tun"}}})
 	if err != nil {
 		t.Fatal(err)
@@ -56,8 +56,8 @@ func TestForeignSubscriptionBase64WithHWID(t *testing.T) {
 	if _, err := engine.Load(cfg); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(cfg), `"leastPing"`) {
-		t.Error("no balancer for several servers")
+	if !strings.Contains(string(cfg), `"pick/foreign"`) {
+		t.Error("no pick outbound for several servers")
 	}
 
 	again, err := c.Refresh(context.Background(), st)

@@ -40,12 +40,12 @@
 
 - **One key.** Paste a key, scan a QR code or open a `tigersb://` link and the VPN turns on. A subscription link from another VPN works too: the client picks the fastest server in it.
 - **Three routing modes:**
-  - **Smart** (default): every site is tried through every server in the subscription and opened through the fastest one that lets it in. If none does, the site goes direct.
+  - **Smart** (default): every site is tried through every server in the subscription and opened through the fastest one that lets it in. If none does, the site is tried again through DPI evasion (fragmentation and noise instead of zapret, with the preset tuned on every connect and network change), and only then goes direct.
   - **Basic**: Russian sites (.ru, .рф, Russian IPs), banks and government services go direct, everything else goes through the VPN.
   - **All**: all traffic goes through the VPN except the local network.
 - **Apps outside the VPN.** MAX, VK, Yandex, banking and government apps are excluded from the VPN, so they cannot see the tunnel or the server address. You can add your own apps to the list.
 - **Security.** Subscriptions are checked against an Ed25519 signature and cannot be spoofed. The key is stored encrypted with Android Keystore and is left out of backups. The screen is protected from screenshots, screen recording and taps through overlay windows.
-- **Stable connection.** A watchdog checks the tunnel every minute and restarts the core if the server stops answering. The client reconnects by itself when the phone switches between Wi-Fi and mobile data. MTU is picked for each network.
+- **Stable connection.** In Basic and All the protocol is chosen from smoothed measurements without flapping between servers, and a dead server is left within seconds. A watchdog checks the tunnel every minute and restarts the core if the server stops answering. The client reconnects by itself when the phone switches between Wi-Fi and mobile data. MTU is picked for each network.
 - **Extras.** Speed, traffic and ping panel, quick settings tile, current protocol in the notification, automatic profile and block-list updates, "Send log" in the menu, and an About screen with third-party licenses.
 
 ## Cores and technologies

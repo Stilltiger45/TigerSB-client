@@ -18,6 +18,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/xtls/xray-core/app/observatory"
@@ -66,6 +67,10 @@ type Options struct {
 
 	// RootCAs verifies the sites' certificates; nil means the system roots.
 	RootCAs *x509.CertPool
+
+	// Evasion, when set, gives sites that open through no server a second
+	// round through the DPI presets (see evade.go); nil turns that off.
+	Evasion *Evasion
 }
 
 func (o *Options) defaults() {
@@ -102,13 +107,14 @@ func Setup(opt Options) func(*core.Instance) error {
 }
 
 // Hooks returns the engine.Start hooks the mode needs: the picker for
-// xrayconf.ModeAuto, none for the other modes.
-func Hooks(p *profile.Profile, m xrayconf.Mode) []func(*core.Instance) error {
+// xrayconf.ModeAuto, none for the other modes. ev is the DPI evasion the
+// config was built with (xrayconf.Options.Evasion), nil for none.
+func Hooks(p *profile.Profile, m xrayconf.Mode, ev *Evasion) []func(*core.Instance) error {
 	if m != xrayconf.ModeAuto {
 		return nil
 	}
 	all, def := xrayconf.Candidates(p)
-	return []func(*core.Instance) error{Setup(Options{Candidates: all, Default: def, Direct: xrayconf.TagDirect})}
+	return []func(*core.Instance) error{Setup(Options{Candidates: all, Default: def, Direct: xrayconf.TagDirect, Evasion: ev})}
 }
 
 // Attach adds the picker to a created, not yet started Xray instance.
@@ -128,6 +134,13 @@ func Attach(inst *core.Instance, opt Options) error {
 		cache:      map[string]entry{},
 		inflight:   map[string]*call{},
 	}
+	if ev := opt.Evasion; ev != nil {
+		h.preset.Store(int32(ev.start()))
+		h.variants = map[string]bool{}
+		for _, t := range ev.Variants {
+			h.variants[t] = true
+		}
+	}
 	return ohm.AddHandler(context.Background(), h)
 }
 
@@ -141,6 +154,11 @@ type Handler struct {
 	mu       sync.Mutex
 	cache    map[string]entry
 	inflight map[string]*call
+
+	// The DPI preset in use (0 without evasion) and the candidates that have
+	// a copy per preset.
+	preset   atomic.Int32
+	variants map[string]bool
 }
 
 type entry struct {
@@ -273,31 +291,24 @@ func (h *Handler) probeAll(ctx context.Context, scheme, host string) (tag string
 	if len(cands) == 0 {
 		return h.opt.Direct, false
 	}
-	results := make(chan result, len(cands))
-	for _, t := range cands {
-		go func() { results <- result{t, h.probe(ctx, t, scheme, host)} }()
-	}
-
 	var refusedBy string
-	var grace <-chan time.Time
-wait:
-	for range cands {
-		select {
-		case r := <-results:
-			switch r.v {
-			case opened:
-				return r.tag, true
-			case refused:
-				if refusedBy == "" {
-					refusedBy = r.tag
-					grace = time.After(h.opt.Grace)
-				}
-			}
-		case <-grace:
-			break wait
+	// Servers that all failed their last check are not worth the wait when
+	// the preset can still reach them.
+	if h.opt.Evasion == nil || !h.allDead(cands) {
+		tag, refusedBy = h.race(ctx, cands, scheme, host)
+		if tag != "" {
+			return tag, true
 		}
 	}
 	if refusedBy == "" {
+		// No server answered: maybe DPI stops the servers or the site itself,
+		// so try once more through the preset that works on this network.
+		if tag, refusedBy = h.race(ctx, h.evasive(cands), scheme, host); tag != "" {
+			return tag, true
+		}
+		if refusedBy != "" {
+			return refusedBy, true
+		}
 		return h.opt.Direct, false
 	}
 	// Servers abroad got turned away: maybe the site only lets in visitors
@@ -306,6 +317,34 @@ wait:
 		return h.opt.Direct, true
 	}
 	return refusedBy, true
+}
+
+// race checks the site through the outbounds at once. tag is the first that
+// opened it; when none did, refusedBy is the first that got a refusal, if any
+// (waiting Grace after it for a clean answer).
+func (h *Handler) race(ctx context.Context, tags []string, scheme, host string) (tag, refusedBy string) {
+	results := make(chan result, len(tags))
+	for _, t := range tags {
+		go func() { results <- result{t, h.probe(ctx, t, scheme, host)} }()
+	}
+	var grace <-chan time.Time
+	for range tags {
+		select {
+		case r := <-results:
+			switch r.v {
+			case opened:
+				return r.tag, ""
+			case refused:
+				if refusedBy == "" {
+					refusedBy = r.tag
+					grace = time.After(h.opt.Grace)
+				}
+			}
+		case <-grace:
+			return "", refusedBy
+		}
+	}
+	return "", refusedBy
 }
 
 // probe requests the site's front page through one outbound.
@@ -389,7 +428,47 @@ func (h *Handler) fallback() string {
 			best, delay = t, s.Delay
 		}
 	}
+	if delay < 0 && h.allDead(h.opt.Default) {
+		// Every server failed its last check: reach one through the preset.
+		if k := int(h.preset.Load()); k > 0 {
+			for _, t := range h.opt.Default {
+				if h.variants[t] {
+					return xrayconf.VariantTag(k, t)
+				}
+			}
+		}
+	}
 	return best
+}
+
+// InUse returns the outbound that carries traffic without a domain now, which
+// is also the server most sites go through: what the app shows and checks.
+func InUse(inst *core.Instance) string {
+	if h := handlerOf(inst); h != nil {
+		return h.fallback()
+	}
+	return ""
+}
+
+func handlerOf(inst *core.Instance) *Handler {
+	ohm, _ := inst.GetFeature(outbound.ManagerType()).(outbound.Manager)
+	if ohm == nil {
+		return nil
+	}
+	h, _ := ohm.GetHandler(Tag).(*Handler)
+	return h
+}
+
+// allDead reports whether the observatory has checked every one of tags and
+// seen each fail lately.
+func (h *Handler) allDead(tags []string) bool {
+	st := h.status()
+	for _, t := range tags {
+		if s, ok := st[t]; !ok || s.Alive {
+			return false
+		}
+	}
+	return len(tags) > 0
 }
 
 // dead reports whether the observatory saw the outbound fail lately.

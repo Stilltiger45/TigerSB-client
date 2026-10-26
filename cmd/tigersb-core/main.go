@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"syscall"
 	"time"
@@ -21,6 +22,7 @@ import (
 	"github.com/Stilltiger45/TigerSB-client/internal/engine"
 	"github.com/Stilltiger45/TigerSB-client/internal/geodata"
 	"github.com/Stilltiger45/TigerSB-client/internal/smart"
+	"github.com/Stilltiger45/TigerSB-client/internal/steady"
 	"github.com/Stilltiger45/TigerSB-client/internal/subscription"
 	"github.com/Stilltiger45/TigerSB-client/internal/tuic"
 	"github.com/Stilltiger45/TigerSB-client/internal/xrayconf"
@@ -248,7 +250,7 @@ func cmdRun(args []string) error {
 	if err := engine.SetAssetDir(assets); err != nil {
 		return err
 	}
-	inst, err := engine.Start(cfg, append(tuic.Hooks(p), smart.Hooks(p, mode)...)...)
+	inst, err := engine.Start(cfg, slices.Concat(tuic.Hooks(p), steady.Hooks(p), smart.Hooks(p, mode, nil))...)
 	if err != nil {
 		return err
 	}

@@ -71,10 +71,10 @@ func TestTrafficAndPing(t *testing.T) {
 		t.Errorf("traffic up %d, down %d", up, down)
 	}
 
-	if d := meter.Ping(inst, tags, "http://example.com/", 5*time.Second); d < 0 {
+	if d := meter.Ping(inst, meter.Fastest(inst, tags), "http://example.com/", 5*time.Second); d < 0 {
 		t.Error("ping failed")
 	}
-	if d := meter.Ping(inst, nil, "", time.Second); d != -1 {
+	if d := meter.Ping(inst, "", "", time.Second); d != -1 {
 		t.Errorf("ping without servers: %v", d)
 	}
 }

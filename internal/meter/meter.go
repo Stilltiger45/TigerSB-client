@@ -39,11 +39,9 @@ func Traffic(inst *core.Instance, tags []string) (up, down int64) {
 }
 
 // Ping times one request to probeURL (empty means profile.DefaultProbeURL)
-// through the fastest live outbound of tags as the observatory measured them,
-// or the first one before any measurement. It returns -1 when the request
-// fails.
-func Ping(inst *core.Instance, tags []string, probeURL string, timeout time.Duration) time.Duration {
-	if len(tags) == 0 {
+// through the outbound tag. It returns -1 when the request fails.
+func Ping(inst *core.Instance, tag string, probeURL string, timeout time.Duration) time.Duration {
+	if tag == "" {
 		return -1
 	}
 	dispatcher, _ := inst.GetFeature(routing.DispatcherType()).(routing.Dispatcher)
@@ -53,7 +51,6 @@ func Ping(inst *core.Instance, tags []string, probeURL string, timeout time.Dura
 	if probeURL == "" {
 		probeURL = profile.DefaultProbeURL
 	}
-	tag := Fastest(inst, tags)
 
 	// Xray dials only from a context that carries its instance; its own
 	// tests build one the same way.

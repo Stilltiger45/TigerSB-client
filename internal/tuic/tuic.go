@@ -1,7 +1,7 @@
 // Package tuic carries TUIC v5 transports. Xray has no TUIC, so each TUIC
 // transport of a profile becomes an outbound handler built on sing-quic (the
 // TUIC client of sing-box) and is added to Xray under the transport's tag:
-// balancers, the observatory and the per-site picker then use it like any
+// pick outbounds, the observatory and the per-site picker then use it like any
 // other outbound.
 package tuic
 
