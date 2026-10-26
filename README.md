@@ -1,90 +1,136 @@
-# TigerSB-client
+<p align="center">
+  <img src="docs/assets/banner.jpg" alt="TigerSB VPN client" width="100%">
+</p>
 
-Клиент для своей VPN-сети на Xray: вставил ключ — и подключился. Работает в паре с панелью [TigerSB-panel](https://github.com/Stilltiger45/TigerSB-panel).
+<p align="center">
+  <a href="https://github.com/Stilltiger45/TigerSB-client/releases/tag/V0.1"><img alt="Release" src="https://img.shields.io/github/v/release/Stilltiger45/TigerSB-client?style=for-the-badge&label=release&labelColor=1c1c1c&color=FF6A00"></a>
+  <a href="LICENSE"><img alt="License GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-FF6A00?style=for-the-badge&labelColor=1c1c1c"></a>
+  <img alt="Android 7+" src="https://img.shields.io/badge/Android-7%2B-FF6A00?style=for-the-badge&logo=android&logoColor=white&labelColor=1c1c1c">
+  <img alt="Windows soon" src="https://img.shields.io/badge/Windows-soon-555555?style=for-the-badge&labelColor=1c1c1c">
+</p>
 
-В приложении три режима маршрутизации:
+<p align="center">
+  <a href="https://github.com/XTLS/Xray-core"><img alt="Xray-core 26.3.27" src="https://img.shields.io/badge/Xray--core-26.3.27-FF8A1F?style=for-the-badge&labelColor=1c1c1c"></a>
+  <a href="https://github.com/SagerNet/sing-quic"><img alt="sing-box TUIC" src="https://img.shields.io/badge/sing--box-TUIC-FF8A1F?style=for-the-badge&labelColor=1c1c1c"></a>
+  <a href="https://gvisor.dev"><img alt="gVisor TUN" src="https://img.shields.io/badge/gVisor-TUN-FF8A1F?style=for-the-badge&labelColor=1c1c1c"></a>
+</p>
 
-- **Умная** (по умолчанию) — каждый сайт проверяется через все серверы подписки (подробно ниже).
-- **Базовая** — российские сайты (домены .ru и .рф и российские IP), банки и госуслуги идут напрямую, всё остальное через VPN.
-- **Все** — весь трафик через VPN, кроме локальной сети.
+<p align="center">
+  <img alt="Go 1.26" src="https://img.shields.io/badge/Go-1.26-FFB861?style=for-the-badge&logo=go&logoColor=white&labelColor=1c1c1c">
+  <img alt="Flutter 3.47" src="https://img.shields.io/badge/Flutter-3.47-FFB861?style=for-the-badge&logo=flutter&logoColor=white&labelColor=1c1c1c">
+  <img alt="Kotlin 2.4" src="https://img.shields.io/badge/Kotlin-2.4-FFB861?style=for-the-badge&logo=kotlin&logoColor=white&labelColor=1c1c1c">
+  <img alt="gomobile" src="https://img.shields.io/badge/gomobile-Android-FFB861?style=for-the-badge&labelColor=1c1c1c">
+</p>
 
-Во всех режимах MAX, ВК, Яндекс, банки и госприложения (и их сайты) идут напрямую: эти приложения исключены из VPN и не могут изучить туннель или узнать адрес сервера. Свои приложения можно добавить на экране «Приложения мимо VPN». Само приложение защищено от скриншотов и записи экрана, от нажатий через чужие окна поверх него, а ключ подписки хранится зашифрованным ключом из Android Keystore и не попадает в резервные копии.
+<p align="center">
+  <a href="README.ru.md">🇷🇺 Русский</a> &nbsp;|&nbsp; 🇬🇧 <b>English</b>
+</p>
 
-Умная маршрутизация проверяет каждый сайт через все серверы подписки и открывает его через самый быстрый, который сайт пускает. Если сайт не открывается ни через один сервер, он идёт напрямую. Так работает любая подписка, и своя, и чужая: например, российский сайт, который не пускает зарубежные IP, сам пойдёт через сервер в РФ или каскад. Подробно — в [docs/profile.md](docs/profile.md#режим-auto-проверка-каждого-сайта).
+---
 
-Ядро умеет и режим по спискам из профиля TigerSB (`main`, в консольной утилите), который разводит трафик на три направления:
+**TigerSB** is a VPN client built on Xray: paste a key and you are connected. It works with its own panel, [TigerSB-panel](https://github.com/Stilltiger45/TigerSB-panel), and with subscriptions from other VPNs (Marzban, 3x-ui, Remnawave and others).
 
-- **Заблокированные сайты** идут через VPN с выходом за границей.
-- **Всё остальное** идёт через VPN с выходом в РФ: провайдер и публичный Wi-Fi не видят трафик, а сайты видят российский IP.
-- **Банки, госуслуги и сайты вузов** открываются напрямую: многие из них плохо работают с любым VPN.
+<p align="center">
+  <img src="docs/assets/screens.jpg" alt="App screens: key, Smart, Basic and All modes, About" width="100%">
+</p>
 
-Готово:
+<sub>The app interface is in Russian.</sub>
 
-- **Android-приложение**: вставил ключ (или отсканировал QR, или открыл ссылку `tigersb://`) — и VPN включился. Подойдёт и ссылка на подписку другого VPN: клиент сам выберет самый быстрый сервер из неё. Одна большая кнопка, три режима («Умная», «Базовая», «Все»), рамка со скоростью, трафиком и пингом (обновляется раз в 5 минут), плитка в шторке, в уведомлении виден текущий протокол, сторож проверяет туннель раз в минуту и сам перезапускает ядро, если сервер перестал отвечать или сменилась сеть, а в меню есть «Отправить журнал», автообновление профиля и списков блокировок, MTU подбирается под сеть.
-- Ядро клиента (Go, Xray-core внутри) и консольная утилита `tigersb-core` для Windows и Linux.
+## Features
 
-Приложение для Windows появится следующим этапом поверх того же ядра.
+- **One key.** Paste a key, scan a QR code or open a `tigersb://` link and the VPN turns on. A subscription link from another VPN works too: the client picks the fastest server in it.
+- **Three routing modes:**
+  - **Smart** (default): every site is tried through every server in the subscription and opened through the fastest one that lets it in. If none does, the site goes direct.
+  - **Basic**: Russian sites (.ru, .рф, Russian IPs), banks and government services go direct, everything else goes through the VPN.
+  - **All**: all traffic goes through the VPN except the local network.
+- **Apps outside the VPN.** MAX, VK, Yandex, banking and government apps are excluded from the VPN, so they cannot see the tunnel or the server address. You can add your own apps to the list.
+- **Security.** Subscriptions are checked against an Ed25519 signature and cannot be spoofed. The key is stored encrypted with Android Keystore and is left out of backups. The screen is protected from screenshots, screen recording and taps through overlay windows.
+- **Stable connection.** A watchdog checks the tunnel every minute and restarts the core if the server stops answering. The client reconnects by itself when the phone switches between Wi-Fi and mobile data. MTU is picked for each network.
+- **Extras.** Speed, traffic and ping panel, quick settings tile, current protocol in the notification, automatic profile and block-list updates, "Send log" in the menu, and an About screen with third-party licenses.
 
-## Установка на Android
+## Cores and technologies
 
-Скачайте `TigerSB-android.apk` со страницы [Releases](https://github.com/Stilltiger45/TigerSB-client/releases), откройте файл на телефоне и разрешите установку. Нужен Android 7 или новее. Для старых 32-битных телефонов есть `TigerSB-android-old-phones.apk`.
+| Component | Role | License |
+|---|---|---|
+| [Xray-core](https://github.com/XTLS/Xray-core) 26.3.27 | VPN core: VLESS (Reality, XHTTP, gRPC), VMess, Trojan, Shadowsocks, Hysteria 2; routing, balancer, latency tests | MPL-2.0 |
+| [sing-quic](https://github.com/SagerNet/sing-quic) from sing-box | TUIC v5, plugged into Xray as a regular outbound | GPL-3.0 |
+| [gVisor](https://gvisor.dev) | network stack for the system VPN (TUN) | Apache-2.0 |
+| [Go](https://go.dev) 1.26 and gomobile | client core, the `tigersb-core` CLI, Android library | BSD-3-Clause |
+| [Flutter](https://flutter.dev) 3.47 and Dart | app interface | BSD-3-Clause |
+| [Kotlin](https://kotlinlang.org) 2.4 | Android system VPN (VpnService), network watcher, Keystore | Apache-2.0 |
 
-Как выпустить новую версию: [docs/releases.md](docs/releases.md).
+Supported links: `tigersb://`, `https://` (subscription), `vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://` (`hy2://`), `tuic://`.
 
-## Быстрый старт
+## Install on Android
+
+Download `TigerSB-android.apk` from [Releases](https://github.com/Stilltiger45/TigerSB-client/releases), open it on the phone and allow the install. Android 7 or newer is required. For old 32-bit phones use `TigerSB-android-old-phones.apk`.
+
+A Windows app on the same core is the next stage.
+
+How to publish a new version: [docs/releases.md](docs/releases.md) (in Russian).
+
+## How routing works
+
+Smart routing works with any subscription, your own or someone else's. For example, a Russian site that blocks foreign IPs automatically goes through a server in Russia or a cascade. Details are in [docs/profile.md](docs/profile.md#режим-auto-проверка-каждого-сайта) (in Russian).
+
+The core also has a list-based mode driven by the TigerSB profile (`main`, in the CLI) that splits traffic three ways:
+
+- **Blocked sites** go through the VPN with an exit abroad.
+- **Everything else** goes through the VPN with an exit in Russia: the ISP and public Wi-Fi see nothing, and sites see a Russian IP.
+- **Banks, government services and university sites** open directly, because many of them break with any VPN.
+
+## Command-line tool
 
 ```bash
 go build -o tigersb-core ./cmd/tigersb-core
 
-./tigersb-core import 'tigersb://add?url=...&pk=...'   # или https://…, vless://…, hysteria2://…, tuic://…
+./tigersb-core import 'tigersb://add?url=...&pk=...'   # or https://…, vless://…, hysteria2://…, tuic://…
 ./tigersb-core run                                     # SOCKS5 127.0.0.1:10808, HTTP 127.0.0.1:10809
 ```
 
-После этого браузер или система настраиваются на прокси `127.0.0.1:10808` (SOCKS5) или `127.0.0.1:10809` (HTTP). Системный VPN (TUN) появится вместе с приложениями.
+Then point the browser or the system at the proxy `127.0.0.1:10808` (SOCKS5) or `127.0.0.1:10809` (HTTP).
 
-## Команды
-
-| Команда | Что делает |
+| Command | What it does |
 |---|---|
-| `tigersb-core import <ключ>` | добавить ключ и скачать профиль |
-| `tigersb-core update` | обновить профиль по подписке |
-| `tigersb-core show` | показать выходы, транспорты и размер списков |
-| `tigersb-core run [-mode auto\|main\|all\|off]` | запустить VPN с локальными портами SOCKS и HTTP |
-| `tigersb-core config [-mode …]` | напечатать конфиг Xray, который будет запущен |
-| `tigersb-core keygen` | создать ключи подписи профиля (для панели) |
-| `tigersb-core sign -key … -in …` | подписать профиль |
-| `tigersb-core link -url … -pk …` | собрать ключ `tigersb://` |
+| `tigersb-core import <key>` | add a key and download the profile |
+| `tigersb-core update` | refresh the profile from the subscription |
+| `tigersb-core show` | show exits, transports and list sizes |
+| `tigersb-core run [-mode auto\|main\|all\|off]` | run the VPN with local SOCKS and HTTP ports |
+| `tigersb-core config [-mode …]` | print the Xray config that would run |
+| `tigersb-core keygen` | create profile signing keys (for the panel) |
+| `tigersb-core sign -key … -in …` | sign a profile |
+| `tigersb-core link -url … -pk …` | build a `tigersb://` key |
 
-Режимы: `auto` — проверка каждого сайта через все серверы (по умолчанию), `basic` — российские сайты, банки и вузы напрямую, остальное через VPN, `main` — три направления по спискам, `all` — всё через VPN, `off` — без VPN.
+Modes: `auto` tries every site through every server (default), `basic` sends Russian sites, banks and universities direct and the rest through the VPN, `main` uses the three-way lists, `all` sends everything through the VPN, `off` disables the VPN.
 
-Если профиль использует `geosite:` или `geoip:`, `run` сам скачивает `geosite.dat` и `geoip.dat` в каталог состояния и оставляет в них только нужные списки. Свой каталог с файлами можно указать через `-assets`.
+If the profile uses `geosite:` or `geoip:`, `run` downloads `geosite.dat` and `geoip.dat` into the state folder and keeps only the lists it needs. Use `-assets` to point at your own folder.
 
-Состояние (ключ и последний профиль) хранится в `%AppData%\TigerSB` на Windows и `~/.config/TigerSB` на Linux, файл доступен только пользователю.
+State (the key and the last profile) lives in `%AppData%\TigerSB` on Windows and `~/.config/TigerSB` on Linux, readable only by the user.
 
-## Формат профиля и ключа
+## Profile and key format
 
-Описан в [docs/profile.md](docs/profile.md). Профиль подписывается Ed25519, клиент принимает только подпись закреплённым ключом.
+Described in [docs/profile.md](docs/profile.md) (in Russian). Profiles are signed with Ed25519, and the client accepts only a signature from the pinned key.
 
-## Разработка
+## Development
 
 ```bash
 go test ./...
 CGO_ENABLED=0 go build -o tigersb-core ./cmd/tigersb-core
 ```
 
-Тесты собирают конфиги для всех режимов и проверяют, что их принимает настоящий Xray-core.
+The tests build configs for every mode and check that the real Xray-core accepts them.
 
-Android-приложение лежит в `app/` (Flutter, системный VPN на Kotlin в `app/android/app/src/main/kotlin`). Ядро для него собирается из пакета `mobile/` через gomobile:
+The Android app lives in `app/` (Flutter, with the system VPN in Kotlin under `app/android/app/src/main/kotlin`). Its core is built from the `mobile/` package with gomobile:
 
 ```bash
-scripts/build-core-android.sh        # нужны Android SDK и NDK
+scripts/build-core-android.sh        # needs the Android SDK and NDK
 cd app && flutter build apk --split-per-abi
 ```
 
-Обычно это делать не нужно: GitHub Actions собирает APK на каждый pull request (вкладка Actions, артефакт `TigerSB-android`) и выкладывает релиз по тегу.
+Usually you don't need to: GitHub Actions builds the APK for every pull request (Actions tab, artifact `TigerSB-android`) and publishes the release from a tag.
 
-## Лицензия
+## License
 
-GPL-3.0, см. [LICENSE](LICENSE). Клиент TUIC взят из sing-box (библиотека sing-quic), которая распространяется под GPL-3.0, поэтому и весь клиент открыт под этой лицензией.
+GPL-3.0, see [LICENSE](LICENSE). The TUIC client comes from sing-box (the sing-quic library), which is GPL-3.0, so the whole client is released under that license.
 
-Сторонние Go-библиотеки и их лицензии перечислены в [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), полные тексты видны в приложении: «О приложении» → «Лицензии компонентов». Серверная часть, [TigerSB-panel](https://github.com/Stilltiger45/TigerSB-panel), тоже под GPL-3.0.
+Third-party Go libraries and their licenses are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), and the full texts are in the app under «О приложении» (About) → «Лицензии компонентов» (Component licenses). The server side, [TigerSB-panel](https://github.com/Stilltiger45/TigerSB-panel), is GPL-3.0 too.
