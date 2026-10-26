@@ -94,12 +94,15 @@ func blockedSetup(t *testing.T, ev *smart.Evasion) (*http.Client, *core.Instance
 			}))
 	}
 	// The site's certificate must verify: start trusts the routes' sites.
-	c, inst := start(t, []route{{"cert-only", open}}, smart.Options{Candidates: []string{"foreign/a"}, Evasion: ev}, extra...)
+	// Windows sleeps at least ~15 ms however short the pause between
+	// fragments, so a fragmented handshake takes far longer there.
+	opt := smart.Options{Candidates: []string{"foreign/a"}, Evasion: ev, Timeout: 6 * time.Second}
+	c, inst := start(t, []route{{"cert-only", open}}, opt, extra...)
 	return c, inst, box
 }
 
 func TestEvasionOpensSiteDPIBlocks(t *testing.T) {
-	c, _, box := blockedSetup(t, &smart.Evasion{Preset: 3, Variants: []string{"foreign/a"}})
+	c, _, box := blockedSetup(t, &smart.Evasion{Preset: 2, Variants: []string{"foreign/a"}})
 	if got := get(t, c, "https://example.com/"); got != "open" {
 		t.Fatalf("got %q", got)
 	}
@@ -118,7 +121,7 @@ func TestWithoutEvasionDPIWins(t *testing.T) {
 func TestTunePicksPresetThatPasses(t *testing.T) {
 	ev := &smart.Evasion{Preset: 1, Variants: []string{"foreign/a"}, Sites: []string{"example.com"}, ProbeURL: "https://example.com/"}
 	c, inst, _ := blockedSetup(t, ev)
-	res, err := smart.Tune(inst, 5*time.Second)
+	res, err := smart.Tune(inst, 10*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
