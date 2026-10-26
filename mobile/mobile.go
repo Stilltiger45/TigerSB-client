@@ -472,6 +472,15 @@ var (
 	}
 )
 
+// PathKnown reports whether the last PickMTU measured the path. An
+// unmeasured one, as on mobile networks that drop pings, only guesses a
+// safe MTU, which is no reason to rebuild a working tunnel.
+func PathKnown() bool {
+	linkMu.Lock()
+	defer linkMu.Unlock()
+	return lastPath.size > 0
+}
+
 // pathReuse is how long a measured path stays trusted.
 const pathReuse = 5 * time.Minute
 

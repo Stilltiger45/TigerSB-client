@@ -426,7 +426,7 @@ class TigerVpnService : VpnService() {
                     addrs = now
                     val (transport, linkMtu) = activeNetwork(network)
                     val want = Mobile.pickMTU(transport, linkMtu.toLong()).toInt()
-                    if (want < mtu) {
+                    if (needsSmaller(want, linkMtu)) {
                         note("MTU сети $mtu -> $want, переподключаю")
                         connect()
                     } else if (lost) {
@@ -490,9 +490,9 @@ class TigerVpnService : VpnService() {
     /**
      * Moves the VPN to the new network without rebuilding the tunnel: the
      * connections of the old network are closed, so the apps reconnect at
-     * once over the new one (Mobile.switchNetwork). Only a path that needs a
-     * smaller MTU than the tunnel has rebuilds it; a wider one keeps the
-     * tunnel's until the next connect.
+     * once over the new one (Mobile.switchNetwork). Only a path measured
+     * narrower than the tunnel's MTU rebuilds it; a wider one, or one that
+     * could not be measured, keeps the tunnel's until the next connect.
      */
     private fun switchNetwork() {
         val n = network ?: return
@@ -503,7 +503,7 @@ class TigerVpnService : VpnService() {
         val (transport, linkMtu) = activeNetwork(n)
         val kind = transport.ifEmpty { "?" }
         val want = Mobile.pickMTU(transport, linkMtu.toLong()).toInt()
-        if (want < mtu) {
+        if (needsSmaller(want, linkMtu)) {
             note("сеть сменилась ($kind), MTU $mtu -> $want, переподключаю")
             connect()
             return
@@ -515,6 +515,15 @@ class TigerVpnService : VpnService() {
         // Check the channel on the new network soon.
         recheck(RECHECK_MS)
     }
+
+    /**
+     * Whether the tunnel must be rebuilt with the smaller MTU [want]: only
+     * when the path was measured narrower, or the network itself says so. A
+     * guess for a path that drops pings, common on mobile data, keeps the
+     * working tunnel; a switch from Wi-Fi to such a network stays seamless.
+     */
+    private fun needsSmaller(want: Int, linkMtu: Int): Boolean =
+        want < mtu && (Mobile.pathKnown() || linkMtu in 1 until mtu)
 
     private fun addresses(n: Network): Set<InetAddress> =
         getSystemService(ConnectivityManager::class.java).getLinkProperties(n)

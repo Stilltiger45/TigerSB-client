@@ -33,3 +33,21 @@ func TestOnline(t *testing.T) {
 		t.Error("online although nothing answers")
 	}
 }
+
+// TestPathKnown checks that a guessed MTU is told from a measured one.
+func TestPathKnown(t *testing.T) {
+	linkMu.Lock()
+	old := lastPath
+	lastPath.size = 0
+	linkMu.Unlock()
+	t.Cleanup(func() { linkMu.Lock(); lastPath = old; linkMu.Unlock() })
+	if PathKnown() {
+		t.Error("an unmeasured path counts as known")
+	}
+	linkMu.Lock()
+	lastPath.size = 1480
+	linkMu.Unlock()
+	if !PathKnown() {
+		t.Error("a measured path counts as unknown")
+	}
+}
