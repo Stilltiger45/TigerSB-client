@@ -45,18 +45,20 @@ func SwitchNetwork(transport string) int {
 
 // ResetConnections closes the running VPN's connections to the network and
 // has the transports and the sites checked again, for a channel that comes
-// back after an outage on the same network: the apps' connections stuck on
-// the dead ones reconnect at once, and the sites the smart mode sent directly
-// while no server answered go through the servers again. It returns how many
+// back after an outage on the same network or that DPI started to cut: the
+// apps' connections stuck on the dead ones reconnect at once, the sites the
+// smart mode sent directly while no server answered go through the servers
+// again, and the smart mode tunes its DPI preset again. It returns how many
 // connections were closed.
 func ResetConnections() int {
 	n := engine.CloseConnections()
 	mu.Lock()
-	i := inst
+	i, kind := inst, network
 	mu.Unlock()
 	if i != nil {
 		steady.Renew(i)
 		smart.Renew(i, 0)
+		go tune(i, kind)
 	}
 	return n
 }

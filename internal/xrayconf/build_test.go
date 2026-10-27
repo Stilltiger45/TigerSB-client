@@ -499,3 +499,67 @@ func TestNoGeo(t *testing.T) {
 		t.Errorf("basic mode without the lists: %v", dest)
 	}
 }
+
+// TestQUICNoise checks that Hysteria 2 sends noise first, ahead of its own
+// obfuscation, in every mode, gets no copies through the presets and is
+// known to go over UDP like TUIC.
+func TestQUICNoise(t *testing.T) {
+	p, _, err := profile.FromLinks("mix", []string{
+		"vless://5783a3e7-e373-51cd-8642-c83782b807c5@203.0.113.1:443?security=none#tcp",
+		"hysteria2://pw@203.0.113.1:8443/?sni=hy.example.org&obfs=salamander&obfs-password=ob#hy",
+		"tuic://5783a3e7-e373-51cd-8642-c83782b807c5:pw@203.0.113.1:8444?sni=tuic.example.org&congestion_control=bbr#tuic",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	udp := xrayconf.UDPTransports(p)
+	if len(udp) != 2 {
+		t.Fatalf("over UDP: %v, want Hysteria 2 and TUIC", udp)
+	}
+	for _, v := range xrayconf.Variants(p) {
+		if slices.Contains(udp, v) {
+			t.Errorf("%s over UDP got copies through the presets", v)
+		}
+	}
+
+	masks := func(mode xrayconf.Mode) []string {
+		opt := xrayconf.Options{
+			Mode:     mode,
+			Inbounds: []xrayconf.Inbound{{Tag: "socks-in", Protocol: "socks", Listen: "127.0.0.1", Port: 10808}},
+			Evasion:  mode == xrayconf.ModeAuto,
+		}
+		buildOpt(t, p, opt) // real Xray takes it
+		cfg, err := xrayconf.Build(p, opt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var raw struct {
+			Outbounds []struct {
+				Protocol string `json:"protocol"`
+				Stream   struct {
+					FinalMask struct {
+						UDP []struct {
+							Type string `json:"type"`
+						} `json:"udp"`
+					} `json:"finalmask"`
+				} `json:"streamSettings"`
+			} `json:"outbounds"`
+		}
+		json.Unmarshal(cfg, &raw)
+		var types []string
+		for _, o := range raw.Outbounds {
+			if o.Protocol == "hysteria" {
+				for _, m := range o.Stream.FinalMask.UDP {
+					types = append(types, m.Type)
+				}
+			}
+		}
+		return types
+	}
+	if got := masks(xrayconf.ModeAuto); !slices.Equal(got, []string{"noise", "salamander"}) {
+		t.Errorf("smart mode masks %v, want noise then salamander", got)
+	}
+	if got := masks(xrayconf.ModeAll); !slices.Equal(got, []string{"noise", "salamander"}) {
+		t.Errorf("all mode masks %v, want noise then salamander", got)
+	}
+}

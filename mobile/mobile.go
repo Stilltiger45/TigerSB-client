@@ -151,7 +151,7 @@ func Start(fd int, mode string, mtu int) error {
 	if err := os.Setenv("XRAY_TUN_FD", strconv.Itoa(fd)); err != nil {
 		return err
 	}
-	i, err := engine.Start(cfg, slices.Concat(tuic.Hooks(p), steady.Hooks(p), smart.Hooks(p, m, ev))...)
+	i, err := engine.Start(cfg, slices.Concat(tuic.Hooks(p, xrayconf.QUICNoise), steady.Hooks(p), smart.Hooks(p, m, ev))...)
 	if err != nil {
 		return err
 	}

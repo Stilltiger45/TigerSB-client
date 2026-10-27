@@ -40,7 +40,7 @@
 
 - **One key.** Paste a key, scan a QR code or open a `tigersb://` link and the VPN turns on. A subscription link from another VPN works too: the client picks the fastest server in it.
 - **Three routing modes:**
-  - **Smart** (default): every site is tried through every server in the subscription and opened through the fastest one that lets it in. If none does, the site is tried again through DPI evasion (fragmentation and noise instead of zapret, with the preset tuned on every connect and network change), and only then goes direct.
+  - **Smart** (default): every site is tried through every server in the subscription and opened through the fastest one that lets it in. If none does, the site is tried again through DPI evasion (fragmentation and noise instead of zapret, with the preset tuned on every connect, network change and channel failure), and only then goes direct. Xray protocols over TCP come first; Hysteria 2 and TUIC are used only when TCP fails, and always send noise before QUIC.
   - **Basic**: Russian sites (.ru, .рф, Russian IPs), banks and government services go direct, everything else goes through the VPN.
   - **All**: all traffic goes through the VPN except the local network.
 - **Apps outside the VPN.** MAX, VK, Yandex, banking and government apps are excluded from the VPN, so they cannot see the tunnel or the server address. You can add your own apps to the list.
