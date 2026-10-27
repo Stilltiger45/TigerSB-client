@@ -138,6 +138,35 @@ measure() {
   echo "$(date +%T) $label: открылся через ${first} с, самый долгий перерыв ${gap} с, неудач $fails из $polls — $verdict" | tee -a "$net"
 }
 
+# The runner's emulator or adb can drop out in the middle of a run, which
+# says nothing about the VPN: note what the host saw, try to get adb back,
+# and if the emulator is gone, stop and say so.
+dead=
+emulator_back() {
+  adb get-state >/dev/null 2>&1 && return 0
+  {
+    echo "$(date +%T) adb lost the emulator"
+    adb devices
+    pgrep -af qemu-system | cut -c1-200 || echo "no emulator process"
+    free -m
+    sudo dmesg | grep -iE 'oom|killed process|segfault|qemu' | tail -10
+  } >> "$out/emulator.txt" 2>&1
+  adb kill-server >/dev/null 2>&1
+  adb start-server >/dev/null 2>&1
+  if timeout 90 adb wait-for-device && adb root >/dev/null 2>&1 && sleep 3 &&
+    timeout 30 adb wait-for-device && adb get-state >/dev/null 2>&1; then
+    echo "$(date +%T) adb back" >> "$out/emulator.txt"
+    adb logcat -v time >> "$out/logcat.txt" 2>&1 &
+    logcat=$!
+    trap 'kill $server $logcat' EXIT
+    return 0
+  fi
+  echo "$(date +%T) the emulator did not come back" >> "$out/emulator.txt"
+  dead=1
+  failed=1
+  return 1
+}
+
 log="$out/soak.txt"
 net=$out/net.txt
 stream=$out/stream.txt
@@ -149,6 +178,7 @@ load() {
 }
 first=1
 for phase in $phases; do
+  emulator_back || break
   if [ -z "$first" ]; then
     # DPI comes on in the middle of a session: it cuts what passed, and the
     # VPN has to find a way by itself.
@@ -162,6 +192,7 @@ for phase in $phases; do
     adb shell "nohup /data/local/tmp/soakload -mode stream -for ${minutes}m > /data/local/tmp/stream.log 2>&1 &"
     end=$((SECONDS + minutes * 60))
     while [ $SECONDS -lt $end ]; do
+      emulator_back || break 3
       pid=$(adb shell pidof app.tigersb | tr -d '\r')
       # A reconnect may bring the tunnel up as tun1 while tun0 goes away.
       tun=$(adb shell ip -o addr show 2>/dev/null | grep -cE ' tun[0-9]+ +inet')
@@ -185,6 +216,7 @@ for phase in $phases; do
       sleep 20
     done
     sleep 15 # the stream ends with the mode's minutes
+    emulator_back || break 2
     echo "--- $mode, DPI $phase" >> "$stream"
     adb shell cat /data/local/tmp/stream.log | tr -d '\r' >> "$stream"
     last=$(tail -1 "$stream")
@@ -218,6 +250,7 @@ uncut() {
 }
 
 scenarios=${SOAK_SCENARIOS:-switches}
+[ -n "$dead" ] && scenarios=none
 switches=${SOAK_SWITCHES:-4}
 case " $scenarios " in *" switches "* | *" outage "* | *" mobile "*)
   tap "Все" || failed=1
@@ -331,6 +364,11 @@ annotate notice "server" "$(tail -60 "$out/server.log")"
 annotate notice "events" "$(grep -vE 'обход DPI' "$out/events.log" | tail -80)"
 annotate notice "network" "$(cat "$net" 2>/dev/null)"
 annotate notice "stream" "$(grep -E '^---|поток' "$stream" 2>/dev/null)"
+[ -s "$out/emulator.txt" ] && annotate warning "emulator" "$(cat "$out/emulator.txt")"
+if [ -n "$dead" ]; then
+  echo "::error::Эмулятор на раннере пропал посреди теста, это не сбой VPN; см. emulator.txt"
+  exit 1
+fi
 if [ $failed = 1 ]; then
   echo "::error::VPN не выдержал длительный тест, см. soak.txt"
   exit 1
