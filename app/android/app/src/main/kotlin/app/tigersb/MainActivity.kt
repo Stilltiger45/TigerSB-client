@@ -3,7 +3,11 @@ package app.tigersb
 import android.Manifest
 import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
+import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
+import android.content.pm.PackageInstaller
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -46,6 +50,33 @@ class MainActivity : FlutterActivity() {
         window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
         window.decorView.filterTouchesWhenObscured = true
         if (Build.VERSION.SDK_INT >= 31) window.setHideOverlayWindows(true)
+        val filter = IntentFilter(Updates.ACTION_STATUS)
+        if (Build.VERSION.SDK_INT >= 33) registerReceiver(updateStatus, filter, Context.RECEIVER_NOT_EXPORTED)
+        else registerReceiver(updateStatus, filter)
+    }
+
+    /** The system installer's answer to an update: asks the user, or tells why it failed. */
+    private val updateStatus = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            // Before Android 13 the receiver is open to other apps too: only
+            // the answer about the session this app started counts.
+            val id = intent.getIntExtra(PackageInstaller.EXTRA_SESSION_ID, -1)
+            if (id < 0 || id != Updates.session) return
+            val status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)
+            if (status == PackageInstaller.STATUS_PENDING_USER_ACTION) {
+                val confirm = if (Build.VERSION.SDK_INT >= 33) {
+                    intent.getParcelableExtra(Intent.EXTRA_INTENT, Intent::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    intent.getParcelableExtra(Intent.EXTRA_INTENT)
+                }
+                confirm?.let { startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                return
+            }
+            if (status == PackageInstaller.STATUS_SUCCESS) return
+            Updates.failure(status, intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE))
+                ?.let { channel?.invokeMethod("updateFailed", it) }
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -110,6 +141,14 @@ class MainActivity : FlutterActivity() {
                         null
                     }
                     "about" -> background(result) { Mobile.about() }
+                    "checkUpdate" -> background(result) {
+                        try {
+                            Updates.check(this@MainActivity)
+                        } catch (e: Exception) {
+                            throw Exception("Не удалось проверить обновление: ${e.message ?: e}")
+                        }
+                    }
+                    "installUpdate" -> installUpdate(result)
                     "openUrl" -> {
                         val ok = try {
                             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(call.argument<String>("url") ?: "")))
@@ -176,6 +215,19 @@ class MainActivity : FlutterActivity() {
         }
     }
 
+    /** Downloads the update on a thread of its own, so the core's calls do not wait for it, and installs it. */
+    private fun installUpdate(result: MethodChannel.Result) {
+        Thread {
+            try {
+                val apk = Updates.download(this) { p -> main.post { channel?.invokeMethod("updateProgress", p) } }
+                val started = Updates.install(this, apk)
+                main.post { result.success(started) }
+            } catch (e: Exception) {
+                main.post { result.error("update", "Не удалось скачать обновление: ${e.message ?: e}", null) }
+            }
+        }.start()
+    }
+
     private fun connect(result: MethodChannel.Result) {
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -226,6 +278,7 @@ class MainActivity : FlutterActivity() {
     }
 
     override fun onDestroy() {
+        unregisterReceiver(updateStatus)
         worker.shutdown()
         super.onDestroy()
     }

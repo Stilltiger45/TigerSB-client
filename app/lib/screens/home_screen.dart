@@ -52,7 +52,9 @@ class _HomeScreenState extends State<HomeScreen> {
   VpnStatus _status = const VpnStatus(Phase.disconnected);
   Mode _mode = Mode.auto;
   bool _refreshing = false;
+  bool _updating = false;
   StreamSubscription<VpnStatus>? _sub;
+  StreamSubscription<String>? _updateFailures;
 
   VpnStats? _stats;
   // Bytes per second since the previous reading.
@@ -78,11 +80,15 @@ class _HomeScreenState extends State<HomeScreen> {
       _refresh(quiet: true);
     }
     _loadProfiles();
+    _updateFailures = widget.core.updateFailures().listen((e) {
+      if (mounted) _snack(e);
+    });
   }
 
   @override
   void dispose() {
     _sub?.cancel();
+    _updateFailures?.cancel();
     _statsTimer?.cancel();
     super.dispose();
   }
@@ -163,6 +169,69 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!quiet) _snack(e.message);
     } finally {
       if (mounted) setState(() => _refreshing = false);
+    }
+  }
+
+  /// Looks for a newer version of the app and, if the user agrees,
+  /// downloads it and hands it to the system installer.
+  Future<void> _checkUpdate() async {
+    if (_updating) return;
+    _updating = true;
+    try {
+      _snack('Проверяю обновление…');
+      final UpdateInfo u;
+      try {
+        final found = await widget.core.checkUpdate();
+        if (!mounted) return;
+        if (found == null) return _snack('У вас последняя версия');
+        u = found;
+      } on CoreError catch (e) {
+        if (mounted) _snack(e.message);
+        return;
+      }
+      ScaffoldMessenger.of(context).hideCurrentSnackBar();
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Есть обновление'),
+          content: Text(
+            'Версия ${u.version}, сборка ${u.build}. Скачать и установить? '
+            'Во время установки VPN отключится, профили и настройки сохранятся.',
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Позже')),
+            FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Обновить')),
+          ],
+        ),
+      );
+      if (ok != true || !mounted) return;
+      final progress = showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Скачиваю обновление'),
+          content: StreamBuilder<double>(
+            stream: widget.core.updateProgress(),
+            builder: (_, snap) => LinearProgressIndicator(value: snap.data),
+          ),
+        ),
+      );
+      bool started;
+      try {
+        started = await widget.core.installUpdate();
+      } on CoreError catch (e) {
+        if (mounted) {
+          Navigator.of(context).pop();
+          _snack(e.message);
+        }
+        return;
+      }
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      await progress;
+      if (!started) _snack('Разрешите TigerSB устанавливать приложения и проверьте обновление ещё раз');
+    } finally {
+      _updating = false;
     }
   }
 
@@ -319,13 +388,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 icon: const Icon(Icons.more_horiz_rounded, color: Palette.white),
                 offset: const Offset(0, 52),
                 onSelected: (v) => switch (v) {
-                  'refresh' => _refresh(),
+                  'update' => _checkUpdate(),
                   'apps' => _openApps(),
                   'journal' => widget.core.shareJournal(),
                   _ => _openAbout(),
                 },
                 itemBuilder: (_) => const [
-                  PopupMenuItem(value: 'refresh', child: Text('Обновить профиль')),
+                  PopupMenuItem(value: 'update', child: Text('Проверить обновление')),
                   PopupMenuItem(value: 'apps', child: Text('Приложения мимо VPN')),
                   PopupMenuItem(value: 'journal', child: Text('Отправить журнал')),
                   PopupMenuItem(value: 'about', child: Text('О приложении')),

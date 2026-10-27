@@ -109,20 +109,32 @@ jobs:
           cp build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk ../dist/TigerSB-android-old-phones.apk
           ls -lh ../dist
 
+      # The app checks for updates against version.json: the versionCode of
+      # each APK, which Flutter makes from the build number and the ABI.
+      - name: version.json
+        run: |
+          aapt2=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/aapt2
+          code() { "$aapt2" dump badging "dist/$1" | grep -oE "versionCode='[0-9]+'" | grep -oE '[0-9]+'; }
+          jq -n --arg version "${{ steps.ver.outputs.name }}" --argjson build "${{ github.run_number }}" \
+            --argjson new "$(code TigerSB-android.apk)" --argjson old "$(code TigerSB-android-old-phones.apk)" \
+            '{version: $version, build: $build, apks: {"TigerSB-android.apk": $new, "TigerSB-android-old-phones.apk": $old}}' \
+            > dist/version.json
+          cat dist/version.json
+
       - uses: actions/upload-artifact@v4
         with:
           name: TigerSB-android
           path: dist/*.apk
 
-      # Only the two APKs of this build stay in the release: older APKs,
-      # whatever their names, are removed first.
+      # Only the two APKs of this build and their version.json stay in the
+      # release: older APKs, whatever their names, are removed first.
       - name: Remove old APKs from the release
         if: env.TAG != ''
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' |
-            grep '\.apk$' |
+            grep -E '\.apk$|^version\.json$' |
             while read -r name; do
               gh release delete-asset "$TAG" "$name" -R "$GITHUB_REPOSITORY" -y
             done
@@ -132,11 +144,13 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG }}
-          files: dist/*.apk
+          files: |
+            dist/*.apk
+            dist/version.json
           body: |
             **Android:** скачайте `TigerSB-android.apk` и откройте его на телефоне. Если телефон старше 2017 года и приложение не ставится, возьмите `TigerSB-android-old-phones.apk`.
 
-            После установки вставьте ключ или отсканируйте QR-код и нажмите «Подключить». Новая версия ставится поверх старой, ключ сохраняется.
+            После установки вставьте ключ или отсканируйте QR-код и нажмите «Подключить». Новая версия ставится поверх старой, ключ сохраняется. Дальше приложение обновляется само: меню справа → «Проверить обновление».
 
   # Starts the release build on an emulator and checks that the key screen
   # appears. Logcat and a screenshot are kept as the artifact

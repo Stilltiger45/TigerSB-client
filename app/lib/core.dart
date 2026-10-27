@@ -139,6 +139,19 @@ class AppInfo {
   final Uint8List? icon;
 }
 
+/// A newer version of the app on its release.
+class UpdateInfo {
+  const UpdateInfo({required this.version, required this.build});
+  final String version;
+  final int build;
+
+  static UpdateInfo? parse(String? json) {
+    if (json == null || json.isEmpty) return null;
+    final j = jsonDecode(json) as Map<String, dynamic>;
+    return UpdateInfo(version: j['version'] as String? ?? '', build: j['build'] as int? ?? 0);
+  }
+}
+
 /// Everything the screens need from the platform. [PlatformCore] talks to the
 /// Android side; tests use a fake.
 abstract class Core {
@@ -181,6 +194,21 @@ abstract class Core {
   /// Opens a link in the browser. False when there is nothing to open it.
   Future<bool> openUrl(String url);
 
+  /// The newer version on the app's release, or null when this one is the
+  /// newest.
+  Future<UpdateInfo?> checkUpdate();
+
+  /// Downloads the update, telling its progress on [updateProgress], and
+  /// hands it to the system, which asks the user to install it. False when
+  /// the user must first let TigerSB install apps: the setting is opened.
+  Future<bool> installUpdate();
+
+  /// How much of the update is downloaded, from 0 to 1.
+  Stream<double> updateProgress();
+
+  /// Why the system did not install the update.
+  Stream<String> updateFailures();
+
   /// Traffic and ping of the running VPN; takes up to a few seconds.
   Future<VpnStats> stats();
 
@@ -207,13 +235,22 @@ class CoreError implements Exception {
 class PlatformCore implements Core {
   PlatformCore() {
     _ch.setMethodCallHandler((call) async {
-      if (call.method == 'key') _keys.add(call.arguments as String);
+      switch (call.method) {
+        case 'key':
+          _keys.add(call.arguments as String);
+        case 'updateProgress':
+          _progress.add((call.arguments as num).toDouble());
+        case 'updateFailed':
+          _failures.add(call.arguments as String);
+      }
     });
   }
 
   static const _ch = MethodChannel('tigersb/core');
   static const _events = EventChannel('tigersb/status');
   final _keys = StreamController<String>.broadcast();
+  final _progress = StreamController<double>.broadcast();
+  final _failures = StreamController<String>.broadcast();
 
   Future<T?> _call<T>(String method, [Map<String, Object?>? args]) async {
     try {
@@ -274,6 +311,18 @@ class PlatformCore implements Core {
 
   @override
   Future<bool> openUrl(String url) async => await _call<bool>('openUrl', {'url': url}) ?? false;
+
+  @override
+  Future<UpdateInfo?> checkUpdate() async => UpdateInfo.parse(await _call<String>('checkUpdate'));
+
+  @override
+  Future<bool> installUpdate() async => await _call<bool>('installUpdate') ?? false;
+
+  @override
+  Stream<double> updateProgress() => _progress.stream;
+
+  @override
+  Stream<String> updateFailures() => _failures.stream;
 
   @override
   Future<VpnStats> stats() async =>
