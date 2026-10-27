@@ -201,6 +201,8 @@ for phase in $phases; do
       e=$(http example.com /)
       dl=$(load -mode dl -size 4194304 -timeout 30s)
       ul=$(load -mode ul -size 4194304 -timeout 30s)
+      # What a failed transfer got before it broke goes to loadfail.txt.
+      case "$dl$ul" in *FAIL*) echo "$(date +%T) $mode/$phase $dl | $ul" >> "$out/loadfail.txt" ;; esac
       case "$dl" in FAIL*) dl=FAIL ;; *) dl=$(echo "$dl" | grep -oE '[0-9.]+ МБ/с' | tr -d ' ') ;; esac
       case "$ul" in FAIL*) ul=FAIL ;; *) ul=$(echo "$ul" | grep -oE '[0-9.]+ МБ/с' | tr -d ' ') ;; esac
       rss=- threads=- fds=-
@@ -364,6 +366,8 @@ annotate notice "server" "$(tail -60 "$out/server.log")"
 annotate notice "events" "$(grep -vE 'обход DPI' "$out/events.log" | tail -80)"
 annotate notice "network" "$(cat "$net" 2>/dev/null)"
 annotate notice "stream" "$(grep -E '^---|поток' "$stream" 2>/dev/null)"
+[ -s "$out/loadfail.txt" ] && annotate warning "transfers" "$(cat "$out/loadfail.txt")"
+annotate notice "tuning" "$(grep 'обход DPI' "$out/events.log" | tail -30)"
 [ -s "$out/emulator.txt" ] && annotate warning "emulator" "$(cat "$out/emulator.txt")"
 if [ -n "$dead" ]; then
   echo "::error::Эмулятор на раннере пропал посреди теста, это не сбой VPN; см. emulator.txt"
