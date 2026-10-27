@@ -20,13 +20,21 @@ class HomeScreen extends StatefulWidget {
     required this.core,
     required this.profile,
     required this.onProfile,
-    required this.onForgotten,
+    required this.onAdd,
+    required this.onNoProfiles,
   });
 
   final Core core;
+
+  /// The profile in use.
   final ProfileInfo profile;
   final ValueChanged<ProfileInfo> onProfile;
-  final VoidCallback onForgotten;
+
+  /// Opens the screen that adds one more profile.
+  final VoidCallback onAdd;
+
+  /// The last profile was deleted.
+  final VoidCallback onNoProfiles;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -69,6 +77,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (fetched == null || DateTime.now().difference(fetched) > refreshAfter) {
       _refresh(quiet: true);
     }
+    _loadProfiles();
   }
 
   @override
@@ -157,11 +166,6 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  Future<void> _copyKey() async {
-    await Clipboard.setData(ClipboardData(text: widget.profile.key));
-    _snack('Ключ подписки скопирован');
-  }
-
   void _openApps() => Navigator.of(context).push(
     MaterialPageRoute<void>(
       builder: (_) => AppsScreen(core: widget.core, profile: widget.profile, onProfile: widget.onProfile),
@@ -171,30 +175,87 @@ class _HomeScreenState extends State<HomeScreen> {
   void _openAbout() =>
       Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => AboutScreen(core: widget.core)));
 
-  Future<void> _forget() async {
+  /// Every saved profile, for the list under the profile's name.
+  List<ProfileInfo> _profiles = const [];
+  final _profileMenu = MenuController();
+
+  Future<void> _loadProfiles() async {
+    try {
+      final list = await widget.core.profiles();
+      if (mounted) setState(() => _profiles = list);
+    } on CoreError {
+      // The list shows what it had.
+    }
+  }
+
+  Future<void> _select(ProfileInfo p) async {
+    _profileMenu.close();
+    if (p.id == widget.profile.id) return;
+    try {
+      widget.onProfile(await widget.core.select(p.id));
+      _snack('Профиль «${p.name}»');
+    } on CoreError catch (e) {
+      _snack(e.message);
+    }
+  }
+
+  Future<void> _refreshProfile(ProfileInfo p) async {
+    _profileMenu.close();
+    if (p.id == widget.profile.id) return _refresh();
+    try {
+      await widget.core.refresh(p.id);
+      _snack('Профиль «${p.name}» обновлён');
+    } on CoreError catch (e) {
+      _snack(e.message);
+    }
+    _loadProfiles();
+  }
+
+  Future<void> _copyLink(ProfileInfo p) async {
+    _profileMenu.close();
+    await Clipboard.setData(ClipboardData(text: p.key));
+    _snack('Ссылка на профиль скопирована');
+  }
+
+  Future<void> _delete(ProfileInfo p) async {
+    _profileMenu.close();
+    final inUse = p.id == widget.profile.id;
+    final on = _status.phase == Phase.connected || _status.phase == Phase.connecting;
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Сменить ключ?'),
-        content: const Text('VPN отключится, профиль будет удалён с телефона.'),
+        title: Text('Удалить профиль «${p.name}»?'),
+        content: Text(
+          inUse && on ? 'VPN отключится, профиль будет удалён с телефона.' : 'Профиль будет удалён с телефона.',
+        ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Отмена')),
-          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Сменить')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Удалить')),
         ],
       ),
     );
     if (ok != true) return;
     try {
-      await widget.core.disconnect();
-      // The service stops asynchronously; give it a moment before deleting.
-      for (var i = 0; i < 20 && _status.phase != Phase.disconnected && _status.phase != Phase.error; i++) {
-        await Future<void>.delayed(const Duration(milliseconds: 100));
+      if (inUse && on) {
+        await widget.core.disconnect();
+        // The service stops asynchronously; give it a moment before deleting.
+        for (var i = 0; i < 20 && _status.phase != Phase.disconnected && _status.phase != Phase.error; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        }
       }
-      await widget.core.forget();
-      widget.onForgotten();
+      final next = await widget.core.delete(p.id);
+      if (next == null) return widget.onNoProfiles();
+      if (inUse) widget.onProfile(next);
+      _snack('Профиль «${p.name}» удалён');
     } on CoreError catch (e) {
       _snack(e.message);
     }
+    _loadProfiles();
+  }
+
+  void _add() {
+    _profileMenu.close();
+    widget.onAdd();
   }
 
   String get _modeText => switch (_mode) {
@@ -241,19 +302,16 @@ class _HomeScreenState extends State<HomeScreen> {
         backgroundColor: Colors.transparent,
         appBar: AppBar(
           titleSpacing: 20,
-          title: Row(
-            children: [
-              Image.asset('assets/tiger.png', width: 30, height: 30),
-              const SizedBox(width: 10),
-              Flexible(child: Text(widget.profile.name, overflow: TextOverflow.ellipsis)),
-              if (widget.profile.signed) ...[
-                const SizedBox(width: 6),
-                const Tooltip(
-                  message: 'Профиль подписан панелью TigerSB',
-                  child: Icon(Icons.verified_rounded, size: 18, color: Palette.orange),
-                ),
-              ],
-            ],
+          title: _ProfileButton(
+            profile: widget.profile,
+            profiles: _profiles,
+            controller: _profileMenu,
+            onOpen: _loadProfiles,
+            onSelect: _select,
+            onRefresh: _refreshProfile,
+            onLink: _copyLink,
+            onDelete: _delete,
+            onAdd: _add,
           ),
           actions: [
             GlassIcon(
@@ -262,20 +320,15 @@ class _HomeScreenState extends State<HomeScreen> {
                 offset: const Offset(0, 52),
                 onSelected: (v) => switch (v) {
                   'refresh' => _refresh(),
-                  'copy' => _copyKey(),
                   'apps' => _openApps(),
                   'journal' => widget.core.shareJournal(),
-                  'about' => _openAbout(),
-                  _ => _forget(),
+                  _ => _openAbout(),
                 },
-                itemBuilder: (_) => [
-                  const PopupMenuItem(value: 'refresh', child: Text('Обновить профиль')),
-                  if (widget.profile.key.isNotEmpty)
-                    const PopupMenuItem(value: 'copy', child: Text('Скопировать ключ подписки')),
-                  const PopupMenuItem(value: 'apps', child: Text('Приложения мимо VPN')),
-                  const PopupMenuItem(value: 'journal', child: Text('Отправить журнал')),
-                  const PopupMenuItem(value: 'about', child: Text('О приложении')),
-                  const PopupMenuItem(value: 'forget', child: Text('Сменить ключ')),
+                itemBuilder: (_) => const [
+                  PopupMenuItem(value: 'refresh', child: Text('Обновить профиль')),
+                  PopupMenuItem(value: 'apps', child: Text('Приложения мимо VPN')),
+                  PopupMenuItem(value: 'journal', child: Text('Отправить журнал')),
+                  PopupMenuItem(value: 'about', child: Text('О приложении')),
                 ],
               ),
             ),
@@ -363,6 +416,162 @@ class _HomeScreenState extends State<HomeScreen> {
   static String _date(DateTime t) {
     String two(int v) => v.toString().padLeft(2, '0');
     return '${two(t.day)}.${two(t.month)} в ${two(t.hour)}:${two(t.minute)}';
+  }
+}
+
+/// The profile's name in the bar; a tap opens the list of profiles: each can
+/// be picked, updated, its link copied or deleted, and one more added below.
+class _ProfileButton extends StatelessWidget {
+  const _ProfileButton({
+    required this.profile,
+    required this.profiles,
+    required this.controller,
+    required this.onOpen,
+    required this.onSelect,
+    required this.onRefresh,
+    required this.onLink,
+    required this.onDelete,
+    required this.onAdd,
+  });
+
+  final ProfileInfo profile;
+  final List<ProfileInfo> profiles;
+  final MenuController controller;
+  final VoidCallback onOpen;
+  final ValueChanged<ProfileInfo> onSelect, onRefresh, onLink, onDelete;
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    // Until the list has loaded, it holds the profile in use.
+    final list = profiles.any((p) => p.id == profile.id) ? profiles : [profile];
+    return MenuAnchor(
+      controller: controller,
+      onOpen: onOpen,
+      alignmentOffset: const Offset(0, 8),
+      style: MenuStyle(
+        backgroundColor: const WidgetStatePropertyAll(Color(0xF2140D08)),
+        surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+        padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(vertical: 8)),
+        shape: WidgetStatePropertyAll(
+          RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(20),
+            side: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
+          ),
+        ),
+      ),
+      menuChildren: [
+        for (final p in list)
+          _ProfileRow(
+            profile: p,
+            inUse: p.id == profile.id,
+            onSelect: () => onSelect(p),
+            onRefresh: () => onRefresh(p),
+            onLink: p.key.isEmpty ? null : () => onLink(p),
+            onDelete: () => onDelete(p),
+          ),
+        Divider(height: 12, color: Colors.white.withValues(alpha: 0.1)),
+        MenuItemButton(
+          key: const Key('addProfile'),
+          leadingIcon: const Icon(Icons.add_rounded, color: Palette.orange),
+          onPressed: onAdd,
+          child: const Text('Добавить профиль'),
+        ),
+      ],
+      builder: (context, c, _) => InkWell(
+        key: const Key('profiles'),
+        borderRadius: BorderRadius.circular(14),
+        onTap: () => c.isOpen ? c.close() : c.open(),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Image.asset('assets/tiger.png', width: 30, height: 30),
+              const SizedBox(width: 10),
+              Flexible(child: Text(profile.name, overflow: TextOverflow.ellipsis)),
+              if (profile.signed) ...[
+                const SizedBox(width: 6),
+                const Tooltip(
+                  message: 'Профиль подписан панелью TigerSB',
+                  child: Icon(Icons.verified_rounded, size: 18, color: Palette.orange),
+                ),
+              ],
+              const SizedBox(width: 2),
+              Icon(c.isOpen ? Icons.expand_less_rounded : Icons.expand_more_rounded, color: Palette.muted),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// One profile in the list: a tap picks it; refresh, link and delete beside.
+class _ProfileRow extends StatelessWidget {
+  const _ProfileRow({
+    required this.profile,
+    required this.inUse,
+    required this.onSelect,
+    required this.onRefresh,
+    required this.onLink,
+    required this.onDelete,
+  });
+
+  final ProfileInfo profile;
+  final bool inUse;
+  final VoidCallback onSelect, onRefresh, onDelete;
+  final VoidCallback? onLink;
+
+  @override
+  Widget build(BuildContext context) {
+    Widget action(IconData icon, String tip, VoidCallback? onPressed, [Color color = Palette.muted]) => IconButton(
+      icon: Icon(icon, size: 20),
+      color: color,
+      tooltip: tip,
+      visualDensity: VisualDensity.compact,
+      onPressed: onPressed,
+    );
+    return ConstrainedBox(
+      constraints: const BoxConstraints(minWidth: 280, maxWidth: 340),
+      child: InkWell(
+        key: Key('profile-${profile.id}'),
+        onTap: onSelect,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(14, 2, 6, 2),
+          child: Row(
+            children: [
+              Icon(
+                inUse ? Icons.radio_button_checked_rounded : Icons.radio_button_unchecked_rounded,
+                size: 18,
+                color: inUse ? Palette.orange : Palette.faint,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Row(
+                  children: [
+                    Flexible(
+                      child: Text(
+                        profile.name,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(fontWeight: inUse ? FontWeight.w700 : FontWeight.w500),
+                      ),
+                    ),
+                    if (profile.signed) ...[
+                      const SizedBox(width: 4),
+                      const Icon(Icons.verified_rounded, size: 15, color: Palette.orange),
+                    ],
+                  ],
+                ),
+              ),
+              action(Icons.refresh_rounded, 'Обновить', onRefresh),
+              if (onLink != null) action(Icons.link_rounded, 'Ссылка', onLink),
+              action(Icons.delete_outline_rounded, 'Удалить', onDelete, Palette.error),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 

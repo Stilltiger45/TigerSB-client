@@ -7,13 +7,15 @@ import '../ui/fx.dart';
 import '../ui/palette.dart';
 import 'scan_screen.dart';
 
-/// First screen: paste or scan the key, then the VPN starts at once.
+/// First screen: paste or scan the key, then the VPN starts at once. With
+/// [adding], it adds one more profile and has a way back.
 class KeyScreen extends StatefulWidget {
-  const KeyScreen({super.key, required this.core, required this.onAdded, this.initialKey});
+  const KeyScreen({super.key, required this.core, required this.onAdded, this.initialKey, this.adding = false});
 
   final Core core;
   final ValueChanged<ProfileInfo> onAdded;
   final String? initialKey;
+  final bool adding;
 
   @override
   State<KeyScreen> createState() => _KeyScreenState();
@@ -80,6 +82,7 @@ class _KeyScreenState extends State<KeyScreen> {
       fx: _busy ? Fx.connecting : Fx.idle,
       child: Scaffold(
         backgroundColor: Colors.transparent,
+        appBar: widget.adding ? AppBar(title: const Text('Новый профиль')) : null,
         body: SafeArea(
           child: Center(
             child: SingleChildScrollView(
