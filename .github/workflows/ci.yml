@@ -23,7 +23,18 @@ jobs:
         if: runner.os == 'Linux'
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - run: go vet ./...
-      - run: go test ./...
+      - name: go test
+        shell: bash
+        run: |
+          # Failed tests also go to the annotations, readable without the log.
+          go test ./... 2>&1 | tee test.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" != 0 ]; then
+            grep -E -- '--- FAIL|^FAIL|panic:|_test\.go:[0-9]+:' test.log | head -40 | while IFS= read -r line; do
+              echo "::error::$line"
+            done
+          fi
+          exit "$status"
       - run: go build -o tigersb-core-ci ./cmd/tigersb-core
         env:
           CGO_ENABLED: "0"
