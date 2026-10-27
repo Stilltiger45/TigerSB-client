@@ -17,7 +17,11 @@ class FakeCore implements Core {
   final added = <String>[];
   int connects = 0;
 
+  /// The saved profiles besides [profile], the one in use.
+  final others = <ProfileInfo>[];
+
   ProfileInfo _profile(String name, {List<String> userApps = const []}) => ProfileInfo(
+    id: name,
     name: name,
     hasRU: true,
     fetched: DateTime.now(),
@@ -30,17 +34,42 @@ class FakeCore implements Core {
   Future<ProfileInfo?> current() async => profile;
 
   @override
+  Future<List<ProfileInfo>> profiles() async => [?profile, ...others];
+
+  @override
   Future<ProfileInfo> addKey(String key) async {
     if (!key.startsWith('tigersb://')) throw CoreError('неверный ключ');
     added.add(key);
-    return profile = _profile('Дом');
+    if (profile != null) others.add(profile!);
+    return profile = _profile(added.length == 1 ? 'Дом' : 'Ключ ${added.length}');
+  }
+
+  final refreshed = <String>[];
+
+  @override
+  Future<ProfileInfo> refresh([String? id]) async {
+    refreshed.add(id ?? profile!.id);
+    return id == null || id == profile!.id ? profile! : others.firstWhere((p) => p.id == id);
   }
 
   @override
-  Future<ProfileInfo> refresh() async => profile!;
+  Future<ProfileInfo> select(String id) async {
+    final p = others.firstWhere((p) => p.id == id);
+    others
+      ..remove(p)
+      ..insert(0, profile!);
+    return profile = p;
+  }
 
   @override
-  Future<void> forget() async => profile = null;
+  Future<ProfileInfo?> delete(String id) async {
+    if (profile?.id == id) {
+      profile = others.isEmpty ? null : others.removeAt(0);
+    } else {
+      others.removeWhere((p) => p.id == id);
+    }
+    return profile;
+  }
 
   @override
   Future<Mode> mode() async => currentMode;
@@ -214,10 +243,11 @@ void main() {
     expect(find.byKey(const Key('stats')), findsNothing);
   });
 
-  testWidgets('the menu copies the subscription key', (tester) async {
+  testWidgets('the profile list picks, updates, copies the link and deletes profiles', (tester) async {
     const key = 'tigersb://add?url=https%3A%2F%2Fpanel.example.org%2Fsub%2Fabc&pk=y';
     final core = FakeCore()
-      ..profile = ProfileInfo(name: 'Дом', hasRU: true, fetched: DateTime.now(), exits: const [], key: key);
+      ..profile = ProfileInfo(id: 'home', name: 'Дом', hasRU: true, fetched: DateTime.now(), exits: const [], key: key)
+      ..others.add(ProfileInfo(id: 'work', name: 'Работа', hasRU: true, fetched: DateTime.now(), exits: const []));
     String? copied;
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
       if (call.method == 'Clipboard.setData') copied = (call.arguments as Map)['text'] as String;
@@ -226,18 +256,87 @@ void main() {
     await tester.pumpWidget(TigerApp(core: core));
     await tester.pumpAndSettle();
 
+    // The menu on the right no longer changes or copies the key.
     await tester.tap(find.byType(PopupMenuButton<String>));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Скопировать ключ подписки'));
-    await tester.pumpAndSettle();
-    expect(copied, key);
-    expect(find.text('Ключ подписки скопирован'), findsOneWidget);
-
-    await tester.tap(find.byType(PopupMenuButton<String>));
-    await tester.pumpAndSettle();
+    expect(find.text('Сменить ключ'), findsNothing);
+    expect(find.text('Скопировать ключ подписки'), findsNothing);
     await tester.tap(find.text('Отправить журнал'));
     await tester.pumpAndSettle();
     expect(core.journals, 1);
+
+    Future<void> open() async {
+      await tester.tap(find.byKey(const Key('profiles')));
+      await tester.pumpAndSettle();
+    }
+
+    Finder inRow(String id, String tip) =>
+        find.descendant(of: find.byKey(Key('profile-$id')), matching: find.byTooltip(tip));
+
+    await open();
+    expect(find.byKey(const Key('profile-home')), findsOneWidget);
+    expect(find.byKey(const Key('profile-work')), findsOneWidget);
+    expect(find.text('Добавить профиль'), findsOneWidget);
+    // A profile without a key to share has no link button.
+    expect(inRow('work', 'Ссылка'), findsNothing);
+    await tester.tap(inRow('home', 'Ссылка'));
+    await tester.pumpAndSettle();
+    expect(copied, key);
+
+    await open();
+    await tester.tap(inRow('work', 'Обновить'));
+    await tester.pumpAndSettle();
+    expect(core.refreshed, ['work']);
+
+    await open();
+    await tester.tap(find.byKey(const Key('profile-work')));
+    await tester.pumpAndSettle();
+    expect(core.profile!.name, 'Работа');
+    expect(find.text('Работа'), findsOneWidget);
+
+    await open();
+    await tester.tap(inRow('home', 'Удалить'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Удалить'));
+    await tester.pumpAndSettle();
+    expect(core.others, isEmpty);
+    expect(core.profile!.name, 'Работа');
+
+    // The last one goes: back to the key screen.
+    await open();
+    await tester.tap(inRow('work', 'Удалить'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Удалить'));
+    await tester.pumpAndSettle();
+    expect(core.profile, isNull);
+    expect(find.text('Подключить'), findsOneWidget);
+  });
+
+  testWidgets('one more profile is added from the list and from a link', (tester) async {
+    final core = FakeCore()
+      ..profile = ProfileInfo(id: 'home', name: 'Дом', hasRU: true, fetched: DateTime.now(), exits: const []);
+    await tester.pumpWidget(TigerApp(core: core));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('profiles')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Добавить профиль'));
+    await tester.pumpAndSettle();
+    expect(find.text('Новый профиль'), findsOneWidget);
+    await tester.enterText(find.byType(TextField), 'tigersb://add?url=https://two&pk=y');
+    await tester.tap(find.text('Подключить'));
+    await tester.pumpAndSettle();
+    expect(core.connects, 1);
+    expect(core.others.map((p) => p.id), ['home']);
+    expect(find.text(core.profile!.name), findsOneWidget);
+
+    core.incoming.add('tigersb://add?url=https://three&pk=y');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Добавить'));
+    await tester.pumpAndSettle();
+    expect(core.added.last, 'tigersb://add?url=https://three&pk=y');
+    expect(core.others.length, 2);
+    expect(core.connects, 2);
   });
 
   testWidgets('the menu opens apps outside the VPN: MAX is locked, others toggle', (tester) async {

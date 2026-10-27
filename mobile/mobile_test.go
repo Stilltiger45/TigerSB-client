@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-func TestImportCurrentForget(t *testing.T) {
+func TestImportCurrentDelete(t *testing.T) {
 	initTemp(t)
 	if s, err := Current(); err != nil || s != "" {
 		t.Fatalf("empty state: %q %v", s, err)
@@ -34,8 +34,8 @@ func TestImportCurrentForget(t *testing.T) {
 	if err := Start(3, "smart", 1500); err == nil {
 		t.Error("unknown mode accepted")
 	}
-	if err := Forget(); err != nil {
-		t.Fatal(err)
+	if next, err := Delete(in.ID); err != nil || next != "" {
+		t.Fatalf("delete: %q %v", next, err)
 	}
 	if s, _ := Current(); s != "" {
 		t.Errorf("forgotten state still there: %s", s)
@@ -47,7 +47,6 @@ func TestAppsOutsideVPN(t *testing.T) {
 	if _, err := AddKey("vless://5783a3e7-e373-51cd-8642-c83782b807c5@1.2.3.4:443?security=none#Дом"); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { Forget() })
 	if err := SetUserApps(`["org.example.game","ru.oneme.app"]`); err != nil {
 		t.Fatal(err)
 	}
@@ -72,15 +71,21 @@ func TestAppsOutsideVPN(t *testing.T) {
 
 func TestStateKeyEncryptsSavedKey(t *testing.T) {
 	dir := initTemp(t)
-	t.Cleanup(func() { SetStateKey(nil); Forget() })
+	t.Cleanup(func() { SetStateKey(nil) })
 	key := "vless://5783a3e7-e373-51cd-8642-c83782b807c5@1.2.3.4:443?security=none#secret-name"
-	if _, err := AddKey(key); err != nil {
+	s, err := AddKey(key)
+	if err != nil {
 		t.Fatal(err)
 	}
+	var in profileInfo
+	json.Unmarshal([]byte(s), &in)
 	if err := SetStateKey(bytes.Repeat([]byte{1}, 32)); err != nil {
 		t.Fatal(err)
 	}
-	raw, _ := os.ReadFile(filepath.Join(dir, "state.json"))
+	raw, err := os.ReadFile(filepath.Join(dir, "profiles", in.ID, "state.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
 	if bytes.Contains(raw, []byte("secret-name")) {
 		t.Fatal("key saved in the clear")
 	}

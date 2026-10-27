@@ -66,8 +66,18 @@ class MainActivity : FlutterActivity() {
                 when (call.method) {
                     "current" -> background(result) { Mobile.current() }
                     "addKey" -> background(result) { Mobile.addKey(call.argument<String>("key") ?: "") }
-                    "refresh" -> background(result) { Mobile.refresh() }
-                    "forget" -> background(result) { Mobile.forget(); null }
+                    "profiles" -> background(result) { Mobile.profiles() }
+                    "refresh" -> background(result) {
+                        val id = call.argument<String>("id")
+                        if (id.isNullOrEmpty()) Mobile.refresh() else Mobile.refreshProfile(id)
+                    }
+                    "select" -> background(result) {
+                        val info = Mobile.select(call.argument<String>("id") ?: "")
+                        // A running VPN moves to the profile by reconnecting.
+                        if (VpnState.phase == VpnState.Phase.CONNECTED) TigerVpnService.start(this@MainActivity)
+                        info
+                    }
+                    "delete" -> background(result) { Mobile.delete(call.argument<String>("id") ?: "") }
                     "stats" -> background(result) { Mobile.stats() }
                     "apps" -> background(result) { installedApps() }
                     "setUserApps" -> background(result) {

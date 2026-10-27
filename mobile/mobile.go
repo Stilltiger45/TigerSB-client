@@ -75,6 +75,8 @@ func SetDevice(hwid, osName, osVersion, model string) {
 
 // profileInfo describes the imported profile for the app's screen.
 type profileInfo struct {
+	// ID names the profile among the saved ones.
+	ID       string     `json:"id"`
 	Name     string     `json:"name"`
 	Updated  time.Time  `json:"updated"`
 	Fetched  time.Time  `json:"fetched"`
@@ -101,91 +103,6 @@ type exitInfo struct {
 	Transports []string `json:"transports"`
 }
 
-// AddKey adds a key (tigersb://, https:// or a share link), downloads the
-// profile and the lists it needs, and returns the profile info as JSON.
-func AddKey(key string) (string, error) {
-	netMu.Lock()
-	defer netMu.Unlock()
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	defer cancel()
-	// The download runs without mu: the app's screen asks the core for the
-	// profile meanwhile and must not wait for a slow network.
-	st, p, err := (&subscription.Client{}).Import(ctx, key)
-	if err != nil {
-		return "", err
-	}
-	mu.Lock()
-	defer mu.Unlock()
-	if err := subscription.Save(dataDir, st); err != nil {
-		return "", err
-	}
-	i := inst
-	inBackground(func() { fetchLists(i, p, geodataMaxAge, nil) })
-	return info(st, p)
-}
-
-// Refresh downloads the profile and the lists again. On failure the old
-// profile stays usable.
-func Refresh() (string, error) {
-	netMu.Lock()
-	defer netMu.Unlock()
-	mu.Lock()
-	st, err := subscription.Load(dataDir)
-	mu.Unlock()
-	if err != nil {
-		return "", noKey(err)
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
-	defer cancel()
-	p, err := (&subscription.Client{}).Refresh(ctx, st)
-	if err != nil {
-		return "", err
-	}
-	mu.Lock()
-	defer mu.Unlock()
-	if err := subscription.Save(dataDir, st); err != nil {
-		return "", err
-	}
-	i := inst
-	inBackground(func() { fetchLists(i, p, geodataMaxAge, nil) })
-	return info(st, p)
-}
-
-// Current returns the profile info as JSON, or "" when no key has been added.
-func Current() (string, error) {
-	mu.Lock()
-	defer mu.Unlock()
-	st, err := subscription.Load(dataDir)
-	if errors.Is(err, subscription.ErrNoState) {
-		return "", nil
-	}
-	if err != nil {
-		return "", err
-	}
-	p, err := st.Open()
-	if err != nil {
-		return "", err
-	}
-	return info(st, p)
-}
-
-// Forget removes the key, the profile and the lists.
-func Forget() error {
-	mu.Lock()
-	defer mu.Unlock()
-	if inst != nil {
-		return errors.New("сначала отключите VPN")
-	}
-	if err := os.RemoveAll(assetDir()); err != nil {
-		return err
-	}
-	err := os.Remove(filepath.Join(dataDir, "state.json"))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	return err
-}
-
 // Start runs the VPN on the TUN file descriptor fd in mode "auto", "main" or "all".
 // mtu is the MTU the app gave the TUN (see PickMTU).
 func Start(fd int, mode string, mtu int) error {
@@ -198,7 +115,7 @@ func Start(fd int, mode string, mtu int) error {
 	if err != nil {
 		return err
 	}
-	st, err := subscription.Load(dataDir)
+	st, _, err := loadActive()
 	if err != nil {
 		return noKey(err)
 	}
@@ -339,23 +256,6 @@ func Protocol() string {
 	return name
 }
 
-// SetStateKey sets the 32-byte key that encrypts the saved subscription (see
-// subscription.StateKey) and encrypts a state saved without it. Call it right
-// after Init.
-func SetStateKey(key []byte) error {
-	mu.Lock()
-	defer mu.Unlock()
-	subscription.StateKey = slices.Clone(key)
-	st, err := subscription.Load(dataDir)
-	if errors.Is(err, subscription.ErrNoState) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	return subscription.Save(dataDir, st)
-}
-
 // SetUserApps saves the apps the user leaves out of the VPN, a JSON array of
 // Android package names. A running VPN applies them when it reconnects.
 func SetUserApps(apps string) error {
@@ -493,7 +393,7 @@ const pathFallback = "77.88.8.8"
 func pathMTU(t netauto.Transport) int {
 	mu.Lock()
 	host := ""
-	if st, err := subscription.Load(dataDir); err == nil {
+	if st, _, err := loadActive(); err == nil {
 		if p, err := st.Open(); err == nil {
 			host = xrayconf.ServerHost(p)
 		}
@@ -544,9 +444,10 @@ func noKey(err error) error {
 	return err
 }
 
-func info(st *subscription.State, p *profile.Profile) (string, error) {
+func info(id string, st *subscription.State, p *profile.Profile) (string, error) {
 	blocked := p.Routing.Blocked
 	in := profileInfo{
+		ID:         id,
 		Name:       p.Name,
 		Updated:    p.Updated,
 		Fetched:    st.Fetched,

@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 /// The imported profile as the core describes it.
 class ProfileInfo {
   ProfileInfo({
+    this.id = '',
     required this.name,
     required this.hasRU,
     required this.fetched,
@@ -18,6 +19,8 @@ class ProfileInfo {
     this.userApps = const [],
   });
 
+  /// Names the profile among the saved ones.
+  final String id;
   final String name;
   final bool hasRU;
 
@@ -44,6 +47,7 @@ class ProfileInfo {
   final List<String> userApps;
 
   factory ProfileInfo.fromJson(Map<String, dynamic> j) => ProfileInfo(
+    id: j['id'] as String? ?? '',
     name: j['name'] as String? ?? '',
     hasRU: j['hasRU'] as bool? ?? false,
     hasLists: j['hasLists'] as bool? ?? true,
@@ -138,10 +142,26 @@ class AppInfo {
 /// Everything the screens need from the platform. [PlatformCore] talks to the
 /// Android side; tests use a fake.
 abstract class Core {
+  /// The profile in use, or null before the first key.
   Future<ProfileInfo?> current();
+
+  /// Every saved profile, in the order they were added.
+  Future<List<ProfileInfo>> profiles();
+
+  /// Adds a key as a new profile (or updates the one with the same key) and
+  /// makes it the one in use.
   Future<ProfileInfo> addKey(String key);
-  Future<ProfileInfo> refresh();
-  Future<void> forget();
+
+  /// Downloads the profile [id], or the one in use, again.
+  Future<ProfileInfo> refresh([String? id]);
+
+  /// Makes the profile [id] the one in use; a running VPN reconnects to it.
+  Future<ProfileInfo> select(String id);
+
+  /// Deletes the profile [id] and returns the one in use after it, null when
+  /// none is left. The VPN must be off to delete the profile in use.
+  Future<ProfileInfo?> delete(String id);
+
   Future<Mode> mode();
   Future<void> setMode(Mode m);
 
@@ -210,10 +230,19 @@ class PlatformCore implements Core {
   Future<ProfileInfo> addKey(String key) async => ProfileInfo.parse(await _call<String>('addKey', {'key': key}))!;
 
   @override
-  Future<ProfileInfo> refresh() async => ProfileInfo.parse(await _call<String>('refresh'))!;
+  Future<List<ProfileInfo>> profiles() async => [
+    for (final p in jsonDecode(await _call<String>('profiles') ?? '[]') as List)
+      ProfileInfo.fromJson(p as Map<String, dynamic>),
+  ];
 
   @override
-  Future<void> forget() => _call('forget');
+  Future<ProfileInfo> refresh([String? id]) async => ProfileInfo.parse(await _call<String>('refresh', {'id': id}))!;
+
+  @override
+  Future<ProfileInfo> select(String id) async => ProfileInfo.parse(await _call<String>('select', {'id': id}))!;
+
+  @override
+  Future<ProfileInfo?> delete(String id) async => ProfileInfo.parse(await _call<String>('delete', {'id': id}));
 
   @override
   Future<Mode> mode() async {
