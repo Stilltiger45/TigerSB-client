@@ -149,7 +149,12 @@ emulator_back() {
     adb devices
     pgrep -af qemu-system | cut -c1-200 || echo "no emulator process"
     free -m
-    sudo dmesg | grep -iE 'oom|killed process|segfault|qemu' | tail -10
+    uptime
+    echo "--- kernel"
+    sudo dmesg -T | tail -15
+    # The emulator leaves a crash report when it dies of itself.
+    echo "--- crash reports"
+    find /tmp/android-* ~/.android -newer "$apk" \( -name '*crash*' -o -name '*.dmp' \) 2>/dev/null | head
   } >> "$out/emulator.txt" 2>&1
   adb kill-server >/dev/null 2>&1
   adb start-server >/dev/null 2>&1
