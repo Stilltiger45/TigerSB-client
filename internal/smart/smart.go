@@ -52,6 +52,11 @@ type Options struct {
 	Default []string
 	// Direct is the outbound for sites no candidate opens.
 	Direct string
+	// OverUDP are the candidates over UDP (Hysteria 2, TUIC), which DPI cuts
+	// more often than those over TCP: a site goes through them only when no
+	// candidate over TCP opens it within Prefer, and traffic without a
+	// domain only when no candidate over TCP is alive.
+	OverUDP []string
 
 	// MaxProbes caps how many candidates a site is checked through.
 	MaxProbes int
@@ -61,6 +66,9 @@ type Options struct {
 	// the site but got a refusal (403 or 451), which is what sites that turn
 	// away foreign visitors answer.
 	Grace time.Duration
+	// Prefer is how long a candidate over TCP may take to open a site after
+	// one over UDP did, and still be picked.
+	Prefer time.Duration
 	// TTL is how long a pick is kept; FailTTL is how long "direct, nothing
 	// worked" is kept, shorter so a passing outage is not remembered.
 	TTL, FailTTL time.Duration
@@ -89,6 +97,9 @@ func (o *Options) defaults() {
 	if o.Grace == 0 {
 		o.Grace = time.Second
 	}
+	if o.Prefer == 0 {
+		o.Prefer = 2 * time.Second
+	}
 	if o.TTL == 0 {
 		o.TTL = 30 * time.Minute
 	}
@@ -114,7 +125,13 @@ func Hooks(p *profile.Profile, m xrayconf.Mode, ev *Evasion) []func(*core.Instan
 		return nil
 	}
 	all, def := xrayconf.Candidates(p)
-	return []func(*core.Instance) error{Setup(Options{Candidates: all, Default: def, Direct: xrayconf.TagDirect, Evasion: ev})}
+	return []func(*core.Instance) error{Setup(Options{
+		Candidates: all,
+		Default:    def,
+		Direct:     xrayconf.TagDirect,
+		OverUDP:    xrayconf.UDPTransports(p),
+		Evasion:    ev,
+	})}
 }
 
 // Attach adds the picker to a created, not yet started Xray instance.
@@ -133,6 +150,10 @@ func Attach(inst *core.Instance, opt Options) error {
 		obs:        obs,
 		cache:      map[string]entry{},
 		inflight:   map[string]*call{},
+		udp:        map[string]bool{},
+	}
+	for _, t := range opt.OverUDP {
+		h.udp[t] = true
 	}
 	if ev := opt.Evasion; ev != nil {
 		h.preset.Store(int32(ev.start()))
@@ -159,6 +180,8 @@ type Handler struct {
 	// a copy per preset.
 	preset   atomic.Int32
 	variants map[string]bool
+	// udp holds the candidates over UDP.
+	udp map[string]bool
 }
 
 type entry struct {
@@ -320,29 +343,57 @@ func (h *Handler) probeAll(ctx context.Context, scheme, host string) (tag string
 }
 
 // race checks the site through the outbounds at once. tag is the first that
-// opened it; when none did, refusedBy is the first that got a refusal, if any
+// opened it, but one over UDP only when none over TCP opens it within Prefer
+// after it; when none did, refusedBy is the first that got a refusal, if any
 // (waiting Grace after it for a clean answer).
 func (h *Handler) race(ctx context.Context, tags []string, scheme, host string) (tag, refusedBy string) {
 	results := make(chan result, len(tags))
+	tcpLeft := 0
 	for _, t := range tags {
+		if !h.udp[t] {
+			tcpLeft++
+		}
 		go func() { results <- result{t, h.probe(ctx, t, scheme, host)} }()
 	}
-	var grace <-chan time.Time
-	for range tags {
+	var grace, prefer <-chan time.Time
+	var byUDP string
+	for left := len(tags); left > 0; {
 		select {
 		case r := <-results:
+			left--
+			udp := h.udp[r.tag]
+			if !udp {
+				tcpLeft--
+			}
 			switch r.v {
 			case opened:
-				return r.tag, ""
+				if !udp {
+					return r.tag, ""
+				}
+				if byUDP == "" {
+					byUDP = r.tag
+					prefer = time.After(h.opt.Prefer)
+				}
 			case refused:
 				if refusedBy == "" {
 					refusedBy = r.tag
 					grace = time.After(h.opt.Grace)
 				}
 			}
+			if byUDP != "" && tcpLeft == 0 {
+				return byUDP, ""
+			}
+		case <-prefer:
+			return byUDP, ""
 		case <-grace:
-			return "", refusedBy
+			if byUDP == "" {
+				return "", refusedBy
+			}
+			// A clean answer is in: wait for TCP until Prefer.
 		}
+	}
+	if byUDP != "" {
+		return byUDP, ""
 	}
 	return "", refusedBy
 }
@@ -386,18 +437,23 @@ func (h *Handler) probe(ctx context.Context, tag, scheme, host string) verdict {
 }
 
 // ordered returns the candidates to check, live ones first by speed, then
-// unmeasured ones in priority order, then dead ones, at most MaxProbes.
+// unmeasured ones in priority order, then dead ones, at most MaxProbes; in
+// each group those over TCP go before those over UDP.
 func (h *Handler) ordered() []string {
 	st := h.status()
 	rank := func(t string) (int, int64) {
+		udp := 0
+		if h.udp[t] {
+			udp = 1
+		}
 		s, ok := st[t]
 		switch {
 		case !ok:
-			return 1, 0
+			return 2 + udp, 0
 		case s.Alive:
-			return 0, s.Delay
+			return udp, s.Delay
 		default:
-			return 2, 0
+			return 4 + udp, 0
 		}
 	}
 	out := slices.Clone(h.opt.Candidates)
@@ -416,7 +472,8 @@ func (h *Handler) ordered() []string {
 }
 
 // fallback is the outbound for traffic without a domain: the fastest live
-// default outbound, or the first one before anything is measured.
+// default outbound over TCP, else the fastest live one over UDP, or the
+// first over TCP before anything is measured.
 func (h *Handler) fallback() string {
 	if len(h.opt.Default) == 0 {
 		return h.opt.Direct
@@ -424,7 +481,18 @@ func (h *Handler) fallback() string {
 	st := h.status()
 	best, delay := h.opt.Default[0], int64(-1)
 	for _, t := range h.opt.Default {
-		if s, ok := st[t]; ok && s.Alive && (delay < 0 || s.Delay < delay) {
+		if !h.udp[t] {
+			best = t
+			break
+		}
+	}
+	for _, t := range h.opt.Default {
+		s, ok := st[t]
+		if !ok || !s.Alive {
+			continue
+		}
+		// Over TCP beats over UDP, then the faster wins.
+		if delay < 0 || h.udp[best] && !h.udp[t] || h.udp[best] == h.udp[t] && s.Delay < delay {
 			best, delay = t, s.Delay
 		}
 	}

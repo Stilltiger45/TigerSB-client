@@ -3,6 +3,7 @@ package engine_test
 import (
 	"context"
 	"net"
+	"runtime"
 	"testing"
 
 	xnet "github.com/xtls/xray-core/common/net"
@@ -71,5 +72,29 @@ func TestCloseUDP(t *testing.T) {
 	}
 	if _, err := c.Write([]byte("x")); err == nil {
 		t.Fatal("the UDP connection is still open")
+	}
+}
+
+// TestCloseUDPWithoutWrapper checks the socket that Hysteria 2 takes out of
+// the wrapper the dialer returns and keeps alone.
+func TestCloseUDPWithoutWrapper(t *testing.T) {
+	engine.CloseConnections()
+	c, err := internet.DialSystem(context.Background(), xnet.UDPDestination(xnet.LocalHostIP, 9), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, ok := c.(*internet.PacketConnWrapper)
+	if !ok {
+		t.Skipf("the dialer returned %T", c)
+	}
+	pc := w.PacketConn
+	c, w = nil, nil
+	runtime.GC()
+	runtime.GC()
+	if n := engine.CloseConnections(); n != 1 {
+		t.Fatalf("closed %d connections, want 1", n)
+	}
+	if _, err := pc.WriteTo([]byte("x"), &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 9}); err == nil {
+		t.Fatal("the UDP socket is still open")
 	}
 }

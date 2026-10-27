@@ -105,7 +105,13 @@ func Track(c any) {
 	case *gonet.UDPConn:
 		ref = weakRef(v)
 	case *internet.PacketConnWrapper:
-		ref = weakRef(v)
+		// Hysteria 2 keeps the socket inside and drops the wrapper, which a
+		// weak reference would then lose: hold the socket itself.
+		if u, ok := v.PacketConn.(*gonet.UDPConn); ok {
+			ref = weakRef(u)
+		} else {
+			ref = weakRef(v)
+		}
 	default:
 		return
 	}

@@ -354,7 +354,8 @@ func transports(p *profile.Profile, role profile.Role) []transportItem {
 }
 
 // addTransports appends the outbounds of every exit with the role, best
-// priority first, and returns their tags.
+// priority first, and returns their tags. Those over UDP send QUICNoise
+// first.
 func addTransports(p *profile.Profile, role profile.Role, outbounds *[]any) ([]string, error) {
 	items := transports(p, role)
 	tags := make([]string, 0, len(items))
@@ -366,6 +367,11 @@ func addTransports(p *profile.Profile, role profile.Role, outbounds *[]any) ([]s
 		tags = append(tags, it.tag)
 		if isTUIC(it.xray) {
 			continue // added to Xray by package tuic, see TUIC
+		}
+		if OverUDP(it.xray) {
+			if err := withQUICNoise(ob); err != nil {
+				return nil, fmt.Errorf("транспорт %s: %w", it.tag, err)
+			}
 		}
 		tag, _ := json.Marshal(it.tag)
 		ob["tag"] = tag

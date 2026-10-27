@@ -190,7 +190,7 @@ func start(t *testing.T, p *profile.Profile) (inst *core.Instance, socks, udp in
 		"settings": map[string]any{"address": "1.2.3.4", "port": 7777, "network": "udp"},
 	})
 	cfg, _ = json.Marshal(c)
-	inst, err = engine.Start(cfg, tigertuic.Hooks(p)...)
+	inst, err = engine.Start(cfg, tigertuic.Hooks(p, nil)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -283,7 +283,7 @@ func TestTUICUnpinnedInsecureRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := engine.Start(cfg, tigertuic.Hooks(p)...); err == nil {
+	if _, err := engine.Start(cfg, tigertuic.Hooks(p, nil)...); err == nil {
 		t.Fatal("started without checking the certificate")
 	}
 }

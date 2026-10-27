@@ -250,7 +250,7 @@ func cmdRun(args []string) error {
 	if err := engine.SetAssetDir(assets); err != nil {
 		return err
 	}
-	inst, err := engine.Start(cfg, slices.Concat(tuic.Hooks(p), steady.Hooks(p), smart.Hooks(p, mode, nil))...)
+	inst, err := engine.Start(cfg, slices.Concat(tuic.Hooks(p, xrayconf.QUICNoise), steady.Hooks(p), smart.Hooks(p, mode, nil))...)
 	if err != nil {
 		return err
 	}

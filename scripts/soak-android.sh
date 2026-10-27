@@ -4,8 +4,13 @@
 # checking every 20 seconds that the app lives, the tunnel is up and sites
 # open, and recording the app's memory, threads and open files. Everything is
 # left in $2; failures and the app's log are repeated as annotations.
-# SOAK_MODES picks the modes, SOAK_DPI=1 puts the server behind a stand-in for
-# DPI that cuts plain VLESS, so only the smart mode's evasion gets through.
+# SOAK_MODES picks the modes. SOAK_PROFILE=mix adds Hysteria 2 and TUIC to the
+# plain VLESS server (scripts/soak/mix.txt). The servers sit behind a stand-in
+# for DPI (scripts/soak/dpi.go): SOAK_DPI is its level, off (0), weak (1:
+# plain VLESS and QUIC told by the first packet are cut) or strong (QUIC is
+# cut altogether), or several levels in turn, each for SOAK_MINUTES in every
+# mode. Meanwhile the emulator downloads and uploads 4 MB on every check and
+# keeps a stream going both ways (scripts/soakload).
 # SOAK_SCENARIOS adds the tests of an unsteady network, run in the mode that
 # sends everything through the VPN:
 #   switches  Wi-Fi off and on SOAK_SWITCHES times, quickly;
@@ -22,6 +27,10 @@ modes=${SOAK_MODES:-"Умная Базовая Все"}
 mkdir -p "$out"
 port=20443
 key="vless://5783a3e7-e373-51cd-8642-c83782b807c5@10.0.2.2:$port?security=none#Soak"
+if [ "${SOAK_PROFILE:-vless}" = mix ]; then
+  # A subscription must come over HTTPS that the phone trusts.
+  key="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/scripts/soak/mix.txt"
+fi
 
 annotate() {
   local level=$1 title=$2 text=$3
@@ -65,14 +74,18 @@ http() {
 }
 
 go build -o soak-server ./scripts/soak
+CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o soakload ./scripts/soakload
+phases=${SOAK_DPI:-off}
 dpi=
-if [ "${SOAK_DPI:-0}" = 1 ]; then dpi=-dpi; fi
-./soak-server -port $port $dpi > "$out/server.log" 2>&1 &
+case " $phases " in *" 1 "* | *" weak "* | *" strong "*) dpi=1 ;; esac
+./soak-server -port $port -dpi "${phases%% *}" > "$out/server.log" 2>&1 &
 server=$!
 trap 'kill $server' EXIT
 
 adb root >/dev/null 2>&1; sleep 3
 adb install -r "$apk"
+adb push soakload /data/local/tmp/soakload >/dev/null
+adb shell chmod 755 /data/local/tmp/soakload
 adb shell pm grant app.tigersb android.permission.POST_NOTIFICATIONS
 adb shell appops set app.tigersb ACTIVATE_VPN allow
 adb logcat -c
@@ -97,49 +110,9 @@ sleep 5
 tap "Allow" || tap "ALLOW" || true
 sleep 15
 
-log="$out/soak.txt"
-echo "time mode pid tun_addrs google ya.ru example rss_kb threads fds" > "$log"
-failed=0
-for mode in $modes; do
-  tap "$mode" || { failed=1; continue; }
-  sleep 10
-  end=$((SECONDS + minutes * 60))
-  while [ $SECONDS -lt $end ]; do
-    pid=$(adb shell pidof app.tigersb | tr -d '\r')
-    # A reconnect may bring the tunnel up as tun1 while tun0 goes away.
-    tun=$(adb shell ip -o addr show 2>/dev/null | grep -cE ' tun[0-9]+ +inet')
-    g=$(http connectivitycheck.gstatic.com /generate_204)
-    y=$(http ya.ru /)
-    e=$(http example.com /)
-    rss=- threads=- fds=-
-    if [ -n "$pid" ]; then
-      rss=$(adb shell "grep VmRSS /proc/$pid/status" | grep -oE '[0-9]+')
-      threads=$(adb shell "grep Threads /proc/$pid/status" | grep -oE '[0-9]+')
-      fds=$(adb shell "ls /proc/$pid/fd | wc -l" | tr -d '\r')
-    fi
-    line="$(date +%T) $mode ${pid:-none} $tun $g $y $e $rss $threads $fds"
-    echo "$line" | tee -a "$log"
-    case "$line" in *FAIL* | *none*) failed=1 ;; esac
-    if [ "$tun" = 0 ]; then failed=1; fi
-    sleep 20
-  done
-done
-
-check() {
-  local pid g y e
-  pid=$(adb shell pidof app.tigersb | tr -d '\r')
-  g=$(http connectivitycheck.gstatic.com /generate_204)
-  y=$(http ya.ru /)
-  e=$(http example.com /)
-  line="$(date +%T) $1 ${pid:-none} - $g $y $e"
-  echo "$line" | tee -a "$log"
-  case "$line" in *FAIL* | *none*) failed=1 ;; esac
-}
-
 # After an event, opens a site through the VPN every second for $2 seconds
 # and notes how soon it opened and the longest stretch it did not; more than
 # $3 seconds for either fails the run.
-net=$out/net.txt
 measure() {
   local label=$1 window=$2 limit=$3
   local start=$SECONDS first=- gap=0 down= polls=0 fails=0 now
@@ -163,6 +136,72 @@ measure() {
     failed=1
   fi
   echo "$(date +%T) $label: открылся через ${first} с, самый долгий перерыв ${gap} с, неудач $fails из $polls — $verdict" | tee -a "$net"
+}
+
+log="$out/soak.txt"
+net=$out/net.txt
+stream=$out/stream.txt
+echo "time mode pid tun_addrs google ya.ru example rss_kb threads fds download upload" > "$log"
+failed=0
+# One run of the bulk client on the emulator, through the VPN like any app.
+load() {
+  adb shell "/data/local/tmp/soakload $*" | tr -d '\r'
+}
+first=1
+for phase in $phases; do
+  if [ -z "$first" ]; then
+    # DPI comes on in the middle of a session: it cuts what passed, and the
+    # VPN has to find a way by itself.
+    curl -s "http://127.0.0.1:20490/dpi?level=$phase"
+    measure "DPI $phase включён" 120 90
+  fi
+  first=
+  for mode in $modes; do
+    tap "$mode" || { failed=1; continue; }
+    sleep 10
+    adb shell "nohup /data/local/tmp/soakload -mode stream -for ${minutes}m > /data/local/tmp/stream.log 2>&1 &"
+    end=$((SECONDS + minutes * 60))
+    while [ $SECONDS -lt $end ]; do
+      pid=$(adb shell pidof app.tigersb | tr -d '\r')
+      # A reconnect may bring the tunnel up as tun1 while tun0 goes away.
+      tun=$(adb shell ip -o addr show 2>/dev/null | grep -cE ' tun[0-9]+ +inet')
+      g=$(http connectivitycheck.gstatic.com /generate_204)
+      y=$(http ya.ru /)
+      e=$(http example.com /)
+      dl=$(load -mode dl -size 4194304 -timeout 30s)
+      ul=$(load -mode ul -size 4194304 -timeout 30s)
+      case "$dl" in FAIL*) dl=FAIL ;; *) dl=$(echo "$dl" | grep -oE '[0-9.]+ МБ/с' | tr -d ' ') ;; esac
+      case "$ul" in FAIL*) ul=FAIL ;; *) ul=$(echo "$ul" | grep -oE '[0-9.]+ МБ/с' | tr -d ' ') ;; esac
+      rss=- threads=- fds=-
+      if [ -n "$pid" ]; then
+        rss=$(adb shell "grep VmRSS /proc/$pid/status" | grep -oE '[0-9]+')
+        threads=$(adb shell "grep Threads /proc/$pid/status" | grep -oE '[0-9]+')
+        fds=$(adb shell "ls /proc/$pid/fd | wc -l" | tr -d '\r')
+      fi
+      line="$(date +%T) $mode/$phase ${pid:-none} $tun $g $y $e $rss $threads $fds ${dl:-FAIL} ${ul:-FAIL}"
+      echo "$line" | tee -a "$log"
+      case "$line" in *FAIL* | *none*) failed=1 ;; esac
+      if [ "$tun" = 0 ]; then failed=1; fi
+      sleep 20
+    done
+    sleep 15 # the stream ends with the mode's minutes
+    echo "--- $mode, DPI $phase" >> "$stream"
+    adb shell cat /data/local/tmp/stream.log | tr -d '\r' >> "$stream"
+    last=$(tail -1 "$stream")
+    echo "$(date +%T) $mode/$phase $last" | tee -a "$log"
+    case "$last" in "ok поток"*) ;; *) failed=1 ;; esac
+  done
+done
+
+check() {
+  local pid g y e
+  pid=$(adb shell pidof app.tigersb | tr -d '\r')
+  g=$(http connectivitycheck.gstatic.com /generate_204)
+  y=$(http ya.ru /)
+  e=$(http example.com /)
+  line="$(date +%T) $1 ${pid:-none} - $g $y $e"
+  echo "$line" | tee -a "$log"
+  case "$line" in *FAIL* | *none*) failed=1 ;; esac
 }
 
 # No internet at all on the phone's network: nothing leaves the emulator but
@@ -274,21 +313,24 @@ kill $server
 sleep 1
 if [ -n "$dpi" ]; then
   # Plain VLESS is cut, so the tuning must find the preset that splits the
-  # connection start, and traffic must have passed the DPI box.
+  # connection start, and the DPI must have cut something and let through
+  # the rest.
   if ! grep -q 'обход DPI.*набор 3' "$out/events.log"; then
     echo "no tuning picked preset 3" | tee -a "$log"
     failed=1
   fi
-  box=$(grep -oE 'dpi: blocked [0-9]+, passed [0-9]+' "$out/server.log" | tail -1)
+  box=$(grep -E '^.{20}dpi ' "$out/server.log" | tail -1)
   echo "DPI box: $box" | tee -a "$log"
-  if [ "${box##* }" = 0 ] || [ -z "$box" ]; then failed=1; fi
+  case "$box" in *"tcp blocked 0,"* | *"passed 0;"* | "") failed=1 ;; esac
 fi
+grep -E 'dpi |bulk:' "$out/server.log" | tail -8 | tee -a "$log"
 noise='s_glBindAttribLocation|Choreographer|OpenGLRenderer|EGL_emulation|HostConnection|eglCodecCommon|GnssNetworkConnectivityHandler|registerNetworkAgent|uiautomator|RuntimeInit|boot image|lock profiling|Shutting down VM'
 annotate notice "soak" "$(cat "$log")"
 annotate warning "app log" "$(grep -E 'GoLog|TigerSB|AndroidRuntime|FATAL|panic|Fatal signal|lowmemory|ActivityManager.*tigersb' "$out/logcat.txt" | grep -vE "$noise" | tail -150)"
 annotate notice "server" "$(tail -60 "$out/server.log")"
 annotate notice "events" "$(grep -vE 'обход DPI' "$out/events.log" | tail -80)"
 annotate notice "network" "$(cat "$net" 2>/dev/null)"
+annotate notice "stream" "$(grep -E '^---|поток' "$stream" 2>/dev/null)"
 if [ $failed = 1 ]; then
   echo "::error::VPN не выдержал длительный тест, см. soak.txt"
   exit 1

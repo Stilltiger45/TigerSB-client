@@ -2,6 +2,7 @@ package xrayconf
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -77,9 +78,105 @@ func DPIOutbound(k int) map[string]any {
 	}
 }
 
+// NoisePacket is one packet of junk: Size is the range of its length in
+// bytes, Delay the range of the pause after it in milliseconds.
+type NoisePacket struct {
+	Size, Delay [2]int
+}
+
+// QUICNoise is the junk sent before the first packet of every Hysteria 2
+// and TUIC connection. They run QUIC over UDP, which DPI in Russia filters:
+// DPI that tells a flow by its first packet sees random bytes instead of a
+// QUIC handshake and lets the flow be, and the server drops the junk. DPI
+// that reads every packet still sees QUIC: only obfuscation on the server
+// (Hysteria 2's salamander) hides it from that.
+//
+// It goes out in every mode, not only the smart one: Xray keeps one Hysteria
+// 2 client per server address for the life of the process and builds it
+// with the settings of the core that used the server first, so noise that
+// depended on the mode would stay off after a switch to the smart mode.
+var QUICNoise = []NoisePacket{
+	{Size: [2]int{40, 120}, Delay: [2]int{5, 15}},
+	{Size: [2]int{40, 120}, Delay: [2]int{5, 15}},
+}
+
+// quicNoiseMask is QUICNoise as Xray's finalmask for UDP.
+func quicNoiseMask() map[string]any {
+	var items []any
+	for _, n := range QUICNoise {
+		items = append(items, map[string]any{
+			"rand":  fmt.Sprintf("%d-%d", n.Size[0], n.Size[1]),
+			"delay": fmt.Sprintf("%d-%d", n.Delay[0], n.Delay[1]),
+		})
+	}
+	return map[string]any{"type": "noise", "settings": map[string]any{"noise": items}}
+}
+
+// withQUICNoise returns the Hysteria 2 outbound with QUICNoise sent before
+// its first packet. The noise goes first among the UDP masks, so it leaves
+// the phone as is, ahead of the salamander-obfuscated packets.
+func withQUICNoise(ob map[string]json.RawMessage) error {
+	var stream map[string]any
+	if raw, ok := ob["streamSettings"]; ok {
+		if err := json.Unmarshal(raw, &stream); err != nil {
+			return err
+		}
+	}
+	if stream == nil {
+		stream = map[string]any{}
+	}
+	mask, _ := stream["finalmask"].(map[string]any)
+	if mask == nil {
+		mask = map[string]any{}
+	}
+	udp, _ := mask["udp"].([]any)
+	mask["udp"] = append([]any{quicNoiseMask()}, udp...)
+	stream["finalmask"] = mask
+	raw, err := json.Marshal(stream)
+	ob["streamSettings"] = raw
+	return err
+}
+
+// OverUDP reports whether the transport runs over UDP: Hysteria 2 and TUIC
+// (QUIC), mKCP. DPI cuts these more readily than Xray's TCP transports.
+func OverUDP(xray json.RawMessage) bool {
+	var ob struct {
+		Protocol string `json:"protocol"`
+		Stream   struct {
+			Network string `json:"network"`
+		} `json:"streamSettings"`
+	}
+	if json.Unmarshal(xray, &ob) != nil {
+		return false
+	}
+	switch ob.Protocol {
+	case "hysteria", "hysteria2", "tuic":
+		return true
+	}
+	switch ob.Stream.Network {
+	case "hysteria", "kcp", "mkcp":
+		return true
+	}
+	return false
+}
+
+// UDPTransports returns the tags of the profile's transports over UDP.
+func UDPTransports(p *profile.Profile) []string {
+	var out []string
+	for _, role := range []profile.Role{profile.RoleForeign, profile.RoleRU} {
+		for _, it := range transports(p, role) {
+			if OverUDP(it.xray) {
+				out = append(out, it.tag)
+			}
+		}
+	}
+	return out
+}
+
 // Variants returns the VPN outbounds that get a copy per preset: all but
-// TUIC, which dials outside Xray, and those the panel already chains through
-// another outbound.
+// those over UDP, which fragmentation does not help and which carry
+// QUICNoise themselves, and those the panel already chains through another
+// outbound.
 func Variants(p *profile.Profile) []string {
 	var out []string
 	for _, role := range []profile.Role{profile.RoleForeign, profile.RoleRU} {
@@ -100,7 +197,7 @@ func variantable(xray json.RawMessage) bool {
 			} `json:"sockopt"`
 		} `json:"streamSettings"`
 	}
-	return !isTUIC(xray) && json.Unmarshal(xray, &ob) == nil && ob.Stream.Sockopt.DialerProxy == ""
+	return !OverUDP(xray) && json.Unmarshal(xray, &ob) == nil && ob.Stream.Sockopt.DialerProxy == ""
 }
 
 // evasionOutbounds returns the preset outbounds and, for each preset, a copy

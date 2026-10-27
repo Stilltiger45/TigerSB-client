@@ -15,9 +15,13 @@ on:
         required: false
         default: "Умная Базовая Все"
       dpi:
-        description: "1 — сервер за имитацией DPI, которая режет обычный VLESS"
+        description: "Имитация DPI: off, weak (режет обычный VLESS и QUIC по первому пакету), strong (режет QUIC целиком) или несколько по очереди, например «off weak strong»"
         required: false
-        default: "0"
+        default: "off"
+      profile:
+        description: "vless — один сервер VLESS, mix — VLESS, Hysteria 2 и TUIC"
+        required: false
+        default: "vless"
       scenarios:
         description: "Нестабильная сеть: switches (частые переключения), outage (10 мин без интернета), mobile (30 мин на мобильной, обрыв, затем Wi-Fi)"
         required: false
@@ -75,7 +79,8 @@ jobs:
         env:
           SOAK_MINUTES: ${{ inputs.minutes || '12' }}
           SOAK_MODES: ${{ inputs.modes || 'Умная Базовая Все' }}
-          SOAK_DPI: ${{ inputs.dpi || '0' }}
+          SOAK_DPI: ${{ inputs.dpi || 'off' }}
+          SOAK_PROFILE: ${{ inputs.profile || 'vless' }}
           SOAK_SCENARIOS: ${{ inputs.scenarios || 'switches' }}
           SOAK_SWITCHES: ${{ inputs.switches || '4' }}
         with:
@@ -88,5 +93,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: TigerSB-android-soak-${{ inputs.dpi || '0' }}
+          name: TigerSB-android-soak-${{ github.run_id }}
           path: soak/

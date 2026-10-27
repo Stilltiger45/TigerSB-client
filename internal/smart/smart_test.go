@@ -217,3 +217,70 @@ func TestNoDomainUsesDefault(t *testing.T) {
 		t.Error("traffic without a domain must not be checked")
 	}
 }
+
+// slowSite answers after delay.
+func slowSite(t *testing.T, name string, delay time.Duration) *site {
+	s := &site{}
+	s.Server = httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.hits.Add(1)
+		time.Sleep(delay)
+		fmt.Fprint(w, name)
+	}))
+	t.Cleanup(s.Close)
+	return s
+}
+
+func TestTCPBeatsFasterUDP(t *testing.T) {
+	quic := newSite(t, "udp", http.StatusOK)
+	tcp := slowSite(t, "tcp", 300*time.Millisecond)
+	c, _ := start(t, []route{
+		{"direct", newSite(t, "home", http.StatusOK)},
+		{"foreign/udp", quic},
+		{"foreign/tcp", tcp},
+	}, smart.Options{Candidates: []string{"foreign/udp", "foreign/tcp"}, OverUDP: []string{"foreign/udp"}})
+	if got := get(t, c, "https://example.com/"); got != "tcp" {
+		t.Fatalf("site went to %q, want the server over TCP", got)
+	}
+}
+
+func TestUDPWhenTCPFailsOrLags(t *testing.T) {
+	quic := newSite(t, "udp", http.StatusOK)
+	c, _ := start(t, []route{
+		{"direct", newSite(t, "home", http.StatusOK)},
+		{"foreign/udp", quic},
+		{"foreign/tcp", nil},
+	}, smart.Options{Candidates: []string{"foreign/tcp", "foreign/udp"}, OverUDP: []string{"foreign/udp"}})
+	if got := get(t, c, "https://example.com/"); got != "udp" {
+		t.Fatalf("with TCP dead the site went to %q", got)
+	}
+
+	tcp := slowSite(t, "tcp", 1500*time.Millisecond)
+	c, _ = start(t, []route{
+		{"direct", newSite(t, "home", http.StatusOK)},
+		{"foreign/udp", quic},
+		{"foreign/tcp", tcp},
+	}, smart.Options{Candidates: []string{"foreign/tcp", "foreign/udp"}, OverUDP: []string{"foreign/udp"}, Prefer: 200 * time.Millisecond})
+	start := time.Now()
+	if got := get(t, c, "https://example.com/"); got != "udp" {
+		t.Fatalf("with TCP lagging the site went to %q", got)
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Errorf("the pick waited %v for TCP, Prefer is 200ms", d)
+	}
+}
+
+func TestNoDomainPrefersTCP(t *testing.T) {
+	a := newSite(t, "udp", http.StatusOK)
+	b := newSite(t, "tcp", http.StatusOK)
+	c, inst := start(t, []route{
+		{"direct", newSite(t, "home", http.StatusOK)},
+		{"foreign/udp", a},
+		{"foreign/tcp", b},
+	}, smart.Options{Candidates: []string{"foreign/udp", "foreign/tcp"}, OverUDP: []string{"foreign/udp"}})
+	if got := get(t, c, "https://127.0.0.1/"); got != "tcp" {
+		t.Fatalf("went to %q", got)
+	}
+	if got := smart.InUse(inst); got != "foreign/tcp" {
+		t.Errorf("in use %q", got)
+	}
+}

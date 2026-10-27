@@ -8,6 +8,7 @@ package tuic
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
@@ -15,6 +16,7 @@ import (
 	"encoding/json"
 	stderrors "errors"
 	"fmt"
+	mrand "math/rand/v2"
 	gonet "net"
 	"net/netip"
 	"os"
@@ -45,11 +47,12 @@ import (
 )
 
 // Hooks returns the engine.Start hooks that add the profile's TUIC
-// transports to Xray.
-func Hooks(p *profile.Profile) []func(*core.Instance) error {
+// transports to Xray. noise (xrayconf.QUICNoise, or nil in tests) goes to
+// the server before each QUIC connection.
+func Hooks(p *profile.Profile, noise []xrayconf.NoisePacket) []func(*core.Instance) error {
 	var hooks []func(*core.Instance) error
 	for _, ob := range xrayconf.TUIC(p) {
-		hooks = append(hooks, func(inst *core.Instance) error { return Attach(inst, ob.Tag, ob.Xray) })
+		hooks = append(hooks, func(inst *core.Instance) error { return Attach(inst, ob.Tag, ob.Xray, noise) })
 	}
 	return hooks
 }
@@ -75,8 +78,9 @@ type config struct {
 	} `json:"streamSettings"`
 }
 
-// Attach adds the TUIC outbound to a created, not yet started Xray instance.
-func Attach(inst *core.Instance, tag string, xray json.RawMessage) error {
+// Attach adds the TUIC outbound to a created, not yet started Xray instance;
+// noise goes to the server before each QUIC connection.
+func Attach(inst *core.Instance, tag string, xray json.RawMessage, noise []xrayconf.NoisePacket) error {
 	var c config
 	if err := json.Unmarshal(xray, &c); err != nil {
 		return fmt.Errorf("транспорт %s: %w", tag, err)
@@ -119,7 +123,7 @@ func Attach(inst *core.Instance, tag string, xray json.RawMessage) error {
 	ctx, cancel := context.WithCancel(context.Background())
 	client, err := tuic.NewClient(tuic.ClientOptions{
 		Context:           ctx,
-		Dialer:            trackedDialer{N.SystemDialer},
+		Dialer:            trackedDialer{N.SystemDialer, noise},
 		ServerAddress:     server,
 		TLSConfig:         &stdConfig{tlsConf},
 		UUID:              id,
@@ -347,15 +351,41 @@ func or(a, b string) string {
 
 // trackedDialer dials like the system dialer and hands what it opens to
 // engine.Track, so that a change of network closes TUIC's connections like
-// Xray's own.
-type trackedDialer struct{ N.Dialer }
+// Xray's own. The UDP socket of each QUIC connection first sends noise.
+type trackedDialer struct {
+	N.Dialer
+	noise []xrayconf.NoisePacket
+}
 
 func (d trackedDialer) DialContext(ctx context.Context, network string, dest M.Socksaddr) (gonet.Conn, error) {
 	c, err := d.Dialer.DialContext(ctx, network, dest)
-	if err == nil {
-		engine.Track(c)
+	if err != nil {
+		return nil, err
 	}
-	return c, err
+	engine.Track(c)
+	if N.NetworkName(network) == N.NetworkUDP {
+		sendNoise(c, d.noise)
+	}
+	return c, nil
+}
+
+// sendNoise writes the noise packets to the connected socket. Losing one
+// does not matter: the server drops them anyway.
+func sendNoise(c gonet.Conn, noise []xrayconf.NoisePacket) {
+	for _, n := range noise {
+		b := make([]byte, between(n.Size))
+		rand.Read(b)
+		c.Write(b)
+		time.Sleep(time.Duration(between(n.Delay)) * time.Millisecond)
+	}
+}
+
+// between returns a random number in the range r.
+func between(r [2]int) int {
+	if r[1] <= r[0] {
+		return r[0]
+	}
+	return r[0] + mrand.IntN(r[1]-r[0]+1)
 }
 
 func (d trackedDialer) ListenPacket(ctx context.Context, dest M.Socksaddr) (gonet.PacketConn, error) {
