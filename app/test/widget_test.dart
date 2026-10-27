@@ -128,6 +128,28 @@ class FakeCore implements Core {
   @override
   Future<void> shareJournal() async => journals++;
 
+  UpdateInfo? update;
+  bool installAllowed = true;
+  int installs = 0;
+  final progress = StreamController<double>.broadcast();
+  final failures = StreamController<String>.broadcast();
+
+  @override
+  Future<UpdateInfo?> checkUpdate() async => update;
+
+  @override
+  Future<bool> installUpdate() async {
+    installs++;
+    progress.add(0.5);
+    return installAllowed;
+  }
+
+  @override
+  Stream<double> updateProgress() => progress.stream;
+
+  @override
+  Stream<String> updateFailures() => failures.stream;
+
   @override
   Future<String?> takeKey() async => null;
 
@@ -388,6 +410,47 @@ void main() {
     await tester.tap(find.text('Лицензии компонентов'));
     await tester.pumpAndSettle();
     expect(find.byType(LicensePage), findsOneWidget);
+  });
+
+  testWidgets('the menu checks for an update and installs it', (tester) async {
+    final core = FakeCore()..profile = ProfileInfo(name: 'Дом', hasRU: true, fetched: DateTime.now(), exits: const []);
+    await tester.pumpWidget(TigerApp(core: core));
+    await tester.pumpAndSettle();
+    expect(find.text('Обновить профиль'), findsNothing);
+
+    Future<void> check() async {
+      await tester.tap(find.byType(PopupMenuButton<String>));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Проверить обновление'));
+      await tester.pumpAndSettle();
+    }
+
+    await check();
+    expect(find.text('У вас последняя версия'), findsOneWidget);
+
+    core.update = const UpdateInfo(version: '0.1.0', build: 140);
+    await check();
+    expect(find.textContaining('сборка 140'), findsOneWidget);
+    await tester.tap(find.text('Позже'));
+    await tester.pumpAndSettle();
+    expect(core.installs, 0);
+
+    await check();
+    await tester.tap(find.text('Обновить'));
+    await tester.pumpAndSettle();
+    expect(core.installs, 1);
+    expect(find.text('Скачиваю обновление'), findsNothing);
+
+    // Not yet allowed to install apps: the setting opens and the user is told.
+    core.installAllowed = false;
+    await check();
+    await tester.tap(find.text('Обновить'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Разрешите TigerSB'), findsOneWidget);
+
+    core.failures.add('Не хватает места для обновления');
+    await tester.pumpAndSettle();
+    expect(find.text('Не хватает места для обновления'), findsOneWidget);
   });
 
   test('the licenses list TigerSB and the Go libraries of the core', () async {
