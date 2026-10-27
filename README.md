@@ -28,7 +28,7 @@
 
 ---
 
-**TigerSB** is a VPN client built on Xray: paste a key and you are connected. It works with its own panel, [TigerSB-panel](https://github.com/Stilltiger45/TigerSB-panel), and with subscriptions from other VPNs (Marzban, 3x-ui, Remnawave and others).
+**TigerSB** is a VPN app with nothing to set up: paste a key and you are connected. It picks the fastest server by itself, decides which sites go through the VPN and which go direct, and keeps the connection up when the network changes. It works with its own panel, [TigerSB-panel](https://github.com/Stilltiger45/TigerSB-panel), and with subscriptions from other VPNs (Marzban, 3x-ui, Remnawave and others).
 
 <p align="center">
   <img src="docs/assets/screens.jpg" alt="App screens: key, Smart, Basic and All modes, About" width="100%">
@@ -36,20 +36,40 @@
 
 <sub>The app interface is in Russian.</sub>
 
-## Features
+**Contents:** [For users](#for-users) · [For developers](#for-developers)
 
-- **One key.** Paste a key, scan a QR code or open a `tigersb://` link and the VPN turns on. A subscription link from another VPN works too: the client picks the fastest server in it.
-- **Three routing modes:**
-  - **Smart** (default): every site is tried through every server in the subscription and opened through the fastest one that lets it in. If none does, the site is tried again through DPI evasion (fragmentation and noise instead of zapret, with the preset tuned on every connect, network change and channel failure), and only then goes direct. Xray protocols over TCP come first; Hysteria 2 and TUIC are used only when TCP fails, and always send noise before QUIC.
-  - **Basic**: Russian sites (.ru, .рф, Russian IPs), banks and government services go direct, everything else goes through the VPN.
-  - **All**: all traffic goes through the VPN except the local network.
-- **Apps outside the VPN.** MAX, VK, Yandex, banking and government apps are excluded from the VPN, so they cannot see the tunnel or the server address. You can add your own apps to the list.
-- **Security.** Subscriptions are checked against an Ed25519 signature and cannot be spoofed. The key is stored encrypted with Android Keystore and is left out of backups. The screen is protected from screenshots, screen recording and taps through overlay windows.
-- **Stable connection.** In Basic and All the protocol is chosen from smoothed measurements without flapping between servers, and a dead server is left within seconds. The channel is checked like a proxy ping in other clients: two GETs to t.me and YouTube over one kept-alive connection, the better time counts; a failed check is repeated after 3 seconds, two failures in a row reopen the connections to the servers and four restart the core. When the phone switches between Wi-Fi and mobile data, gets a new address or the signal comes back, the tunnel stays up: only the connections to the servers are reopened, so apps reconnect at once. While the phone's network has no internet at all the client waits instead of restarting, and picks up within seconds of its return. The MTU (1480, 1460 or 1280) follows how large a packet reaches the server without fragmenting, and on mobile data an LTE mode clamps TCP segments to that path and keeps the operator's NAT open.
-- **Several profiles.** The profile name at the top opens a list: tap a profile to use it; each has Refresh, Link (copies the key) and Delete, and "Add profile" sits at the bottom. A tigersb:// link opened when a profile already exists offers to add one more.
-- **Extras.** Speed, traffic and ping panel, quick settings tile, current protocol in the notification, automatic profile and block-list updates, "Send log" and "Check for update" in the menu (the app updates itself from its GitHub release), and an About screen with third-party licenses.
+# For users
 
-## Cores and technologies
+## Quick start
+
+1. **Download the app:** [TigerSB-android.apk](https://github.com/Stilltiger45/TigerSB-client/releases/latest/download/TigerSB-android.apk) (Android 7+). For old 32-bit phones: [TigerSB-android-old-phones.apk](https://github.com/Stilltiger45/TigerSB-client/releases/latest/download/TigerSB-android-old-phones.apk).
+2. **Install it:** open the file on the phone and allow the install.
+3. **Add a key** in any of these ways:
+   - open a `tigersb://…` link from Telegram, email or the panel, and the app opens with the key already filled in;
+   - scan a QR code;
+   - paste the key by hand: `tigersb://`, an `https://` subscription link, or `vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://`, `tuic://` links.
+4. **Press the connect button.** That's it.
+
+The key comes from whoever runs the server: in [TigerSB-panel](https://github.com/Stilltiger45/TigerSB-panel) it is on the Users tab. The app updates itself: menu on the right → «Проверить обновление» (Check for update).
+
+A Windows app on the same core is the next stage.
+
+## Modes
+
+- **Smart** (default): each site opens through the server that lets it in fastest, and if none does, directly or with DPI evasion.
+- **Basic**: Russian sites, banks and government services go direct, everything else goes through the VPN.
+- **All**: all traffic goes through the VPN except the local network.
+
+## What else it does
+
+- **Apps outside the VPN.** MAX, VK, Yandex, banking and government apps always bypass the VPN, so they cannot see the tunnel or the server address. You can add your own apps to the list.
+- **Stable connection.** A dead server is replaced within seconds, and the VPN stays on when the phone switches between Wi-Fi and mobile data.
+- **Several profiles.** The profile name at the top opens a list: switch with one tap; each has Refresh, Link and Delete.
+- **Extras.** Speed, traffic and ping on the home screen, a quick settings tile, the protocol in the notification, automatic profile and block-list updates, "Send log" in the menu.
+
+# For developers
+
+## Components
 
 | Component | Role | License |
 |---|---|---|
@@ -60,25 +80,24 @@
 | [Flutter](https://flutter.dev) 3.47 and Dart | app interface | BSD-3-Clause |
 | [Kotlin](https://kotlinlang.org) 2.4 | Android system VPN (VpnService), network watcher, Keystore | Apache-2.0 |
 
-Supported links: `tigersb://`, `https://` (subscription), `vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://` (`hy2://`), `tuic://`.
+Code layout: `pkg/profile` is the profile and key format (the panel uses it too), `internal/` is the core (subscriptions, Xray config builder, smart routing, TUIC, meters, network auto-tuning), `mobile/` is the gomobile API for Android, `app/` is the Flutter and Kotlin app, `cmd/tigersb-core` is the CLI.
 
-## Install on Android
+## How it works
 
-Download `TigerSB-android.apk` from [Releases](https://github.com/Stilltiger45/TigerSB-client/releases), open it on the phone and allow the install. Android 7 or newer is required. For old 32-bit phones use `TigerSB-android-old-phones.apk`.
+- **One core everywhere.** Xray-core runs inside the app process, with no separate programs. On Android traffic arrives through the system VPN (TUN on gVisor), and no local ports are open.
+- **Smart routing.** Every new site is tried through every server in the subscription and the fastest clean answer wins; a refusal (403/451) means try direct. If no server helps, the site is tried through DPI evasion (fragmentation and noise instead of zapret, with the preset tuned on every connect, network change and channel failure), and only then goes direct. Xray protocols over TCP come first; Hysteria 2 and TUIC are used when TCP fails, and always send noise before QUIC. Details: [docs/profile.md](docs/profile.md#режим-auto-проверка-каждого-сайта) (in Russian).
+- **List mode** (`main`, in the CLI) splits traffic three ways from the TigerSB profile: blocked sites go through the exit abroad, everything else through the exit in Russia (the ISP sees nothing, sites see a Russian IP), and banks, government services and universities go direct.
+- **Stability.** In Basic and All the protocol is chosen from smoothed measurements without flapping between servers. The channel is checked with two GETs to t.me and YouTube over one connection; two failures in a row reopen the connections to the servers and four restart the core. A network change does not rebuild the tunnel, and with no internet at all the client waits instead of restarting. The MTU (1480, 1460 or 1280) follows how large a packet reaches the server without fragmenting; on mobile data TCP segments are clamped to that path and the operator's NAT is kept open.
 
-A Windows app on the same core is the next stage.
+## Security
 
-How to publish a new version: [docs/releases.md](docs/releases.md) (in Russian).
-
-## How routing works
-
-Smart routing works with any subscription, your own or someone else's. For example, a Russian site that blocks foreign IPs automatically goes through a server in Russia or a cascade. Details are in [docs/profile.md](docs/profile.md#режим-auto-проверка-каждого-сайта) (in Russian).
-
-The core also has a list-based mode driven by the TigerSB profile (`main`, in the CLI) that splits traffic three ways:
-
-- **Blocked sites** go through the VPN with an exit abroad.
-- **Everything else** goes through the VPN with an exit in Russia: the ISP and public Wi-Fi see nothing, and sites see a Russian IP.
-- **Banks, government services and university sites** open directly, because many of them break with any VPN.
+- **Signed profile.** The TigerSB profile is signed with Ed25519, and the panel's public key is pinned in the `tigersb://` key (`pk`). A profile with any other signature is rejected, so nobody on the way can swap the servers. For an `https://` link without `pk`, the key of the first profile received is pinned. Subscriptions are fetched over HTTPS only.
+- **Certificate pinning.** For servers with a self-signed certificate (`insecure=1` in the link) the client remembers the certificate's SHA-256 at import and accepts only that one afterwards, instead of the unsafe `allowInsecure`.
+- **Key storage.** The state file with the subscription key is encrypted with AES-256-GCM, and the encryption key is kept in Android Keystore. App backups are off (`allowBackup=false`).
+- **Screen protection.** `FLAG_SECURE` blocks screenshots and screen recording, taps through other windows are ignored, and other apps' overlays are hidden.
+- **App isolation.** MAX, VK, Yandex, banking and government apps are excluded from the tunnel by the system (`addDisallowedApplication`) and cannot see the server address. The panel cannot turn this list off.
+- **Updates.** The app takes `version.json` and the APK only from this repository's GitHub release and hands the APK to the system installer. Android installs an update only when it is signed with the same key as the installed version.
+- **Device limit.** When fetching a subscription the client sends `x-hwid` and device details, as Remnawave and similar panels expect, so the server can count devices.
 
 ## Command-line tool
 
@@ -89,7 +108,8 @@ go build -o tigersb-core ./cmd/tigersb-core
 ./tigersb-core run                                     # SOCKS5 127.0.0.1:10808, HTTP 127.0.0.1:10809
 ```
 
-Then point the browser or the system at the proxy `127.0.0.1:10808` (SOCKS5) or `127.0.0.1:10809` (HTTP).
+<details>
+<summary><b>All commands and modes</b></summary>
 
 | Command | What it does |
 |---|---|
@@ -108,11 +128,9 @@ If the profile uses `geosite:` or `geoip:`, `run` downloads `geosite.dat` and `g
 
 State (the key and the last profile) lives in `%AppData%\TigerSB` on Windows and `~/.config/TigerSB` on Linux, readable only by the user.
 
-## Profile and key format
+</details>
 
-Described in [docs/profile.md](docs/profile.md) (in Russian). Profiles are signed with Ed25519, and the client accepts only a signature from the pinned key.
-
-## Development
+## Build and test
 
 ```bash
 go test ./...
@@ -128,10 +146,12 @@ scripts/build-core-android.sh        # needs the Android SDK and NDK
 cd app && flutter build apk --split-per-abi
 ```
 
-Usually you don't need to: GitHub Actions builds the APK for every pull request (Actions tab, artifact `TigerSB-android`) and publishes the release from a tag.
+Usually you don't need to: GitHub Actions builds the APK for every pull request (Actions tab, artifact `TigerSB-android`) and publishes the release from a tag. Publishing a version and setting the APK signing key: [docs/releases.md](docs/releases.md). Profile and key format: [docs/profile.md](docs/profile.md) (both in Russian).
 
-## License
+## Licenses
 
-GPL-3.0, see [LICENSE](LICENSE). The TUIC client comes from sing-box (the sing-quic library), which is GPL-3.0, so the whole client is released under that license.
+The client is **GPL-3.0**, see [LICENSE](LICENSE). The reason: the TUIC client comes from sing-box (the sing-quic and sing libraries, GPL-3.0), so the whole client is released under that license.
 
-Third-party Go libraries and their licenses are listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), and the full texts are in the app under «О приложении» (About) → «Лицензии компонентов» (Component licenses). The server side, [TigerSB-panel](https://github.com/Stilltiger45/TigerSB-panel), is GPL-3.0 too.
+- **Other dependencies** are MPL-2.0 (Xray-core), Apache-2.0, BSD, MIT and LGPL, all compatible with GPL-3.0. `scripts/check-licenses.sh` checks them on every pull request.
+- **The full list** with versions is in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md), and the full texts are in the app under «О приложении» (About) → «Лицензии компонентов» (Component licenses).
+- The server side, [TigerSB-panel](https://github.com/Stilltiger45/TigerSB-panel), is GPL-3.0 too.
