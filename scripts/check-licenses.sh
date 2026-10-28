@@ -12,7 +12,8 @@ kind() {
 	local f=$1
 	# В тексте MPL-2.0 упоминается AGPL как «вторичная лицензия», поэтому MPL проверяется первым.
 	if grep -qiE 'Mozilla Public License' "$f"; then echo MPL-2.0; return; fi
-	if grep -qiE 'GNU AFFERO|SERVER SIDE PUBLIC LICENSE|Business Source License|Commons Clause' "$f"; then echo BAD; return; fi
+	# Текст GPL-3.0 сам упоминает AGPL (раздел 13), поэтому AGPL узнаётся по заголовку.
+	if head -n 5 "$f" | grep -qi 'GNU AFFERO' || grep -qiE 'SERVER SIDE PUBLIC LICENSE|Business Source License|Commons Clause' "$f"; then echo BAD; return; fi
 	if grep -qiE 'GNU General Public License' "$f"; then echo GPL-3.0; return; fi
 	if grep -qiE 'GNU Lesser General Public' "$f"; then echo LGPL; return; fi
 	if grep -qiE 'Apache License' "$f"; then echo Apache-2.0; return; fi

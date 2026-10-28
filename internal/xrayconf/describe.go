@@ -32,6 +32,10 @@ func Describe(xray json.RawMessage) string {
 		return "Hysteria"
 	case "tuic":
 		return "TUIC"
+	case "mieru":
+		return "Mieru"
+	case "naive":
+		return "NaïveProxy"
 	}
 	parts := []string{protocolNames.name(ob.Protocol)}
 	switch ob.Stream.Security {

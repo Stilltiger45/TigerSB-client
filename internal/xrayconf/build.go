@@ -365,8 +365,8 @@ func addTransports(p *profile.Profile, role profile.Role, outbounds *[]any) ([]s
 			return nil, fmt.Errorf("транспорт %s: %w", it.tag, err)
 		}
 		tags = append(tags, it.tag)
-		if isTUIC(it.xray) {
-			continue // added to Xray by package tuic, see TUIC
+		if carried(it.xray) {
+			continue // added to Xray by its own package, see Carried
 		}
 		if OverUDP(it.xray) {
 			if err := withQUICNoise(ob); err != nil {
@@ -386,14 +386,19 @@ type Outbound struct {
 	Xray json.RawMessage
 }
 
-// TUIC lists the profile's TUIC transports. Xray has no TUIC, so Build leaves
-// them out of the config but uses their tags in pick outbounds and rules like any
-// other; the caller adds an outbound handler for each before starting Xray.
-func TUIC(p *profile.Profile) []Outbound {
+// carriers are the protocols Xray does not have. Each is carried by a
+// package of this client: tuic, mieru, naive.
+var carriers = map[string]bool{"tuic": true, "mieru": true, "naive": true}
+
+// Carried lists the profile's transports of a protocol Xray does not have
+// (tuic, mieru or naive). Build leaves them out of the config but uses their
+// tags in pick outbounds and rules like any other; the caller adds an
+// outbound handler for each before starting Xray.
+func Carried(p *profile.Profile, protocol string) []Outbound {
 	var out []Outbound
 	for _, role := range []profile.Role{profile.RoleForeign, profile.RoleRU} {
 		for _, it := range transports(p, role) {
-			if isTUIC(it.xray) {
+			if protocolOf(it.xray) == protocol {
 				out = append(out, Outbound{Tag: it.tag, Xray: it.xray})
 			}
 		}
@@ -401,11 +406,14 @@ func TUIC(p *profile.Profile) []Outbound {
 	return out
 }
 
-func isTUIC(xray json.RawMessage) bool {
+func carried(xray json.RawMessage) bool { return carriers[protocolOf(xray)] }
+
+func protocolOf(xray json.RawMessage) string {
 	var ob struct {
 		Protocol string `json:"protocol"`
 	}
-	return json.Unmarshal(xray, &ob) == nil && ob.Protocol == "tuic"
+	json.Unmarshal(xray, &ob)
+	return ob.Protocol
 }
 
 func directLists(p *profile.Profile) (domains, ips []string) {

@@ -226,3 +226,132 @@ func TestTUICLinks(t *testing.T) {
 		t.Fatalf("profile %v, %v", p, err)
 	}
 }
+
+func TestMieruLinks(t *testing.T) {
+	type ob struct {
+		Protocol string `json:"protocol"`
+		Settings struct {
+			Address  string `json:"address"`
+			Username string `json:"username"`
+			Password string `json:"password"`
+			Profile  string `json:"profile"`
+			Ports    []struct {
+				Port     string `json:"port"`
+				Protocol string `json:"protocol"`
+			} `json:"ports"`
+			MTU           int    `json:"mtu"`
+			Multiplexing  string `json:"multiplexing"`
+			HandshakeMode string `json:"handshakeMode"`
+			Config        string `json:"config"`
+		} `json:"settings"`
+	}
+	// As "mieru export config simple" writes it.
+	raw, name, err := ParseLink("mierus://baozi:manlianpenfen@1.2.3.4?handshake-mode=HANDSHAKE_NO_WAIT&mtu=1400&multiplexing=MULTIPLEXING_HIGH&port=6666&port=9998-9999&port=6489&protocol=TCP&protocol=TCP&protocol=udp&profile=default")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var o ob
+	if err := json.Unmarshal(raw, &o); err != nil {
+		t.Fatal(err)
+	}
+	s := o.Settings
+	if o.Protocol != "mieru" || s.Address != "1.2.3.4" || s.Username != "baozi" || s.Password != "manlianpenfen" || s.Profile != "default" ||
+		s.MTU != 1400 || s.Multiplexing != "MULTIPLEXING_HIGH" || s.HandshakeMode != "HANDSHAKE_NO_WAIT" || name != "default" {
+		t.Errorf("settings %+v, name %q", s, name)
+	}
+	if len(s.Ports) != 3 || s.Ports[1].Port != "9998-9999" || s.Ports[1].Protocol != "TCP" || s.Ports[2].Protocol != "UDP" {
+		t.Errorf("ports %+v", s.Ports)
+	}
+
+	full := "mieru://" + base64.StdEncoding.EncodeToString([]byte{0x0a, 0x07}) + "#%D0%9C%D0%B8%D1%80"
+	raw, name, err = ParseLink(full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	o = ob{}
+	json.Unmarshal(raw, &o)
+	if o.Protocol != "mieru" || o.Settings.Config != "Cgc=" || name != "Мир" {
+		t.Errorf("mieru:// %s, name %q", raw, name)
+	}
+
+	for _, bad := range []string{
+		"mierus://baozi@1.2.3.4?port=1&protocol=TCP",
+		"mierus://baozi:pw@1.2.3.4?port=1",
+		"mierus://baozi:pw@1.2.3.4?port=1&protocol=QUIC",
+		"mierus://baozi:pw@1.2.3.4?port=70000&protocol=TCP",
+		"mierus://baozi:pw@1.2.3.4?port=9-1&protocol=TCP",
+		"mierus://baozi:pw@1.2.3.4?port=1&protocol=TCP&mtu=9000",
+		"mieru://not base64!",
+		"mieru://",
+	} {
+		if _, _, err := ParseLink(bad); err == nil {
+			t.Errorf("%s accepted", bad)
+		}
+	}
+}
+
+func TestNaiveLinks(t *testing.T) {
+	type ob struct {
+		Protocol string `json:"protocol"`
+		Settings struct {
+			Address  string            `json:"address"`
+			Port     int               `json:"port"`
+			Username string            `json:"username"`
+			Password string            `json:"password"`
+			Padding  bool              `json:"padding"`
+			Headers  map[string]string `json:"headers"`
+		} `json:"settings"`
+		Stream struct {
+			Network  string `json:"network"`
+			Security string `json:"security"`
+			TLS      struct {
+				ServerName    string   `json:"serverName"`
+				Fingerprint   string   `json:"fingerprint"`
+				ALPN          []string `json:"alpn"`
+				AllowInsecure bool     `json:"allowInsecure"`
+				Pin           string   `json:"pinnedPeerCertSha256"`
+			} `json:"tlsSettings"`
+		} `json:"streamSettings"`
+	}
+	raw, name, err := ParseLink("naive+https://user:p%40ss@1.2.3.4:8443?sni=naive.example.org&extra-headers=X-A%3A%201%0D%0AX-B%3A2&insecure=1#%D0%9D%D0%B0%D0%B8%D0%B2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var o ob
+	if err := json.Unmarshal(raw, &o); err != nil {
+		t.Fatal(err)
+	}
+	s := o.Settings
+	if o.Protocol != "naive" || s.Address != "1.2.3.4" || s.Port != 8443 || s.Username != "user" || s.Password != "p@ss" || !s.Padding ||
+		s.Headers["X-A"] != "1" || s.Headers["X-B"] != "2" || name != "Наив" {
+		t.Errorf("settings %+v, name %q", s, name)
+	}
+	tls := o.Stream.TLS
+	if o.Stream.Network != "raw" || o.Stream.Security != "tls" || tls.ServerName != "naive.example.org" || tls.Fingerprint != "chrome" ||
+		strings.Join(tls.ALPN, ",") != "h2" || !tls.AllowInsecure {
+		t.Errorf("stream %+v", o.Stream)
+	}
+
+	// Defaults, and padding turned off.
+	raw, _, err = ParseLink("naive+https://user:pw@naive.example.org?padding=false&pinSHA256=" + strings.Repeat("AB", 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	o = ob{}
+	json.Unmarshal(raw, &o)
+	if o.Settings.Port != 443 || o.Settings.Padding || o.Stream.TLS.ServerName != "naive.example.org" ||
+		o.Stream.TLS.Pin != strings.Repeat("ab", 32) || o.Stream.TLS.AllowInsecure {
+		t.Errorf("defaults %+v", o)
+	}
+
+	for _, bad := range []string{"naive+https://user:pw@:443", "naive+https://user:pw@1.2.3.4:99999", "naive+quic://user:pw@1.2.3.4:443"} {
+		if _, _, err := ParseLink(bad); err == nil {
+			t.Errorf("%s accepted", bad)
+		}
+	}
+
+	p, err := FromVLESS("naive+https://user:pw@1.2.3.4")
+	if err != nil || p.ID != "naive-https" {
+		t.Fatalf("profile %v, %v", p, err)
+	}
+}

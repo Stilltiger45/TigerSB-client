@@ -138,11 +138,17 @@ func withQUICNoise(ob map[string]json.RawMessage) error {
 }
 
 // OverUDP reports whether the transport runs over UDP: Hysteria 2 and TUIC
-// (QUIC), mKCP. DPI cuts these more readily than Xray's TCP transports.
+// (QUIC), mKCP, mieru whose first port is UDP. DPI cuts these more readily
+// than Xray's TCP transports.
 func OverUDP(xray json.RawMessage) bool {
 	var ob struct {
 		Protocol string `json:"protocol"`
-		Stream   struct {
+		Settings struct {
+			Ports []struct {
+				Protocol string `json:"protocol"`
+			} `json:"ports"`
+		} `json:"settings"`
+		Stream struct {
 			Network string `json:"network"`
 		} `json:"streamSettings"`
 	}
@@ -152,6 +158,8 @@ func OverUDP(xray json.RawMessage) bool {
 	switch ob.Protocol {
 	case "hysteria", "hysteria2", "tuic":
 		return true
+	case "mieru":
+		return len(ob.Settings.Ports) > 0 && ob.Settings.Ports[0].Protocol == "UDP"
 	}
 	switch ob.Stream.Network {
 	case "hysteria", "kcp", "mkcp":
@@ -197,7 +205,8 @@ func variantable(xray json.RawMessage) bool {
 			} `json:"sockopt"`
 		} `json:"streamSettings"`
 	}
-	return !OverUDP(xray) && json.Unmarshal(xray, &ob) == nil && ob.Stream.Sockopt.DialerProxy == ""
+	// The carried protocols are added by their own packages, which take no presets.
+	return !OverUDP(xray) && !carried(xray) && json.Unmarshal(xray, &ob) == nil && ob.Stream.Sockopt.DialerProxy == ""
 }
 
 // evasionOutbounds returns the preset outbounds and, for each preset, a copy

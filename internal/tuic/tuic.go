@@ -27,20 +27,12 @@ import (
 	M "github.com/sagernet/sing/common/metadata"
 	N "github.com/sagernet/sing/common/network"
 	aTLS "github.com/sagernet/sing/common/tls"
-	"github.com/xtls/xray-core/common"
-	"github.com/xtls/xray-core/common/buf"
-	"github.com/xtls/xray-core/common/errors"
 	"github.com/xtls/xray-core/common/net"
 	"github.com/xtls/xray-core/common/serial"
-	"github.com/xtls/xray-core/common/session"
-	"github.com/xtls/xray-core/common/signal"
-	"github.com/xtls/xray-core/common/task"
 	"github.com/xtls/xray-core/core"
-	"github.com/xtls/xray-core/features/outbound"
-	"github.com/xtls/xray-core/features/policy"
-	"github.com/xtls/xray-core/features/stats"
 	"github.com/xtls/xray-core/transport"
 
+	"github.com/Stilltiger45/TigerSB-client/internal/carry"
 	"github.com/Stilltiger45/TigerSB-client/internal/engine"
 	"github.com/Stilltiger45/TigerSB-client/internal/xrayconf"
 	"github.com/Stilltiger45/TigerSB-client/pkg/profile"
@@ -51,7 +43,7 @@ import (
 // the server before each QUIC connection.
 func Hooks(p *profile.Profile, noise []xrayconf.NoisePacket) []func(*core.Instance) error {
 	var hooks []func(*core.Instance) error
-	for _, ob := range xrayconf.TUIC(p) {
+	for _, ob := range xrayconf.Carried(p, "tuic") {
 		hooks = append(hooks, func(inst *core.Instance) error { return Attach(inst, ob.Tag, ob.Xray, noise) })
 	}
 	return hooks
@@ -136,34 +128,21 @@ func Attach(inst *core.Instance, tag string, xray json.RawMessage, noise []xrayc
 		cancel()
 		return fmt.Errorf("транспорт %s: %w", tag, err)
 	}
-	ohm, _ := inst.GetFeature(outbound.ManagerType()).(outbound.Manager)
-	pm, _ := inst.GetFeature(policy.ManagerType()).(policy.Manager)
-	if ohm == nil || pm == nil {
+	base, err := carry.NewBase(inst, tag)
+	if err != nil {
 		cancel()
-		return stderrors.New("в ядре Xray нет менеджера исходящих или политик")
+		return err
 	}
-	h := &Handler{tag: tag, client: client, cancel: cancel, policy: pm.ForLevel(0)}
-	if sm, _ := inst.GetFeature(stats.ManagerType()).(stats.Manager); sm != nil {
-		if pm.ForSystem().Stats.OutboundUplink {
-			h.up, _ = stats.GetOrRegisterCounter(sm, "outbound>>>"+tag+">>>traffic>>>uplink")
-		}
-		if pm.ForSystem().Stats.OutboundDownlink {
-			h.down, _ = stats.GetOrRegisterCounter(sm, "outbound>>>"+tag+">>>traffic>>>downlink")
-		}
-	}
-	return ohm.AddHandler(context.Background(), h)
+	return carry.Add(inst, &Handler{Base: base, client: client, cancel: cancel})
 }
 
 // Handler is a TUIC outbound. It implements Xray's outbound.Handler.
 type Handler struct {
-	tag      string
-	client   *tuic.Client
-	cancel   context.CancelFunc
-	policy   policy.Session
-	up, down stats.Counter
+	*carry.Base
+	client *tuic.Client
+	cancel context.CancelFunc
 }
 
-func (h *Handler) Tag() string                          { return h.tag }
 func (h *Handler) Start() error                         { return nil }
 func (h *Handler) SenderSettings() *serial.TypedMessage { return nil }
 func (h *Handler) ProxySettings() *serial.TypedMessage  { return nil }
@@ -175,25 +154,7 @@ func (h *Handler) Close() error {
 
 // Dispatch carries one connection through the TUIC server.
 func (h *Handler) Dispatch(ctx context.Context, link *transport.Link) {
-	obs := session.OutboundsFromContext(ctx)
-	ob := obs[len(obs)-1]
-	ob.Name = "tuic"
-	var err error
-	switch {
-	case !ob.Target.IsValid():
-		err = stderrors.New("target not specified")
-	case ob.Target.Network == net.Network_UDP:
-		err = h.packets(ctx, link, ob.Target)
-	default:
-		err = h.stream(ctx, link, ob.Target)
-	}
-	if err != nil {
-		errors.LogInfoInner(ctx, err, "tuic: ", h.tag, " -> ", ob.Target)
-		common.Interrupt(link.Writer)
-	} else {
-		common.Close(link.Writer)
-	}
-	common.Interrupt(link.Reader)
+	h.Base.Dispatch(ctx, link, "tuic", h.stream, h.packets)
 }
 
 func (h *Handler) stream(ctx context.Context, link *transport.Link, target net.Destination) error {
@@ -209,20 +170,8 @@ func (h *Handler) stream(ctx context.Context, link *transport.Link, target net.D
 	if _, err := conn.Write(nil); err != nil {
 		return err
 	}
-	timer := signal.CancelAfterInactivity(ctx, cancel, h.policy.Timeouts.ConnectionIdle)
-	request := func() error {
-		defer timer.SetTimeout(h.policy.Timeouts.DownlinkOnly)
-		return buf.Copy(link.Reader, counted(buf.NewWriter(conn), h.up), buf.UpdateActivity(timer))
-	}
-	response := func() error {
-		defer timer.SetTimeout(h.policy.Timeouts.UplinkOnly)
-		return buf.Copy(buf.NewReader(conn), counted(link.Writer, h.down), buf.UpdateActivity(timer))
-	}
-	return task.Run(ctx, request, response)
+	return h.Stream(ctx, cancel, link, conn)
 }
-
-// maxPacket is the largest UDP payload.
-const maxPacket = 65535
 
 func (h *Handler) packets(ctx context.Context, link *transport.Link, target net.Destination) error {
 	ctx, cancel := context.WithCancel(ctx)
@@ -232,61 +181,8 @@ func (h *Handler) packets(ctx context.Context, link *transport.Link, target net.
 		return err
 	}
 	defer pc.Close()
-	timer := signal.CancelAfterInactivity(ctx, cancel, h.policy.Timeouts.ConnectionIdle)
-	go func() {
-		<-ctx.Done()
-		pc.Close()
-	}()
-	request := func() error {
-		defer timer.SetTimeout(h.policy.Timeouts.DownlinkOnly)
-		for {
-			mb, err := link.Reader.ReadMultiBuffer()
-			if err != nil {
-				return err
-			}
-			timer.Update()
-			for _, b := range mb {
-				dst := target
-				if b.UDP != nil {
-					dst = *b.UDP
-				}
-				if _, err := pc.WriteTo(b.Bytes(), socksaddr(dst)); err != nil {
-					buf.ReleaseMulti(mb)
-					return err
-				}
-				if h.up != nil {
-					h.up.Add(int64(b.Len()))
-				}
-			}
-			buf.ReleaseMulti(mb)
-		}
-	}
-	response := func() error {
-		defer timer.SetTimeout(h.policy.Timeouts.UplinkOnly)
-		scratch := make([]byte, maxPacket)
-		for {
-			n, addr, err := pc.ReadFrom(scratch)
-			if err != nil {
-				return err
-			}
-			timer.Update()
-			b := buf.New()
-			if n > int(b.Cap()) {
-				b.Release()
-				b = buf.NewWithSize(int32(n))
-			}
-			b.Write(scratch[:n])
-			from := destination(addr)
-			b.UDP = &from
-			if h.down != nil {
-				h.down.Add(int64(n))
-			}
-			if err := link.Writer.WriteMultiBuffer(buf.MultiBuffer{b}); err != nil {
-				return err
-			}
-		}
-	}
-	return task.Run(ctx, request, response)
+	to := func(d net.Destination) gonet.Addr { return socksaddr(d) }
+	return h.Packets(ctx, cancel, link, pc, target, to, destination)
 }
 
 // socksaddr turns an Xray destination into sing's form.
@@ -306,24 +202,6 @@ func destination(a gonet.Addr) net.Destination {
 		return net.UDPDestination(net.DomainAddress(s.Fqdn), net.Port(s.Port))
 	}
 	return net.UDPDestination(net.IPAddress(s.Addr.AsSlice()), net.Port(s.Port))
-}
-
-// counted adds the size of what passes through w to c, when there is one.
-func counted(w buf.Writer, c stats.Counter) buf.Writer {
-	if c == nil {
-		return w
-	}
-	return &countWriter{w, c}
-}
-
-type countWriter struct {
-	buf.Writer
-	c stats.Counter
-}
-
-func (w *countWriter) WriteMultiBuffer(mb buf.MultiBuffer) error {
-	w.c.Add(int64(mb.Len()))
-	return w.Writer.WriteMultiBuffer(mb)
 }
 
 // stdConfig hands a standard TLS config to sing-quic, which only takes it

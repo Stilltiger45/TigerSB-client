@@ -127,6 +127,7 @@ class _AboutScreenState extends State<AboutScreen> {
                   children: [
                     _Part('Xray-core', _about.xray.isEmpty ? 'MPL 2.0' : '${_about.xray} · MPL 2.0'),
                     const _Part('sing-quic (TUIC)', 'GPL 3.0'),
+                    const _Part('mieru', 'GPL 3.0'),
                     const _Part('gVisor', 'Apache 2.0'),
                     _Part('Go', _about.go.isEmpty ? 'BSD' : '${_about.go.replaceFirst('go', '')} · BSD'),
                     const _Part('Flutter', 'BSD'),

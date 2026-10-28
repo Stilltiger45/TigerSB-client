@@ -118,6 +118,8 @@ var allowedProtocols = map[string]bool{
 	"shadowsocks": true,
 	"hysteria":    true,
 	"tuic":        true, // carried by package tuic, not by Xray
+	"mieru":       true, // carried by package mieru
+	"naive":       true, // carried by package naive
 }
 
 // allowedXrayKeys are the outbound fields a transport may set. The client

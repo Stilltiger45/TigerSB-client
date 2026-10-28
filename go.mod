@@ -4,10 +4,12 @@ go 1.26.0
 
 require (
 	github.com/apernet/quic-go v0.59.1-0.20260217092621-db4786c77a22
+	github.com/enfein/mieru/v3 v3.39.0
 	github.com/gofrs/uuid/v5 v5.5.1
 	github.com/sagernet/sing v0.9.0-beta.4
 	github.com/sagernet/sing-quic v0.7.1
 	github.com/xtls/xray-core v1.260327.0
+	golang.org/x/net v0.61.0
 	golang.org/x/sys v0.49.0
 	google.golang.org/protobuf v1.36.11
 )
@@ -16,7 +18,7 @@ require (
 	github.com/andybalholm/brotli v1.0.6 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
 	github.com/ghodss/yaml v1.0.1-0.20220118164431-d8423dcdf344 // indirect
-	github.com/google/btree v1.1.2 // indirect
+	github.com/google/btree v1.1.3 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/juju/ratelimit v1.0.2 // indirect
 	github.com/klauspost/compress v1.17.9 // indirect
@@ -37,7 +39,6 @@ require (
 	golang.org/x/exp v0.0.0-20250911091902-df9299821621 // indirect
 	golang.org/x/mobile v0.0.0-20261011034528-197770444867 // indirect
 	golang.org/x/mod v0.42.0 // indirect
-	golang.org/x/net v0.61.0 // indirect
 	golang.org/x/sync v0.24.0 // indirect
 	golang.org/x/text v0.43.0 // indirect
 	golang.org/x/time v0.12.0 // indirect
