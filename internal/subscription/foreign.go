@@ -22,8 +22,9 @@ func isEnvelope(body []byte) bool {
 }
 
 // parseForeign reads another VPN's subscription: a list of share links, plain
-// or in base64 (Marzban, 3x-ui, Remnawave and most others), or a JSON array of
-// Xray configs (what Remnawave and others send to Xray-based clients). Every
+// or in base64 (Marzban, 3x-ui, Remnawave and most others), a JSON array of
+// Xray configs (what Remnawave and others send to Xray-based clients), a
+// sing-box JSON config or a Clash (Mihomo) YAML config. Every
 // server becomes a transport of one foreign exit, so the client measures them
 // and uses the fastest.
 func parseForeign(subURL string, body []byte, hdr http.Header) (*profile.Profile, error) {
@@ -34,14 +35,7 @@ func parseForeign(subURL string, body []byte, hdr http.Header) (*profile.Profile
 		}
 	}
 
-	var p *profile.Profile
-	var err error
-	trimmed := bytes.TrimSpace(body)
-	if len(trimmed) > 0 && (trimmed[0] == '[' || trimmed[0] == '{') {
-		p, err = fromXrayJSON(name, trimmed)
-	} else {
-		p, _, err = profile.FromLinks(name, shareLinks(trimmed))
-	}
+	p, err := fromBody(name, bytes.TrimSpace(body))
 	if err != nil {
 		return nil, err
 	}
@@ -51,6 +45,28 @@ func parseForeign(subURL string, body []byte, hdr http.Header) (*profile.Profile
 		p.Update.Every = strconv.Itoa(h) + "h"
 	}
 	return p, p.Validate()
+}
+
+// fromBody reads the servers of a subscription in any of the formats.
+func fromBody(name string, body []byte) (*profile.Profile, error) {
+	if links, ok, err := singBoxLinks(body); ok {
+		return fromLinks(name, links, err)
+	}
+	if len(body) > 0 && (body[0] == '[' || body[0] == '{') {
+		return fromXrayJSON(name, body)
+	}
+	if links, ok, err := clashLinks(body); ok {
+		return fromLinks(name, links, err)
+	}
+	return fromLinks(name, shareLinks(body), nil)
+}
+
+func fromLinks(name string, links []string, err error) (*profile.Profile, error) {
+	if err != nil {
+		return nil, err
+	}
+	p, _, err := profile.FromLinks(name, links)
+	return p, err
 }
 
 // shareLinks returns the links of a plain or base64 list.
