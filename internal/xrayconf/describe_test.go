@@ -18,6 +18,7 @@ func TestDescribe(t *testing.T) {
 		`{"protocol":"tuic","streamSettings":{"network":"tuic"}}`:                  "TUIC",
 		`{"protocol":"mieru","settings":{"config":"Cgc="}}`:                        "Mieru",
 		`{"protocol":"naive","streamSettings":{"network":"raw","security":"tls"}}`: "NaïveProxy",
+		`{"protocol":"naive","settings":{"quic":true}}`:                            "NaïveProxy · QUIC",
 		`{"protocol":"vmess","streamSettings":{"network":"ws"}}`:                   "VMess · WebSocket",
 		`not json`: "",
 	} {
@@ -52,5 +53,33 @@ func TestServerHost(t *testing.T) {
 		Xray: json.RawMessage(`{"protocol":"hysteria","settings":{"version":2,"address":"hy.example","port":443}}`)}}}}}
 	if got := xrayconf.ServerHost(hy); got != "hy.example" {
 		t.Errorf("hysteria host %q", got)
+	}
+}
+
+func TestWithoutProtocols(t *testing.T) {
+	tr := func(id, xray string) profile.Transport { return profile.Transport{ID: id, Xray: json.RawMessage(xray)} }
+	hy := `{"protocol":"hysteria","settings":{"version":2,"address":"hy.example","port":443}}`
+	grpc := `{"protocol":"vless","settings":{"vnext":[{"address":"a.example","port":443,"users":[{"id":"5783a3e7-e373-51cd-8642-c83782b807c5"}]}]},"streamSettings":{"network":"grpc","security":"reality"}}`
+	tuic := `{"protocol":"tuic","streamSettings":{"network":"tuic"}}`
+	p := &profile.Profile{Exits: []profile.Exit{
+		{ID: "nl", Role: profile.RoleForeign, Transports: []profile.Transport{tr("g", grpc), tr("h", hy)}},
+		{ID: "msk", Role: profile.RoleRU, Transports: []profile.Transport{tr("t", tuic), tr("h", hy)}},
+	}}
+	if got := xrayconf.ProtocolNames(p); len(got) != 3 || got[0] != "VLESS · Reality · gRPC" || got[1] != "Hysteria 2" || got[2] != "TUIC" {
+		t.Errorf("names %q", got)
+	}
+
+	q, ok := xrayconf.WithoutProtocols(p, []string{"Hysteria 2", "TUIC"})
+	if !ok || len(q.Exits) != 1 || q.Exits[0].ID != "nl" || len(q.Exits[0].Transports) != 1 || q.Exits[0].Transports[0].ID != "g" {
+		t.Errorf("without Hysteria 2 and TUIC: %+v", q.Exits)
+	}
+	if len(p.Exits) != 2 || len(p.Exits[0].Transports) != 2 || len(p.Exits[1].Transports) != 2 {
+		t.Errorf("the original profile changed: %+v", p.Exits)
+	}
+	if q, ok := xrayconf.WithoutProtocols(p, xrayconf.ProtocolNames(p)); ok || q != p {
+		t.Error("everything turned off should leave the profile as it was")
+	}
+	if q, ok := xrayconf.WithoutProtocols(p, nil); !ok || q != p {
+		t.Error("nothing turned off should leave the profile as it was")
 	}
 }

@@ -101,10 +101,10 @@ func singBoxNode(o obj) (node, error) {
 		}
 		tls.put(n.scheme, n.q)
 	case "naive":
-		if o.flag("quic") {
-			return node{}, fmt.Errorf("NaïveProxy поверх QUIC не поддерживается")
-		}
 		n.scheme, n.user, n.pass = "naive+https", o.str("username"), o.str("password")
+		if o.flag("quic") {
+			n.scheme = "naive+quic"
+		}
 		var headers []string
 		for k := range o.obj("extra_headers") {
 			headers = append(headers, k+": "+o.obj("extra_headers").header(k))

@@ -47,7 +47,7 @@
 3. **Add a key** in any of these ways:
    - open a `tigersb://…` link from Telegram, email or the panel, and the app opens with the key already filled in;
    - scan a QR code;
-   - paste the key by hand: `tigersb://`, an `https://` subscription link, or `vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://`, `tuic://`, `mierus://`, `mieru://`, `naive+https://` links.
+   - paste the key by hand: `tigersb://`, an `https://` subscription link, or `vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://`, `tuic://`, `mierus://`, `mieru://`, `naive+https://`, `naive+quic://` links.
 4. **Press the connect button.** That's it.
 
 The key comes from whoever runs the server: in [TigerSB-panel](https://github.com/Stilltiger45/TigerSB-panel) it is on the Users tab. The app updates itself: menu on the right → «Проверить обновление» (Check for update).
@@ -63,6 +63,7 @@ A Windows app on the same core is the next stage.
 ## What else it does
 
 - **Apps outside the VPN.** MAX, VK, Yandex, banking, government, marketplace and mobile operator apps always bypass the VPN, so they cannot see the tunnel or the server address. You can add your own apps to the list.
+- **Protocols your way.** The «Протоколы» menu turns off the protocols that work poorly on your networks; the VPN goes through the others.
 - **Stable connection.** A dead server is replaced within seconds, and the VPN stays on when the phone switches between Wi-Fi and mobile data.
 - **Several profiles.** The profile name at the top opens a list: switch with one tap; each has Refresh, Link and Delete.
 - **Extras.** Speed, traffic and ping on the home screen, a quick settings tile, the protocol in the notification, automatic profile and block-list updates, "Send log" in the menu, light and dark themes under About.
@@ -76,7 +77,7 @@ A Windows app on the same core is the next stage.
 | [Xray-core](https://github.com/XTLS/Xray-core) 26.3.27 | VPN core: VLESS (Reality, XHTTP, gRPC), VMess, Trojan, Shadowsocks, Hysteria 2; routing, balancer, latency tests | MPL-2.0 |
 | [sing-quic](https://github.com/SagerNet/sing-quic) from sing-box | TUIC v5, plugged into Xray as a regular outbound | GPL-3.0 |
 | [mieru](https://github.com/enfein/mieru) | Mieru client (TCP and UDP), plugged into Xray as a regular outbound | GPL-3.0 |
-| own code (`internal/naive`) | NaïveProxy client: HTTP/2 CONNECT with padding over TLS with Chrome's fingerprint, plugged into Xray as a regular outbound | GPL-3.0 |
+| own code (`internal/naive`) | NaïveProxy client: CONNECT with padding over HTTP/2 in TLS with Chrome's fingerprint or over HTTP/3 in QUIC, plugged into Xray as a regular outbound | GPL-3.0 |
 | [gVisor](https://gvisor.dev) | network stack for the system VPN (TUN) | Apache-2.0 |
 | [Go](https://go.dev) 1.26 and gomobile | client core, the `tigersb-core` CLI, Android library | BSD-3-Clause |
 | [Flutter](https://flutter.dev) 3.47 and Dart | app interface | BSD-3-Clause |

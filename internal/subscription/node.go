@@ -15,7 +15,7 @@ import (
 // share link it would be. The links go through profile.FromLinks, so these
 // formats get exactly the checks and defaults that links get.
 type node struct {
-	scheme     string // vless, vmess, trojan, ss, hysteria2, tuic, mierus, naive+https
+	scheme     string // vless, vmess, trojan, ss, hysteria2, tuic, mierus, naive+https, naive+quic
 	name       string
 	host       string
 	port       int // 0 for mierus, whose ports are in the query
@@ -87,7 +87,7 @@ func (t tlsQuery) put(scheme string, q url.Values) {
 	if t.insecure {
 		q.Set("insecure", "1")
 	}
-	if scheme == "hysteria2" || scheme == "naive+https" {
+	if scheme == "hysteria2" || scheme == "naive+https" || scheme == "naive+quic" {
 		set(q, "pinSHA256", t.pin)
 		return
 	}

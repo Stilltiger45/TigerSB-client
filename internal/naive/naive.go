@@ -5,10 +5,12 @@
 // NaïveProxy is an HTTP/2 CONNECT proxy (Caddy with klzgrad's forwardproxy,
 // or sing-box) that looks like Chrome: the handler dials TLS through Xray with
 // Chrome's fingerprint, keeps one HTTP/2 connection to the server and opens a
-// CONNECT stream in it for each connection. When the server agrees, the first
-// frames each way carry random padding, as NaïveProxy's own client does, so
-// that the sizes of the first packets do not show the TLS of the site inside.
-// NaïveProxy carries TCP only.
+// CONNECT stream in it for each connection. A naive+quic:// server takes
+// HTTP/3 over QUIC instead, as Chrome does with sites that offer it; that
+// connection first sends QUICNoise, like TUIC. When the server agrees, the
+// first frames each way carry random padding, as NaïveProxy's own client
+// does, so that the sizes of the first packets do not show the TLS of the
+// site inside. NaïveProxy carries TCP only.
 package naive
 
 import (
@@ -43,11 +45,12 @@ import (
 )
 
 // Hooks returns the engine.Start hooks that add the profile's NaïveProxy
-// transports to Xray.
-func Hooks(p *profile.Profile) []func(*core.Instance) error {
+// transports to Xray. noise (xrayconf.QUICNoise, or nil in tests) goes to
+// the server before each QUIC connection.
+func Hooks(p *profile.Profile, noise []xrayconf.NoisePacket) []func(*core.Instance) error {
 	var hooks []func(*core.Instance) error
 	for _, ob := range xrayconf.Carried(p, "naive") {
-		hooks = append(hooks, func(inst *core.Instance) error { return Attach(inst, ob.Tag, ob.Xray) })
+		hooks = append(hooks, func(inst *core.Instance) error { return Attach(inst, ob.Tag, ob.Xray, noise) })
 	}
 	return hooks
 }
@@ -60,14 +63,15 @@ type config struct {
 		Username string            `json:"username"`
 		Password string            `json:"password"`
 		Padding  bool              `json:"padding"`
+		QUIC     bool              `json:"quic"`
 		Headers  map[string]string `json:"headers"`
 	} `json:"settings"`
 	Stream conf.StreamConfig `json:"streamSettings"`
 }
 
 // Attach adds the NaïveProxy outbound to a created, not yet started Xray
-// instance.
-func Attach(inst *core.Instance, tag string, xray json.RawMessage) error {
+// instance; over QUIC, noise goes to the server before each connection.
+func Attach(inst *core.Instance, tag string, xray json.RawMessage, noise []xrayconf.NoisePacket) error {
 	var c config
 	if err := json.Unmarshal(xray, &c); err != nil {
 		return fmt.Errorf("транспорт %s: %w", tag, err)
@@ -82,13 +86,24 @@ func Attach(inst *core.Instance, tag string, xray json.RawMessage) error {
 		// Like Xray, refuse to connect without checking the certificate.
 		return fmt.Errorf("транспорт %s: сертификат сервера не закреплён", tag)
 	}
-	built, err := c.Stream.Build()
-	if err != nil {
-		return fmt.Errorf("транспорт %s: %w", tag, err)
+	h := &Handler{
+		server:  net.TCPDestination(net.ParseAddress(s.Address), net.Port(s.Port)),
+		padding: s.Padding,
 	}
-	stream, err := internet.ToMemoryStreamConfig(built)
-	if err != nil {
-		return fmt.Errorf("транспорт %s: %w", tag, err)
+	if s.QUIC {
+		tlsConf, err := quicTLS(xray, s.Address)
+		if err != nil {
+			return fmt.Errorf("транспорт %s: %w", tag, err)
+		}
+		h.quic = &quicDialer{tls: tlsConf, noise: noise}
+	} else {
+		built, err := c.Stream.Build()
+		if err != nil {
+			return fmt.Errorf("транспорт %s: %w", tag, err)
+		}
+		if h.stream, err = internet.ToMemoryStreamConfig(built); err != nil {
+			return fmt.Errorf("транспорт %s: %w", tag, err)
+		}
 	}
 	header := http.Header{}
 	for k, v := range s.Headers {
@@ -97,47 +112,60 @@ func Attach(inst *core.Instance, tag string, xray json.RawMessage) error {
 	if s.Username != "" || s.Password != "" {
 		header.Set("Proxy-Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(s.Username+":"+s.Password)))
 	}
-	// Go's HTTP/2 client names itself unless told otherwise; NaïveProxy
-	// sends no User-Agent with CONNECT.
+	// Go's HTTP/2 and HTTP/3 clients name themselves unless told otherwise;
+	// NaïveProxy sends no User-Agent with CONNECT.
 	if header.Get("User-Agent") == "" {
 		header["User-Agent"] = []string{""}
 	}
+	h.header = header
 	base, err := carry.NewBase(inst, tag)
 	if err != nil {
 		return err
 	}
-	return carry.Add(inst, &Handler{
-		Base:    base,
-		server:  net.TCPDestination(net.ParseAddress(s.Address), net.Port(s.Port)),
-		stream:  stream,
-		header:  header,
-		padding: s.Padding,
-		h2: &http2.Transport{
-			DisableCompression: true,
-			// Chrome's limits, which it announces in its SETTINGS.
-			MaxDecoderHeaderTableSize: 65536,
-			MaxHeaderListSize:         262144,
-			// A connection the network dropped silently is found by a
-			// ping and replaced, instead of new streams hanging in it.
-			ReadIdleTimeout: 30 * time.Second,
-			PingTimeout:     10 * time.Second,
-			IdleConnTimeout: 5 * time.Minute,
-		},
-	})
+	h.Base = base
+	h.h2 = &http2.Transport{
+		DisableCompression: true,
+		// Chrome's limits, which it announces in its SETTINGS.
+		MaxDecoderHeaderTableSize: 65536,
+		MaxHeaderListSize:         262144,
+		// A connection the network dropped silently is found by a
+		// ping and replaced, instead of new streams hanging in it.
+		ReadIdleTimeout: 30 * time.Second,
+		PingTimeout:     10 * time.Second,
+		IdleConnTimeout: 5 * time.Minute,
+	}
+	return carry.Add(inst, h)
 }
 
 // Handler is a NaïveProxy outbound. It implements Xray's outbound.Handler.
 type Handler struct {
 	*carry.Base
 	server  net.Destination
-	stream  *internet.MemoryStreamConfig
+	stream  *internet.MemoryStreamConfig // TLS over TCP, unless quic
+	quic    *quicDialer                  // HTTP/3 over QUIC, for naive+quic://
 	header  http.Header
 	padding bool
 	h2      *http2.Transport
 
 	mu    sync.Mutex
-	conns []*http2.ClientConn // to the server, the newest last
+	conns []serverConn // to the server, the newest last
 }
+
+// serverConn is a connection to the server that carries CONNECT streams:
+// HTTP/2 over TLS or HTTP/3 over QUIC.
+type serverConn interface {
+	RoundTrip(*http.Request) (*http.Response, error)
+	// closed tells whether the connection is gone; usable whether it takes
+	// another stream (a full one still carries those it has).
+	closed() bool
+	usable() bool
+	Close() error
+}
+
+type h2Conn struct{ *http2.ClientConn }
+
+func (c h2Conn) closed() bool { return c.State().Closed }
+func (c h2Conn) usable() bool { return c.CanTakeNewRequest() }
 
 func (h *Handler) Start() error                         { return nil }
 func (h *Handler) SenderSettings() *serial.TypedMessage { return nil }
@@ -201,11 +229,12 @@ func (h *Handler) open(ctx context.Context, addr string) (*tunnel, error) {
 		resp.Body.Close()
 		err = stderrors.New("сервер NaïveProxy не ответил")
 	}
-	if err == nil && (resp.StatusCode != http.StatusOK || resp.ContentLength >= 0) {
+	// A tunnel has no length. With a wrong password, a server that hides
+	// from probes answers as the site it pretends to be, with one. (Go's
+	// HTTP/3 client reports a length of 0 for every tunnel: the header tells.)
+	if err == nil && (resp.StatusCode != http.StatusOK || resp.Header.Get("Content-Length") != "") {
 		resp.Body.Close()
-		// A tunnel has no length. With a wrong password, a server that hides
-		// from probes answers as the site it pretends to be, with one.
-		if resp.StatusCode == http.StatusProxyAuthRequired || resp.StatusCode == http.StatusUnauthorized || resp.ContentLength >= 0 {
+		if resp.StatusCode == http.StatusProxyAuthRequired || resp.StatusCode == http.StatusUnauthorized || resp.Header.Get("Content-Length") != "" {
 			err = stderrors.New("сервер NaïveProxy не принял имя или пароль")
 		} else {
 			err = fmt.Errorf("сервер NaïveProxy ответил %s", resp.Status)
@@ -225,17 +254,33 @@ func (h *Handler) open(ctx context.Context, addr string) (*tunnel, error) {
 
 // conn returns a connection to the server that takes another stream,
 // dialling one when none does.
-func (h *Handler) conn(ctx context.Context) (*http2.ClientConn, error) {
+func (h *Handler) conn(ctx context.Context) (serverConn, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.conns = slices.DeleteFunc(h.conns, func(cc *http2.ClientConn) bool { return cc.State().Closed })
+	h.conns = slices.DeleteFunc(h.conns, serverConn.closed)
 	for i := len(h.conns) - 1; i >= 0; i-- {
-		if cc := h.conns[i]; cc.CanTakeNewRequest() {
+		if cc := h.conns[i]; cc.usable() {
 			return cc, nil
 		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	var cc serverConn
+	var err error
+	if h.quic != nil {
+		cc, err = h.quic.dial(ctx, h.server)
+	} else {
+		cc, err = h.dialH2(ctx)
+	}
+	if err != nil {
+		return nil, err
+	}
+	h.conns = append(h.conns, cc)
+	return cc, nil
+}
+
+// dialH2 opens an HTTP/2 connection to the server over TLS through Xray.
+func (h *Handler) dialH2(ctx context.Context) (serverConn, error) {
 	c, err := internet.Dial(ctx, h.server, h.stream)
 	if err != nil {
 		return nil, err
@@ -249,8 +294,7 @@ func (h *Handler) conn(ctx context.Context) (*http2.ClientConn, error) {
 		c.Close()
 		return nil, err
 	}
-	h.conns = append(h.conns, cc)
-	return cc, nil
+	return h2Conn{cc}, nil
 }
 
 // timeout bounds the dial and the server's answer to CONNECT.

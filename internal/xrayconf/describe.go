@@ -2,6 +2,7 @@ package xrayconf
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 
 	"github.com/Stilltiger45/TigerSB-client/pkg/profile"
@@ -14,7 +15,8 @@ func Describe(xray json.RawMessage) string {
 	var ob struct {
 		Protocol string `json:"protocol"`
 		Settings struct {
-			Version int `json:"version"`
+			Version int  `json:"version"`
+			QUIC    bool `json:"quic"`
 		} `json:"settings"`
 		Stream struct {
 			Network  string `json:"network"`
@@ -35,6 +37,9 @@ func Describe(xray json.RawMessage) string {
 	case "mieru":
 		return "Mieru"
 	case "naive":
+		if ob.Settings.QUIC {
+			return "NaïveProxy · QUIC"
+		}
 		return "NaïveProxy"
 	}
 	parts := []string{protocolNames.name(ob.Protocol)}
@@ -81,6 +86,45 @@ func Protocols(p *profile.Profile) map[string]string {
 		}
 	}
 	return m
+}
+
+// ProtocolNames lists the protocols of the profile's transports as Describe
+// names them, each once, the best abroad first: what the user can turn off
+// (WithoutProtocols).
+func ProtocolNames(p *profile.Profile) []string {
+	var out []string
+	for _, role := range []profile.Role{profile.RoleForeign, profile.RoleRU} {
+		for _, it := range transports(p, role) {
+			if name := Describe(it.xray); name != "" && !slices.Contains(out, name) {
+				out = append(out, name)
+			}
+		}
+	}
+	return out
+}
+
+// WithoutProtocols returns the profile without the transports whose protocol
+// (as Describe names it) is in off, and without the exits left with none. A
+// profile left with no exit at all comes back as it was, with ok false: a
+// VPN through protocols the user found poor beats none.
+func WithoutProtocols(p *profile.Profile, off []string) (out *profile.Profile, ok bool) {
+	if len(off) == 0 {
+		return p, true
+	}
+	q := *p
+	q.Exits = nil
+	for _, e := range p.Exits {
+		e.Transports = slices.DeleteFunc(slices.Clone(e.Transports), func(t profile.Transport) bool {
+			return slices.Contains(off, Describe(t.Xray))
+		})
+		if len(e.Transports) > 0 {
+			q.Exits = append(q.Exits, e)
+		}
+	}
+	if len(q.Exits) == 0 {
+		return p, false
+	}
+	return &q, true
 }
 
 // ServerHost returns the address of the profile's best server, abroad if

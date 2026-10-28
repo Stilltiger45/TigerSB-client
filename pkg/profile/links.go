@@ -15,7 +15,7 @@ import (
 var linkSchemes = map[string]bool{
 	"vless": true, "vmess": true, "trojan": true, "ss": true,
 	"hysteria2": true, "hy2": true, "tuic": true,
-	"mierus": true, "mieru": true, "naive+https": true,
+	"mierus": true, "mieru": true, "naive+https": true, "naive+quic": true,
 }
 
 // IsLink reports whether s looks like a share link the client can read.
@@ -25,7 +25,7 @@ func IsLink(s string) bool {
 }
 
 // FromVLESS turns a single share link (vless://, vmess://, trojan://, ss://,
-// hysteria2://, tuic://, mierus://, mieru:// or naive+https://) into a profile with one foreign exit. Without an RU exit and lists,
+// hysteria2://, tuic://, mierus://, mieru://, naive+https:// or naive+quic://) into a profile with one foreign exit. Without an RU exit and lists,
 // the main mode sends everything but the direct list through it.
 func FromVLESS(link string) (*Profile, error) {
 	xray, name, err := ParseLink(link)
@@ -114,10 +114,8 @@ func ParseLink(link string) (json.RawMessage, string, error) {
 		return mierusOutbound(link)
 	case "mieru":
 		return mieruOutbound(link)
-	case "naive+https":
+	case "naive+https", "naive+quic":
 		return naiveOutbound(link)
-	case "naive+quic":
-		return nil, "", fmt.Errorf("NaïveProxy поверх QUIC (naive+quic://) не поддерживается, нужна ссылка naive+https://")
 	}
 	return nil, "", fmt.Errorf("ссылки %s:// не поддерживаются", scheme)
 }
@@ -651,13 +649,20 @@ func portOrRange(s string) bool {
 }
 
 // naiveOutbound reads NaïveProxy links as NekoBox, v2rayN and Hiddify write
-// them: naive+https://user:password@host:port?sni=&padding=true&extra-headers=&insecure=1#name.
-// Xray has no NaïveProxy: the outbound is written in Xray's style (TLS with
-// Chrome's fingerprint, HTTP/2) for the profile, and package naive carries it.
+// them: naive+https://user:password@host:port?sni=&padding=true&extra-headers=&insecure=1#name,
+// or naive+quic:// for HTTP/3 over QUIC. Xray has no NaïveProxy: the outbound
+// is written in Xray's style (TLS with Chrome's fingerprint and HTTP/2, or
+// TLS in QUIC and HTTP/3 with settings.quic) for the profile, and package
+// naive carries it.
 func naiveOutbound(link string) (json.RawMessage, string, error) {
 	u, err := url.Parse(link)
+	scheme := "naive+https"
+	if err == nil {
+		scheme = u.Scheme
+	}
+	quic := scheme == "naive+quic"
 	if err != nil {
-		return nil, "", fmt.Errorf("неверная ссылка naive+https://")
+		return nil, "", fmt.Errorf("неверная ссылка %s://", scheme)
 	}
 	user := u.User.Username()
 	password, _ := u.User.Password()
@@ -666,11 +671,11 @@ func naiveOutbound(link string) (json.RawMessage, string, error) {
 	if p := u.Port(); p != "" {
 		port, err = strconv.Atoi(p)
 		if err != nil || port < 1 || port > 65535 {
-			return nil, "", fmt.Errorf("в ссылке naive+https:// неверный адрес сервера")
+			return nil, "", fmt.Errorf("в ссылке %s:// неверный адрес сервера", scheme)
 		}
 	}
 	if host == "" {
-		return nil, "", fmt.Errorf("в ссылке naive+https:// неверный адрес сервера")
+		return nil, "", fmt.Errorf("в ссылке %s:// неверный адрес сервера", scheme)
 	}
 	q := u.Query()
 	headers := map[string]any{}
@@ -687,9 +692,13 @@ func naiveOutbound(link string) (json.RawMessage, string, error) {
 		"pinnedPeerCertSha256": pin,
 		"allowInsecure":        pin == "" && insecure,
 	})
-	// Chrome's TLS, as the real NaïveProxy shows, and HTTP/2 only.
-	tls["fingerprint"] = "chrome"
-	tls["alpn"] = []string{"h2"}
+	if quic {
+		tls["alpn"] = []string{"h3"}
+	} else {
+		// Chrome's TLS, as the real NaïveProxy shows, and HTTP/2 only.
+		tls["fingerprint"] = "chrome"
+		tls["alpn"] = []string{"h2"}
+	}
 	settings := dropEmpty(map[string]any{
 		"address":  host,
 		"port":     port,
@@ -698,6 +707,9 @@ func naiveOutbound(link string) (json.RawMessage, string, error) {
 	})
 	// Padding is on unless the link turns it off; the server agrees to it or not.
 	settings["padding"] = q.Get("padding") != "false" && q.Get("padding") != "0"
+	if quic {
+		settings["quic"] = true
+	}
 	if len(headers) > 0 {
 		settings["headers"] = headers
 	}

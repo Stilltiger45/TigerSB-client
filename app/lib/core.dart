@@ -17,6 +17,8 @@ class ProfileInfo {
     this.signed = false,
     this.shieldApps = const [],
     this.userApps = const [],
+    this.protocols = const [],
+    this.protocolsOff = const [],
   });
 
   /// Names the profile among the saved ones.
@@ -45,6 +47,12 @@ class ProfileInfo {
   /// Apps the user left out of the VPN.
   final List<String> userApps;
 
+  /// The profile's protocols, such as "VLESS · Reality · gRPC" or
+  /// "Hysteria 2", and every protocol the user turned off on this device,
+  /// other profiles' too.
+  final List<String> protocols;
+  final List<String> protocolsOff;
+
   factory ProfileInfo.fromJson(Map<String, dynamic> j) => ProfileInfo(
     id: j['id'] as String? ?? '',
     name: j['name'] as String? ?? '',
@@ -55,6 +63,8 @@ class ProfileInfo {
     signed: j['signed'] as bool? ?? false,
     shieldApps: List<String>.from(j['shieldApps'] as List? ?? const []),
     userApps: List<String>.from(j['userApps'] as List? ?? const []),
+    protocols: List<String>.from(j['protocols'] as List? ?? const []),
+    protocolsOff: List<String>.from(j['protocolsOff'] as List? ?? const []),
     fetched: DateTime.tryParse(j['fetched'] as String? ?? '')?.toLocal(),
     exits: [
       for (final e in (j['exits'] as List? ?? const []))
@@ -101,9 +111,9 @@ class VpnStatus {
   );
 }
 
-/// Routing modes, as the core names them: auto checks every site through all
-/// servers, basic sends Russian sites direct, all sends everything through
-/// the VPN.
+/// Routing modes, as the core names them: auto routes as basic and gets past
+/// DPI on its own, basic sends Russian sites direct, all sends everything
+/// through the VPN.
 enum Mode { auto, basic, all }
 
 /// What the core reports about the running VPN.
@@ -186,6 +196,10 @@ abstract class Core {
 
   /// Saves the apps the user leaves out of the VPN; a running VPN reconnects.
   Future<void> setUserApps(List<String> packages);
+
+  /// Saves the protocols the user turned off, for every profile that has
+  /// them; a running VPN reconnects.
+  Future<void> setProtocolsOff(List<String> names);
 
   /// Opens the system share sheet with the journal: what the VPN did, the
   /// core's warnings and its last crash.
@@ -304,6 +318,9 @@ class PlatformCore implements Core {
 
   @override
   Future<void> setUserApps(List<String> packages) => _call('setUserApps', {'apps': packages});
+
+  @override
+  Future<void> setProtocolsOff(List<String> names) => _call('setProtocolsOff', {'names': names});
 
   @override
   Future<void> shareJournal() => _call('shareJournal');

@@ -177,6 +177,23 @@ func TestHysteria2SelfSignedIsPinned(t *testing.T) {
 	}
 }
 
+// TestNaiveQUICIsPinned: a naive+quic:// server shows its certificate in
+// QUIC, as Hysteria's does (the Hysteria server stands in for it here).
+func TestNaiveQUICIsPinned(t *testing.T) {
+	certPEM, keyPEM, sum := selfSigned(t)
+	port := hysteriaServer(t, certPEM, keyPEM, "")
+	p, err := profile.FromVLESS(fmt.Sprintf("naive+quic://u:pw@127.0.0.1:%d?sni=hy.example.org&insecure=1", port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dropped, err := certpin.Profile(context.Background(), p); err != nil || dropped != 0 {
+		t.Fatalf("pin: dropped %d, %v", dropped, err)
+	}
+	if xray := string(p.Exits[0].Transports[0].Xray); !strings.Contains(xray, sum) || strings.Contains(xray, "allowInsecure") {
+		t.Fatalf("not pinned: %s", xray)
+	}
+}
+
 func TestTLSSelfSignedIsPinned(t *testing.T) {
 	srv := httptest.NewTLSServer(http.NotFoundHandler())
 	defer srv.Close()
