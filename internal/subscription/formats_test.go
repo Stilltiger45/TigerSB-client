@@ -126,6 +126,9 @@ const singBoxConfig = `{
     {"type": "naive", "tag": "UK", "server": "uk.example.org", "server_port": 443,
      "username": "user", "password": "pass", "extra_headers": {"X-Test": "1"},
      "tls": {"enabled": true, "server_name": "uk.example.org"}},
+    {"type": "naive", "tag": "UK quic", "server": "uk.example.org", "server_port": 443, "quic": true,
+     "username": "user", "password": "pass",
+     "tls": {"enabled": true, "server_name": "uk.example.org"}},
     {"type": "wireguard", "tag": "wg", "server": "wg.example.org", "server_port": 51820},
     {"type": "direct", "tag": "direct"},
     {"type": "block", "tag": "block"},
@@ -193,7 +196,7 @@ func TestClashSubscription(t *testing.T) {
 
 func TestSingBoxSubscription(t *testing.T) {
 	p := importBody(t, singBoxConfig)
-	got := checkServers(t, p, []string{"NL", "DE", "FI", "SE", "US", "JP", "UK"})
+	got := checkServers(t, p, []string{"NL", "DE", "FI", "SE", "US", "JP", "UK", "UK quic"})
 	wants(t, "vless", got["NL"], `"security":"reality"`, `"shortId":"6ba8"`, `"fingerprint":"chrome"`)
 	wants(t, "vmess", got["DE"], `"network":"grpc"`, `"serviceName":"vm"`, `"security":"tls"`)
 	wants(t, "trojan", got["FI"], `"network":"httpupgrade"`, `"path":"/up"`, `"alpn":["h2","http/1.1"]`)
@@ -201,6 +204,7 @@ func TestSingBoxSubscription(t *testing.T) {
 	wants(t, "hy2", got["US"], `"ports":"20000-20010"`, `"type":"salamander"`)
 	wants(t, "tuic", got["JP"], `"congestionControl":"bbr"`)
 	wants(t, "naive", got["UK"], `"protocol":"naive"`, `"username":"user"`, `"X-Test":"1"`)
+	wants(t, "naive quic", got["UK quic"], `"protocol":"naive"`, `"quic":true`, `"alpn":["h3"]`)
 }
 
 // Servers that skip certificate checks keep saying so: the import then pins

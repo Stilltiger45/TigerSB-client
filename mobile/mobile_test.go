@@ -69,6 +69,32 @@ func TestAppsOutsideVPN(t *testing.T) {
 	}
 }
 
+func TestProtocolsOff(t *testing.T) {
+	initTemp(t)
+	if _, err := AddKey("vless://5783a3e7-e373-51cd-8642-c83782b807c5@1.2.3.4:443?security=none#Дом"); err != nil {
+		t.Fatal(err)
+	}
+	info := func() profileInfo {
+		s, _ := Current()
+		var in profileInfo
+		json.Unmarshal([]byte(s), &in)
+		return in
+	}
+	if in := info(); !slices.Equal(in.Protocols, []string{"VLESS"}) || len(in.ProtocolsOff) != 0 {
+		t.Fatalf("protocols %q, off %q", in.Protocols, in.ProtocolsOff)
+	}
+	// Hysteria 2 stays off for the profiles that have it.
+	if err := SetProtocolsOff(`["VLESS","Hysteria 2"]`); err != nil {
+		t.Fatal(err)
+	}
+	if in := info(); !slices.Equal(in.ProtocolsOff, []string{"VLESS", "Hysteria 2"}) {
+		t.Errorf("off %q", in.ProtocolsOff)
+	}
+	if err := SetProtocolsOff("nonsense"); err == nil {
+		t.Error("bad list accepted")
+	}
+}
+
 func TestStateKeyEncryptsSavedKey(t *testing.T) {
 	dir := initTemp(t)
 	t.Cleanup(func() { SetStateKey(nil) })

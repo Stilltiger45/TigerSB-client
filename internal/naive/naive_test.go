@@ -28,6 +28,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/apernet/quic-go/http3"
 	"github.com/xtls/xray-core/core"
 	"golang.org/x/net/http2"
 
@@ -62,13 +63,16 @@ func cert(t *testing.T) (tls.Certificate, string) {
 }
 
 // server is a NaïveProxy server like Caddy's forwardproxy of klzgrad: CONNECT
-// over HTTP/2 for the user "naive" with the password "secret", padding the
-// first frames each way when the request asks for it. A server that does not
-// pad (plain) never answers with the Padding header.
+// over HTTP/2, or HTTP/3 over QUIC, for the user "naive" with the password
+// "secret", padding the first frames each way when the request asks for it.
+// A server that does not pad (plain) never answers with the Padding header;
+// one that hides from probes (hide) answers a wrong password as a site.
 type server struct {
 	port  int
 	pin   string
 	plain bool
+	quic  bool
+	hide  bool
 
 	mu      sync.Mutex
 	headers []http.Header
@@ -89,12 +93,44 @@ func newServer(t *testing.T, plain bool) *server {
 	return s
 }
 
+// newQUICServer is the server over HTTP/3, as Caddy serves naive+quic://.
+func newQUICServer(t *testing.T, plain bool) *server {
+	t.Helper()
+	crt, pin := cert(t)
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := &server{port: pc.LocalAddr().(*net.UDPAddr).Port, pin: pin, plain: plain, quic: true}
+	hs := &http3.Server{Handler: s, TLSConfig: http3.ConfigureTLSConfig(&tls.Config{Certificates: []tls.Certificate{crt}})}
+	go hs.Serve(pc)
+	t.Cleanup(func() { hs.Close(); pc.Close() })
+	return s
+}
+
+// link is the server's link for user:password, pinned to its certificate.
+func (s *server) link(password, query string) string {
+	scheme := "naive+https"
+	if s.quic {
+		scheme = "naive+quic"
+	}
+	return fmt.Sprintf("%s://naive:%s@127.0.0.1:%d?sni=naive.test&pinSHA256=%s%s", scheme, password, s.port, s.pin, query)
+}
+
 func (s *server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	s.headers = append(s.headers, r.Header.Clone())
 	s.mu.Unlock()
 	want := "Basic " + base64.StdEncoding.EncodeToString([]byte("naive:secret"))
-	if r.Method != http.MethodConnect || r.ProtoMajor != 2 || r.Header.Get("Proxy-Authorization") != want {
+	proto := 2
+	if s.quic {
+		proto = 3
+	}
+	if r.Method != http.MethodConnect || r.ProtoMajor != proto || r.Header.Get("Proxy-Authorization") != want {
+		if s.hide {
+			fmt.Fprint(w, "обычный сайт")
+			return
+		}
 		w.WriteHeader(http.StatusProxyAuthRequired)
 		return
 	}
@@ -191,7 +227,7 @@ func start(t *testing.T, p *profile.Profile) (*core.Instance, int) {
 	if strings.Contains(string(cfg), `"naive"`) {
 		t.Fatalf("naive outbound left in the Xray config: %s", cfg)
 	}
-	inst, err := engine.Start(cfg, naive.Hooks(p)...)
+	inst, err := engine.Start(cfg, naive.Hooks(p, xrayconf.QUICNoise)...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,6 +292,11 @@ func roundTrip(t *testing.T, socks int) {
 	}
 }
 
+// newServers runs the server over HTTP/2 and over HTTP/3.
+func newServers(t *testing.T, plain bool) map[string]*server {
+	return map[string]*server{"HTTP/2": newServer(t, plain), "HTTP/3": newQUICServer(t, plain)}
+}
+
 func TestNaive(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
@@ -267,36 +308,45 @@ func TestNaive(t *testing.T) {
 		{name: "server without padding", plain: true, wantPadding: true},
 		{name: "padding off in link", linkPadding: "&padding=false"},
 	} {
-		t.Run(tc.name, func(t *testing.T) {
-			srv := newServer(t, tc.plain)
-			link := fmt.Sprintf("naive+https://naive:secret@127.0.0.1:%d?sni=naive.test&pinSHA256=%s&extra-headers=X-Test%%3A%%20yes%s#Naive", srv.port, srv.pin, tc.linkPadding)
-			p, err := profile.FromVLESS(link)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if d := xrayconf.Describe(p.Exits[0].Transports[0].Xray); d != "NaïveProxy" {
-				t.Errorf("described as %q", d)
-			}
-			inst, socks := start(t, p)
-			roundTrip(t, socks)
-			roundTrip(t, socks)
+		for over, srv := range newServers(t, tc.plain) {
+			t.Run(tc.name+" over "+over, func(t *testing.T) { testNaive(t, srv, tc.linkPadding, tc.wantPadding) })
+		}
+	}
+}
 
-			for _, h := range srv.seen() {
-				if (h.Get("Padding") != "") != tc.wantPadding {
-					t.Errorf("Padding header %q, want it %v", h.Get("Padding"), tc.wantPadding)
-				}
-				if h.Get("X-Test") != "yes" {
-					t.Errorf("extra header not sent: %v", h)
-				}
-				if ua, ok := h["User-Agent"]; ok {
-					t.Errorf("User-Agent sent: %q", ua)
-				}
-			}
-			all, _ := xrayconf.Candidates(p)
-			if up, down := meter.Traffic(inst, all); up < 1<<20 || down < 1<<20 {
-				t.Errorf("traffic not counted: up %d, down %d", up, down)
-			}
-		})
+func testNaive(t *testing.T, srv *server, linkPadding string, wantPadding bool) {
+	p, err := profile.FromVLESS(srv.link("secret", "&extra-headers=X-Test%3A%20yes"+linkPadding+"#Naive"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "NaïveProxy"
+	if srv.quic {
+		want = "NaïveProxy · QUIC"
+	}
+	if d := xrayconf.Describe(p.Exits[0].Transports[0].Xray); d != want {
+		t.Errorf("described as %q", d)
+	}
+	if udp := xrayconf.UDPTransports(p); len(udp) > 0 != srv.quic {
+		t.Errorf("transports over UDP: %v", udp)
+	}
+	inst, socks := start(t, p)
+	roundTrip(t, socks)
+	roundTrip(t, socks)
+
+	for _, h := range srv.seen() {
+		if (h.Get("Padding") != "") != wantPadding {
+			t.Errorf("Padding header %q, want it %v", h.Get("Padding"), wantPadding)
+		}
+		if h.Get("X-Test") != "yes" {
+			t.Errorf("extra header not sent: %v", h)
+		}
+		if ua, ok := h["User-Agent"]; ok {
+			t.Errorf("User-Agent sent: %q", ua)
+		}
+	}
+	all, _ := xrayconf.Candidates(p)
+	if up, down := meter.Traffic(inst, all); up < 1<<20 || down < 1<<20 {
+		t.Errorf("traffic not counted: up %d, down %d", up, down)
 	}
 }
 
@@ -352,12 +402,17 @@ func established(t *testing.T, port int) []string {
 }
 
 func TestNaiveRefused(t *testing.T) {
-	srv := newServer(t, false)
-	for name, link := range map[string]string{
-		"wrong password": fmt.Sprintf("naive+https://naive:wrong@127.0.0.1:%d?sni=naive.test&pinSHA256=%s", srv.port, srv.pin),
-		"wrong pin":      fmt.Sprintf("naive+https://naive:secret@127.0.0.1:%d?sni=naive.test&pinSHA256=%s", srv.port, strings.Repeat("ab", 32)),
-		"unknown cert":   fmt.Sprintf("naive+https://naive:secret@127.0.0.1:%d?sni=naive.test", srv.port),
-	} {
+	links := map[string]string{}
+	for over, srv := range newServers(t, false) {
+		links["wrong password over "+over] = srv.link("wrong", "")
+		links["wrong pin over "+over] = strings.Replace(srv.link("secret", ""), srv.pin, strings.Repeat("ab", 32), 1)
+		links["unknown cert over "+over] = strings.Replace(srv.link("secret", ""), "&pinSHA256="+srv.pin, "", 1)
+	}
+	for over, srv := range newServers(t, false) {
+		srv.hide = true
+		links["wrong password to a server hiding from probes over "+over] = srv.link("wrong", "")
+	}
+	for name, link := range links {
 		t.Run(name, func(t *testing.T) {
 			p, err := profile.FromVLESS(link)
 			if err != nil {
@@ -381,7 +436,7 @@ func TestNaiveInsecureNotPinned(t *testing.T) {
 		t.Fatal(err)
 	}
 	ob := xrayconf.Carried(p, "naive")[0]
-	if err := naive.Attach(nil, ob.Tag, ob.Xray); err == nil || !strings.Contains(err.Error(), "не закреплён") {
+	if err := naive.Attach(nil, ob.Tag, ob.Xray, nil); err == nil || !strings.Contains(err.Error(), "не закреплён") {
 		t.Fatalf("got %v", err)
 	}
 }

@@ -299,6 +299,7 @@ func TestNaiveLinks(t *testing.T) {
 			Username string            `json:"username"`
 			Password string            `json:"password"`
 			Padding  bool              `json:"padding"`
+			QUIC     bool              `json:"quic"`
 			Headers  map[string]string `json:"headers"`
 		} `json:"settings"`
 		Stream struct {
@@ -344,7 +345,19 @@ func TestNaiveLinks(t *testing.T) {
 		t.Errorf("defaults %+v", o)
 	}
 
-	for _, bad := range []string{"naive+https://user:pw@:443", "naive+https://user:pw@1.2.3.4:99999", "naive+quic://user:pw@1.2.3.4:443"} {
+	// HTTP/3 over QUIC: TLS inside QUIC has no Chrome fingerprint.
+	raw, _, err = ParseLink("naive+quic://user:pw@naive.example.org:8443?insecure=1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o = ob{}
+	json.Unmarshal(raw, &o)
+	if !o.Settings.QUIC || o.Settings.Port != 8443 || !o.Settings.Padding || strings.Join(o.Stream.TLS.ALPN, ",") != "h3" ||
+		o.Stream.TLS.Fingerprint != "" || !o.Stream.TLS.AllowInsecure {
+		t.Errorf("quic %+v", o)
+	}
+
+	for _, bad := range []string{"naive+https://user:pw@:443", "naive+https://user:pw@1.2.3.4:99999", "naive+quic://user:pw@:443"} {
 		if _, _, err := ParseLink(bad); err == nil {
 			t.Errorf("%s accepted", bad)
 		}

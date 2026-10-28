@@ -1,10 +1,13 @@
 package xrayconf
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	mrand "math/rand/v2"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Stilltiger45/TigerSB-client/pkg/profile"
 )
@@ -84,12 +87,12 @@ type NoisePacket struct {
 	Size, Delay [2]int
 }
 
-// QUICNoise is the junk sent before the first packet of every Hysteria 2
-// and TUIC connection. They run QUIC over UDP, which DPI in Russia filters:
-// DPI that tells a flow by its first packet sees random bytes instead of a
-// QUIC handshake and lets the flow be, and the server drops the junk. DPI
-// that reads every packet still sees QUIC: only obfuscation on the server
-// (Hysteria 2's salamander) hides it from that.
+// QUICNoise is the junk sent before the first packet of every Hysteria 2,
+// TUIC and NaïveProxy over HTTP/3 connection. They run QUIC over UDP, which
+// DPI in Russia filters: DPI that tells a flow by its first packet sees
+// random bytes instead of a QUIC handshake and lets the flow be, and the
+// server drops the junk. DPI that reads every packet still sees QUIC: only
+// obfuscation on the server (Hysteria 2's salamander) hides it from that.
 //
 // It goes out in every mode, not only the smart one: Xray keeps one Hysteria
 // 2 client per server address for the life of the process and builds it
@@ -98,6 +101,27 @@ type NoisePacket struct {
 var QUICNoise = []NoisePacket{
 	{Size: [2]int{40, 120}, Delay: [2]int{5, 15}},
 	{Size: [2]int{40, 120}, Delay: [2]int{5, 15}},
+}
+
+// SendNoise writes the noise packets with write, which sends one datagram to
+// the server, pausing after each. Losing one does not matter: the server
+// drops them anyway. The carried protocols over QUIC (TUIC, NaïveProxy over
+// HTTP/3) send QUICNoise with it.
+func SendNoise(write func([]byte), noise []NoisePacket) {
+	for _, n := range noise {
+		b := make([]byte, between(n.Size))
+		rand.Read(b)
+		write(b)
+		time.Sleep(time.Duration(between(n.Delay)) * time.Millisecond)
+	}
+}
+
+// between returns a random number in the range r.
+func between(r [2]int) int {
+	if r[1] <= r[0] {
+		return r[0]
+	}
+	return r[0] + mrand.IntN(r[1]-r[0]+1)
 }
 
 // quicNoiseMask is QUICNoise as Xray's finalmask for UDP.
@@ -147,6 +171,7 @@ func OverUDP(xray json.RawMessage) bool {
 			Ports []struct {
 				Protocol string `json:"protocol"`
 			} `json:"ports"`
+			QUIC bool `json:"quic"`
 		} `json:"settings"`
 		Stream struct {
 			Network string `json:"network"`
@@ -160,6 +185,8 @@ func OverUDP(xray json.RawMessage) bool {
 		return true
 	case "mieru":
 		return len(ob.Settings.Ports) > 0 && ob.Settings.Ports[0].Protocol == "UDP"
+	case "naive":
+		return ob.Settings.QUIC
 	}
 	switch ob.Stream.Network {
 	case "hysteria", "kcp", "mkcp":

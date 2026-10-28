@@ -90,6 +90,11 @@ type profileInfo struct {
 	DirectApps []string `json:"directApps"`
 	ShieldApps []string `json:"shieldApps"`
 	UserApps   []string `json:"userApps"`
+	// Protocols are the profile's protocols, as xrayconf.Describe names
+	// them; ProtocolsOff all those the user turned off on this device, this
+	// profile's and others' (SetProtocolsOff).
+	Protocols    []string `json:"protocols"`
+	ProtocolsOff []string `json:"protocolsOff"`
 	// Key is the key the user imported, to copy and share.
 	Key string `json:"key"`
 	// Signed marks a profile from a TigerSB panel whose signature the app
@@ -124,6 +129,12 @@ func Start(fd int, mode string, mtu int) error {
 	if err != nil {
 		return err
 	}
+	if off := protocolsOff(); len(off) > 0 {
+		var ok bool
+		if p, ok = xrayconf.WithoutProtocols(p, off); !ok {
+			Note("все протоколы профиля выключены в «Протоколах»: подключаю через все")
+		}
+	}
 	// Normally AddKey or Refresh already fetched the lists. When they are
 	// missing, the VPN starts without them and fetches them through itself.
 	needed, extra := xrayconf.GeoData(p, m)
@@ -152,7 +163,7 @@ func Start(fd int, mode string, mtu int) error {
 	if err := os.Setenv("XRAY_TUN_FD", strconv.Itoa(fd)); err != nil {
 		return err
 	}
-	i, err := engine.Start(cfg, slices.Concat(tuic.Hooks(p, xrayconf.QUICNoise), mieru.Hooks(p), naive.Hooks(p), steady.Hooks(p, evasion, savedPresets()[network]))...)
+	i, err := engine.Start(cfg, slices.Concat(tuic.Hooks(p, xrayconf.QUICNoise), mieru.Hooks(p), naive.Hooks(p, xrayconf.QUICNoise), steady.Hooks(p, evasion, savedPresets()[network]))...)
 	if err != nil {
 		return err
 	}
@@ -284,6 +295,35 @@ const userAppsFile = "apps.json"
 func userApps() []string {
 	var list []string
 	if b, err := os.ReadFile(filepath.Join(dataDir, userAppsFile)); err == nil {
+		json.Unmarshal(b, &list)
+	}
+	return list
+}
+
+// SetProtocolsOff saves the protocols the user turned off, a JSON array of
+// names as the profile info lists them under "protocols": ones that work
+// poorly on the user's networks. They stay off for every profile that has
+// them. A running VPN applies them when it reconnects.
+func SetProtocolsOff(names string) error {
+	var list []string
+	if err := json.Unmarshal([]byte(names), &list); err != nil {
+		return fmt.Errorf("список протоколов: %w", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	b, _ := json.Marshal(list)
+	if err := os.MkdirAll(dataDir, 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(dataDir, protocolsOffFile), b, 0o600)
+}
+
+const protocolsOffFile = "protocols-off.json"
+
+// protocolsOff reads what SetProtocolsOff saved; none when nothing was.
+func protocolsOff() []string {
+	var list []string
+	if b, err := os.ReadFile(filepath.Join(dataDir, protocolsOffFile)); err == nil {
 		json.Unmarshal(b, &list)
 	}
 	return list
@@ -453,17 +493,19 @@ func noKey(err error) error {
 func info(id string, st *subscription.State, p *profile.Profile) (string, error) {
 	blocked := p.Routing.Blocked
 	in := profileInfo{
-		ID:         id,
-		Name:       p.Name,
-		Updated:    p.Updated,
-		Fetched:    st.Fetched,
-		HasRU:      p.HasRole(profile.RoleRU),
-		HasLists:   len(blocked.Domains)+len(blocked.IPs) > 0,
-		Foreign:    st.Foreign,
-		ShieldApps: xrayconf.ShieldApps,
-		UserApps:   userApps(),
-		Key:        st.Key,
-		Signed:     st.PK != "",
+		ID:           id,
+		Name:         p.Name,
+		Updated:      p.Updated,
+		Fetched:      st.Fetched,
+		HasRU:        p.HasRole(profile.RoleRU),
+		HasLists:     len(blocked.Domains)+len(blocked.IPs) > 0,
+		Foreign:      st.Foreign,
+		ShieldApps:   xrayconf.ShieldApps,
+		UserApps:     userApps(),
+		Protocols:    xrayconf.ProtocolNames(p),
+		ProtocolsOff: protocolsOff(),
+		Key:          st.Key,
+		Signed:       st.PK != "",
 	}
 	for _, a := range slices.Concat(in.ShieldApps, p.Routing.Direct.Apps, in.UserApps) {
 		if !slices.Contains(in.DirectApps, a) {

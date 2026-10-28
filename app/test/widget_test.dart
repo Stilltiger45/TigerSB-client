@@ -122,6 +122,22 @@ class FakeCore implements Core {
     profile = _profile(profile!.name, userApps: packages);
   }
 
+  List<String> protocolsOff = [];
+
+  @override
+  Future<void> setProtocolsOff(List<String> names) async {
+    protocolsOff = names;
+    final p = profile!;
+    profile = ProfileInfo(
+      name: p.name,
+      hasRU: p.hasRU,
+      fetched: p.fetched,
+      exits: p.exits,
+      protocols: p.protocols,
+      protocolsOff: names,
+    );
+  }
+
   int journals = 0;
   final opened = <String>[];
 
@@ -398,6 +414,43 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('MAX'), findsNothing);
     expect(find.text('Игра'), findsOneWidget);
+  });
+
+  testWidgets('the menu opens protocols: each turns off, the last one stays on', (tester) async {
+    final core = FakeCore()
+      ..profile = ProfileInfo(
+        name: 'Дом',
+        hasRU: true,
+        fetched: DateTime.now(),
+        exits: const [],
+        protocols: const ['VLESS · Reality · gRPC', 'Hysteria 2'],
+        protocolsOff: const ['TUIC'],
+      );
+    await tester.pumpWidget(TigerApp(core: core));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Протоколы'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('VLESS · Reality · gRPC'), findsOneWidget);
+    expect(find.text('Hysteria 2'), findsOneWidget);
+    expect(find.text('TUIC'), findsNothing);
+    await tester.tap(find.text('Hysteria 2'));
+    await tester.pumpAndSettle();
+    // Another profile's TUIC stays off.
+    expect(core.protocolsOff, ['Hysteria 2', 'TUIC']);
+    expect(core.profile!.protocolsOff, ['Hysteria 2', 'TUIC']);
+
+    expect(find.text('ОСТАЁТСЯ ХОТЯ БЫ ОДИН'), findsOneWidget);
+    await tester.tap(find.text('VLESS · Reality · gRPC'));
+    await tester.pumpAndSettle();
+    expect(core.protocolsOff, ['Hysteria 2', 'TUIC']);
+
+    await tester.tap(find.text('Hysteria 2'));
+    await tester.pumpAndSettle();
+    expect(core.protocolsOff, ['TUIC']);
+    expect(find.text('ОСТАЁТСЯ ХОТЯ БЫ ОДИН'), findsNothing);
   });
 
   testWidgets('the menu opens about: version, source link and every license', (tester) async {

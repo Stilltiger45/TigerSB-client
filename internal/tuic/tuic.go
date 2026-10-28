@@ -8,7 +8,6 @@ package tuic
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
@@ -16,7 +15,6 @@ import (
 	"encoding/json"
 	stderrors "errors"
 	"fmt"
-	mrand "math/rand/v2"
 	gonet "net"
 	"net/netip"
 	"os"
@@ -242,28 +240,9 @@ func (d trackedDialer) DialContext(ctx context.Context, network string, dest M.S
 	}
 	engine.Track(c)
 	if N.NetworkName(network) == N.NetworkUDP {
-		sendNoise(c, d.noise)
+		xrayconf.SendNoise(func(b []byte) { c.Write(b) }, d.noise)
 	}
 	return c, nil
-}
-
-// sendNoise writes the noise packets to the connected socket. Losing one
-// does not matter: the server drops them anyway.
-func sendNoise(c gonet.Conn, noise []xrayconf.NoisePacket) {
-	for _, n := range noise {
-		b := make([]byte, between(n.Size))
-		rand.Read(b)
-		c.Write(b)
-		time.Sleep(time.Duration(between(n.Delay)) * time.Millisecond)
-	}
-}
-
-// between returns a random number in the range r.
-func between(r [2]int) int {
-	if r[1] <= r[0] {
-		return r[0]
-	}
-	return r[0] + mrand.IntN(r[1]-r[0]+1)
 }
 
 func (d trackedDialer) ListenPacket(ctx context.Context, dest M.Socksaddr) (gonet.PacketConn, error) {

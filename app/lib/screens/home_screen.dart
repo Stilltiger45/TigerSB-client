@@ -12,6 +12,7 @@ import '../ui/palette.dart';
 import '../ui/power_button.dart';
 import 'about_screen.dart';
 import 'apps_screen.dart';
+import 'protocols_screen.dart';
 
 /// Main screen: one big button, the mode and the profile.
 class HomeScreen extends StatefulWidget {
@@ -241,6 +242,12 @@ class _HomeScreenState extends State<HomeScreen> {
     ),
   );
 
+  void _openProtocols() => Navigator.of(context).push(
+    MaterialPageRoute<void>(
+      builder: (_) => ProtocolsScreen(core: widget.core, profile: widget.profile, onProfile: widget.onProfile),
+    ),
+  );
+
   void _openAbout() =>
       Navigator.of(context).push(MaterialPageRoute<void>(builder: (_) => AboutScreen(core: widget.core)));
 
@@ -390,12 +397,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 onSelected: (v) => switch (v) {
                   'update' => _checkUpdate(),
                   'apps' => _openApps(),
+                  'protocols' => _openProtocols(),
                   'journal' => widget.core.shareJournal(),
                   _ => _openAbout(),
                 },
                 itemBuilder: (_) => const [
                   PopupMenuItem(value: 'update', child: Text('Проверить обновление')),
                   PopupMenuItem(value: 'apps', child: Text('Приложения мимо VPN')),
+                  PopupMenuItem(value: 'protocols', child: Text('Протоколы')),
                   PopupMenuItem(value: 'journal', child: Text('Отправить журнал')),
                   PopupMenuItem(value: 'about', child: Text('О приложении')),
                 ],

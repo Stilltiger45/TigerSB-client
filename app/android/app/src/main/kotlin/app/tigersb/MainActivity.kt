@@ -117,6 +117,12 @@ class MainActivity : FlutterActivity() {
                         if (VpnState.phase == VpnState.Phase.CONNECTED) TigerVpnService.start(this@MainActivity)
                         null
                     }
+                    "setProtocolsOff" -> background(result) {
+                        Mobile.setProtocolsOff(JSONArray(call.argument<List<String>>("names") ?: emptyList<String>()).toString())
+                        // A running VPN drops the protocols after reconnecting.
+                        if (VpnState.phase == VpnState.Phase.CONNECTED) TigerVpnService.start(this@MainActivity)
+                        null
+                    }
                     "takeKey" -> {
                         result.success(pendingKey)
                         pendingKey = null
