@@ -345,7 +345,7 @@ adb shell cat $files/crash.log > "$out/crash.log" 2>&1
   cat "$net" 2>/dev/null
 } | cut -c1-300 | tee -a "$log"
 
-# The smart mode tunes its DPI evasion on every core start.
+# The Smart mode tunes its DPI preset on every core start.
 tunes=$(grep -c 'обход DPI' "$out/events.log")
 echo "DPI tunings: $tunes" | tee -a "$log"
 case " $modes " in *" Умная "*) if [ "$tunes" = 0 ]; then failed=1; fi ;; esac

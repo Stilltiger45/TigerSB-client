@@ -257,13 +257,14 @@ func TestTUNHijacksDNSAndRefusesIPv6(t *testing.T) {
 
 func TestAutoMode(t *testing.T) {
 	p := fixture(t)
+	// The smart mode routes as the basic one.
 	b, dest := build(t, p, xrayconf.ModeAuto)
 	want := map[string]string{
 		"dns":            "pick/foreign",
 		"private":        "direct",
 		"direct-domains": "direct",
 		"direct-ips":     "direct",
-		"rest":           xrayconf.TagSmart,
+		"rest":           "pick/foreign",
 	}
 	for tag, to := range want {
 		if dest[tag] != to {
@@ -271,15 +272,18 @@ func TestAutoMode(t *testing.T) {
 		}
 	}
 	if _, ok := dest["blocked-domains"]; ok {
-		t.Error("auto mode checks sites instead of using the blocked lists")
+		t.Error("smart mode does not need blocked rules")
 	}
-	// Every server is measured, so the picker can check the fastest first.
-	if b.Observatory == nil || !slices.Equal(b.Observatory.SubjectSelector, []string{"foreign/", "ru/"}) {
+	for _, r := range b.Routing.Rules {
+		if r.RuleTag == "direct-domains" && (!slices.Contains(r.Domain, "domain:ru") || !slices.Contains(r.Domain, "domain:xn--p1ai")) {
+			t.Errorf("direct domains %v", r.Domain)
+		}
+	}
+	if b.Observatory == nil || !slices.Equal(b.Observatory.SubjectSelector, []string{"foreign/"}) {
 		t.Errorf("observatory %+v", b.Observatory)
 	}
-	// Encrypted DNS first, the provider's when no server answers.
-	if b.DNS == nil || len(b.DNS.Servers) != 3 || string(b.DNS.Servers[2]) != `"localhost"` {
-		t.Errorf("dns %+v", b.DNS)
+	if needed, extra := xrayconf.GeoData(p, xrayconf.ModeAuto); !needed || !slices.Equal(extra, xrayconf.BasicDirectIPs) {
+		t.Errorf("geodata %v %v", needed, extra)
 	}
 
 	all, def := xrayconf.Candidates(p)
@@ -289,17 +293,26 @@ func TestAutoMode(t *testing.T) {
 	if !slices.Equal(def, []string{"foreign/nl-1/reality", "foreign/nl-1/xhttp-cdn"}) {
 		t.Errorf("default %v", def)
 	}
+	if m, err := xrayconf.ParseMode("basic"); err != nil || m != xrayconf.ModeBasic {
+		t.Errorf("basic: %v %v", m, err)
+	}
 }
 
 func TestAutoModeOnlyRU(t *testing.T) {
 	p := fixture(t)
 	p.Exits = p.Exits[1:]
 	b, dest := build(t, p, xrayconf.ModeAuto)
-	if dest["dns"] != "ru/msk-1/grpc" || dest["rest"] != xrayconf.TagSmart || b.DNS == nil {
+	if dest["dns"] != "ru/msk-1/grpc" || dest["rest"] != "ru/msk-1/grpc" || b.DNS == nil {
 		t.Errorf("rules %v, dns %v", dest, b.DNS)
 	}
 	if b.Observatory != nil {
 		t.Error("one server needs no observatory")
+	}
+	// With evasion even one server goes through a picker, which can move
+	// it to a copy through a preset.
+	_, dest = buildOpt(t, p, xrayconf.Options{Mode: xrayconf.ModeAuto, Evasion: true})
+	if dest["rest"] != "pick/ru" || !xrayconf.HasPick(p, profile.RoleRU, true) || xrayconf.HasPick(p, profile.RoleRU, false) {
+		t.Errorf("rules with evasion %v", dest)
 	}
 	all, def := xrayconf.Candidates(p)
 	if !slices.Equal(all, def) || len(all) != 1 {
@@ -485,8 +498,8 @@ func TestEvasionOutbounds(t *testing.T) {
 		}
 	}
 
-	if _, dest := buildOpt(t, p, opt); dest["dns"] != xrayconf.TagSmart {
-		t.Errorf("encrypted DNS goes to %q, want the picker", dest["dns"])
+	if _, dest := buildOpt(t, p, opt); dest["dns"] != "pick/foreign" || dest["rest"] != "pick/foreign" {
+		t.Errorf("rules %v, want the pickers", dest)
 	}
 
 	// Only the smart mode uses the presets.

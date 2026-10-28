@@ -56,7 +56,7 @@ A Windows app on the same core is the next stage.
 
 ## Modes
 
-- **Smart** (default): each site opens through the server that lets it in fastest, and if none does, directly or with DPI evasion.
+- **Smart** (default): routes like Basic, with DPI evasion tuned for your network automatically.
 - **Basic**: Russian sites, banks and government services go direct, everything else goes through the VPN.
 - **All**: all traffic goes through the VPN except the local network.
 
@@ -82,12 +82,12 @@ A Windows app on the same core is the next stage.
 | [Flutter](https://flutter.dev) 3.47 and Dart | app interface | BSD-3-Clause |
 | [Kotlin](https://kotlinlang.org) 2.4 | Android system VPN (VpnService), network watcher, Keystore | Apache-2.0 |
 
-Code layout: `pkg/profile` is the profile and key format (the panel uses it too), `internal/` is the core (subscriptions, Xray config builder, smart routing, TUIC, Mieru and NaïveProxy, meters, network auto-tuning), `mobile/` is the gomobile API for Android, `app/` is the Flutter and Kotlin app, `cmd/tigersb-core` is the CLI.
+Code layout: `pkg/profile` is the profile and key format (the panel uses it too), `internal/` is the core (subscriptions, Xray config builder, routing and DPI evasion, TUIC, Mieru and NaïveProxy, meters, network auto-tuning), `mobile/` is the gomobile API for Android, `app/` is the Flutter and Kotlin app, `cmd/tigersb-core` is the CLI.
 
 ## How it works
 
 - **One core everywhere.** Xray-core runs inside the app process, with no separate programs. On Android traffic arrives through the system VPN (TUN on gVisor), and no local ports are open.
-- **Smart routing.** Every new site is tried through every server in the subscription and the fastest clean answer wins; a refusal (403/451) means try direct. If no server helps, the site is tried through DPI evasion (fragmentation and noise instead of zapret, with the preset tuned on every connect, network change and channel failure), and only then goes direct. Xray protocols over TCP come first; Hysteria 2 and TUIC are used when TCP fails, and always send noise before QUIC. Details: [docs/profile.md](docs/profile.md#режим-auto-проверка-каждого-сайта) (in Russian).
+- **Smart routing.** Routes like Basic (Russian sites direct, the rest through the VPN), plus DPI evasion for Xray protocols over TCP: fragmentation instead of zapret, with the preset tuned on every connect, network change and channel failure, and none at all when the servers open plainly. The protocol is picked by speed, with no TCP priority. Noise before QUIC for Hysteria 2 and TUIC, the LTE mode and MTU tuning work in every mode. Details: [docs/profile.md](docs/profile.md#режим-auto-умная) (in Russian).
 - **List mode** (`main`, in the CLI) splits traffic three ways from the TigerSB profile: blocked sites go through the exit abroad, everything else through the exit in Russia (the ISP sees nothing, sites see a Russian IP), and banks, government services and universities go direct.
 - **Stability.** In Basic and All the protocol is chosen from smoothed measurements without flapping between servers. The channel is checked with two GETs to t.me and YouTube over one connection; two failures in a row reopen the connections to the servers and four restart the core. A network change does not rebuild the tunnel, and with no internet at all the client waits instead of restarting. The MTU (1480, 1460 or 1280) follows how large a packet reaches the server without fragmenting; on mobile data TCP segments are clamped to that path and the operator's NAT is kept open.
 

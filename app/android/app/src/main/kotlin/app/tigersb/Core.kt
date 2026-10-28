@@ -40,8 +40,9 @@ object Core {
         context.applicationContext.getSharedPreferences("tigersb", Context.MODE_PRIVATE)
 
     /**
-     * Routing mode: "auto" (every site checked through all servers), "basic"
-     * (Russian sites direct) or "all" (everything through the VPN).
+     * Routing mode: "auto" (as "basic", plus a DPI evasion preset picked for
+     * the network), "basic" (Russian sites direct) or "all" (everything
+     * through the VPN).
      */
     fun mode(context: Context): String = prefs(context).getString("mode", "auto") ?: "auto"
 

@@ -328,7 +328,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   String get _modeText => switch (_mode) {
-    Mode.auto => 'Каждый сайт — через самый быстрый сервер, который его открывает, иначе напрямую.',
+    Mode.auto => 'Как «Базовая», и обход блокировок DPI подбирается сам под вашу сеть.',
     Mode.basic => 'Российские сайты (.ru, .рф, российские IP) — напрямую, остальное — через VPN.',
     Mode.all => 'Весь трафик — через VPN.',
   };

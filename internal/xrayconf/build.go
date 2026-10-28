@@ -14,9 +14,9 @@ import (
 type Mode string
 
 const (
-	// ModeAuto: every site is checked through all servers and goes through
-	// the fastest that opens it, or direct when none does. Banks and
-	// universities go direct without a check.
+	// ModeAuto routes as ModeBasic and, with Options.Evasion, reaches the
+	// servers through a DPI preset when they do not open plainly (package
+	// steady picks it on every start and network change).
 	ModeAuto Mode = "auto"
 	// ModeBasic: Russian sites (.ru, .рф and Russian IPs), banks and
 	// universities direct, everything else through the VPN.
@@ -48,15 +48,23 @@ const (
 	TagDNS    = "dns-internal"
 	// TagDNSOut answers DNS queries that apps send into the TUN.
 	TagDNSOut = "dns-out"
-	// TagSmart is the per-site picker of ModeAuto (package smart), which the
-	// caller adds to Xray after creating it.
-	TagSmart = "smart"
 )
 
 // PickTag is the outbound that carries a role's traffic when the role has
-// several transports: package steady adds it to Xray and keeps the fastest
-// live transport behind it without flapping between them.
+// several transports, or one with copies through the DPI presets: package
+// steady adds it to Xray and keeps the fastest live transport behind it
+// without flapping between them, through the preset in use.
 func PickTag(role profile.Role) string { return "pick/" + string(role) }
+
+// HasPick reports whether Build routes the role through PickTag: when it has
+// several transports, or with evasion one that has preset copies.
+func HasPick(p *profile.Profile, role profile.Role, evasion bool) bool {
+	items := transports(p, role)
+	if len(items) > 1 {
+		return true
+	}
+	return evasion && len(items) == 1 && variantable(items[0].xray)
+}
 
 // DefaultMTU is the TUN MTU when the caller does not pick one.
 const DefaultMTU = 1500
@@ -81,7 +89,7 @@ type Options struct {
 	// LogFile, when set, gets Xray's log instead of stderr.
 	LogFile string
 	// Evasion adds, in ModeAuto, the DPI presets and the copies of the VPN
-	// outbounds that dial through them (see Presets).
+	// outbounds that dial through them (see Presets and Variants).
 	Evasion bool
 	// NoGeo leaves out the geosite: and geoip: lists, for a start before
 	// geosite.dat and geoip.dat are downloaded: the rest of the routing works.
@@ -131,6 +139,7 @@ func Build(p *profile.Profile, opt Options) ([]byte, error) {
 	var observed []string
 	var all []string
 	targets := map[profile.Role]target{}
+	evasion := opt.Mode == ModeAuto && opt.Evasion
 
 	if opt.Mode != ModeOff {
 		for _, role := range []profile.Role{profile.RoleForeign, profile.RoleRU} {
@@ -139,13 +148,14 @@ func Build(p *profile.Profile, opt Options) ([]byte, error) {
 				return nil, err
 			}
 			all = append(all, tags...)
-			switch len(tags) {
-			case 0:
-			case 1:
-				targets[role] = target{outbound: tags[0]}
-			default:
+			if len(tags) > 1 {
 				observed = append(observed, string(role)+"/")
+			}
+			switch {
+			case HasPick(p, role, evasion):
 				targets[role] = target{outbound: PickTag(role)}
+			case len(tags) == 1:
+				targets[role] = target{outbound: tags[0]}
 			}
 		}
 	}
@@ -170,15 +180,10 @@ func Build(p *profile.Profile, opt Options) ([]byte, error) {
 	if opt.Mode != ModeMain {
 		dnsVia, hasDNSVia = vpn, hasVPN
 	}
-	if opt.Mode == ModeAuto && opt.Evasion && hasVPN {
-		// Encrypted DNS has no name to check: the picker sends it through
-		// the server in use, or its copy through a preset when DPI cuts them.
-		dnsVia = target{outbound: TagSmart}
-	}
 
 	directDomains, directIPs := directLists(p)
 	switch opt.Mode {
-	case ModeBasic:
+	case ModeBasic, ModeAuto:
 		directDomains = append(directDomains, BasicDirectDomains...)
 		directIPs = append(directIPs, BasicDirectIPs...)
 	case ModeAll:
@@ -229,23 +234,6 @@ func Build(p *profile.Profile, opt Options) ([]byte, error) {
 
 	var rest target
 	switch opt.Mode {
-	case ModeAuto:
-		if opt.Evasion && len(all) > 0 {
-			extra, err := evasionOutbounds(p)
-			if err != nil {
-				return nil, err
-			}
-			outbounds = append(outbounds, extra...)
-		}
-		rest = target{outbound: TagSmart}
-		if len(all) == 0 {
-			rest = direct
-		} else if (len(all) > 1 || opt.Evasion) && len(observed) < 2 {
-			// The picker checks the fastest servers first, so all of them are
-			// measured, not only those behind a pick outbound; with evasion
-			// even a single one, to know when DPI cuts it.
-			observed = []string{string(profile.RoleForeign) + "/", string(profile.RoleRU) + "/"}
-		}
 	case ModeMain:
 		if len(blocked.Domains) > 0 {
 			rules = append(rules, foreign.apply(rule{Type: "field", Domain: blocked.Domains, RuleTag: "blocked-domains"}))
@@ -259,12 +247,19 @@ func Build(p *profile.Profile, opt Options) ([]byte, error) {
 			// would never use the VPN, so send everything but the direct list through it.
 			rest = foreign
 		}
-	case ModeBasic, ModeAll:
+	case ModeAuto, ModeBasic, ModeAll:
 		rest = vpn
 	case ModeOff:
 		rest = direct
 	}
 	rules = append(rules, rest.apply(rule{Type: "field", Network: "tcp,udp", RuleTag: "rest"}))
+	if evasion && len(all) > 0 {
+		extra, err := evasionOutbounds(p)
+		if err != nil {
+			return nil, err
+		}
+		outbounds = append(outbounds, extra...)
+	}
 
 	cfg := map[string]any{
 		"log":       logConfig(opt),
@@ -304,9 +299,9 @@ func Build(p *profile.Profile, opt Options) ([]byte, error) {
 }
 
 // Candidates returns the tags of the VPN outbounds Build makes for the
-// profile, foreign exits first, each role best priority first: the servers
-// ModeAuto checks a site through. def are the foreign ones, which carry
-// traffic that has no domain to check; without them all of them.
+// profile, foreign exits first, each role best priority first. def are the
+// foreign ones, which carry the VPN's traffic in every mode but the main
+// one; without them all of them.
 func Candidates(p *profile.Profile) (all, def []string) {
 	for _, role := range []profile.Role{profile.RoleForeign, profile.RoleRU} {
 		for _, it := range transports(p, role) {
@@ -433,18 +428,11 @@ func dnsConfig(mode Mode, blocked, direct []string) map[string]any {
 			servers = append(servers, map[string]any{"address": DoHServer, "domains": blocked, "skipFallback": true})
 		}
 		servers = append(servers, "localhost")
-	case ModeAll, ModeBasic:
+	case ModeAll, ModeBasic, ModeAuto:
 		if len(direct) > 0 {
 			servers = append(servers, map[string]any{"address": "localhost", "domains": direct, "skipFallback": true})
 		}
 		servers = append(servers, DoHServer)
-	case ModeAuto:
-		if len(direct) > 0 {
-			servers = append(servers, map[string]any{"address": "localhost", "domains": direct, "skipFallback": true})
-		}
-		// When no server answers DNS the sites still have to open directly,
-		// so the provider's DNS backs up the encrypted one.
-		servers = append(servers, DoHServer, "localhost")
 	case ModeOff:
 		servers = append(servers, "localhost")
 	}
@@ -506,7 +494,7 @@ func withoutGeo(list []string) []string {
 func GeoData(p *profile.Profile, m Mode) (needed bool, extraIPs []string) {
 	var lists []string
 	switch m {
-	case ModeBasic:
+	case ModeBasic, ModeAuto:
 		return true, BasicDirectIPs
 	case ModeAll:
 		return false, nil

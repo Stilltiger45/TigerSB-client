@@ -204,7 +204,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Подключено'), findsOneWidget);
 
-    expect(find.textContaining('самый быстрый сервер'), findsOneWidget);
+    expect(find.textContaining('обход блокировок DPI'), findsOneWidget);
     await tester.tap(find.text('Базовая'));
     await tester.pumpAndSettle();
     expect(core.currentMode, Mode.basic);

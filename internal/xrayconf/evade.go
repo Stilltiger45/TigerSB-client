@@ -19,9 +19,9 @@ type Preset struct {
 	Noises   []map[string]any
 }
 
-// Presets are what ModeAuto can use when a site or a server does not open
-// plainly, mildest first. Preset k (from 1) is Presets[k-1]; package smart
-// picks the one that works best on the network the phone is on. Each splits
+// Presets are what ModeAuto can use when the servers do not open plainly,
+// mildest first. Preset k (from 1) is Presets[k-1]; package steady picks the
+// one that works best on the network the phone is on, or none. Each splits
 // only the start of a connection into a capped number of pieces (maxSplit):
 // that is enough for DPI and cheap for the phone, while splitting whole
 // packets into tiny segments floods the network.
@@ -49,8 +49,8 @@ var Presets = []Preset{
 	},
 }
 
-// DPITag is the tag of the freedom outbound of preset k: sites that open
-// neither through a server nor plainly go direct through it.
+// DPITag is the tag of the freedom outbound of preset k, which the copies of
+// the VPN outbounds dial their servers through.
 func DPITag(k int) string { return "dpi/" + strconv.Itoa(k) }
 
 // VariantTag is the tag of a copy of the VPN outbound tag that reaches its
