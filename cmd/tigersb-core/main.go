@@ -23,7 +23,6 @@ import (
 	"github.com/Stilltiger45/TigerSB-client/internal/geodata"
 	"github.com/Stilltiger45/TigerSB-client/internal/mieru"
 	"github.com/Stilltiger45/TigerSB-client/internal/naive"
-	"github.com/Stilltiger45/TigerSB-client/internal/smart"
 	"github.com/Stilltiger45/TigerSB-client/internal/steady"
 	"github.com/Stilltiger45/TigerSB-client/internal/subscription"
 	"github.com/Stilltiger45/TigerSB-client/internal/tuic"
@@ -179,7 +178,7 @@ type runFlags struct {
 func addRunFlags(fs *flag.FlagSet) runFlags {
 	return runFlags{
 		dir:    stateDirFlag(fs),
-		mode:   fs.String("mode", string(xrayconf.ModeAuto), "режим: auto, basic, main, all или off"),
+		mode:   fs.String("mode", string(xrayconf.ModeAuto), "режим: auto (умная), basic, main, all или off"),
 		socks:  fs.String("socks", "127.0.0.1:10808", "адрес локального SOCKS5 (пусто — не открывать)"),
 		http:   fs.String("http", "127.0.0.1:10809", "адрес локального HTTP-прокси (пусто — не открывать)"),
 		assets: fs.String("assets", "", "каталог с geosite.dat и geoip.dat (по умолчанию скачиваются в каталог состояния)"),
@@ -252,7 +251,7 @@ func cmdRun(args []string) error {
 	if err := engine.SetAssetDir(assets); err != nil {
 		return err
 	}
-	inst, err := engine.Start(cfg, slices.Concat(tuic.Hooks(p, xrayconf.QUICNoise), mieru.Hooks(p), naive.Hooks(p), steady.Hooks(p), smart.Hooks(p, mode, nil))...)
+	inst, err := engine.Start(cfg, slices.Concat(tuic.Hooks(p, xrayconf.QUICNoise), mieru.Hooks(p), naive.Hooks(p), steady.Hooks(p, false, 0))...)
 	if err != nil {
 		return err
 	}

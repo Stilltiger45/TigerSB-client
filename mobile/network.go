@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/Stilltiger45/TigerSB-client/internal/engine"
-	"github.com/Stilltiger45/TigerSB-client/internal/smart"
 	"github.com/Stilltiger45/TigerSB-client/internal/steady"
 )
 
@@ -19,10 +18,10 @@ import (
 
 // SwitchNetwork moves the running VPN to the network the phone switched to:
 // transport is its kind, as for SetNetwork. Call PickMTU for that network
-// first. The old network's connections are closed, the transports and the
-// sites are checked again, and the smart mode takes the DPI preset that
-// worked last on this kind of network and tunes it again. It returns how many
-// connections were closed.
+// first. The old network's connections are closed, the transports are
+// checked again, and the smart mode takes the DPI preset that worked last on
+// this kind of network and tunes it again. It returns how many connections
+// were closed.
 func SwitchNetwork(transport string) int {
 	mu.Lock()
 	i := inst
@@ -33,22 +32,19 @@ func SwitchNetwork(transport string) int {
 	if i == nil {
 		return n
 	}
-	steady.Renew(i)
-	preset := 0
 	if changed {
-		preset = savedPresets()[transport]
+		steady.SetPreset(i, savedPresets()[transport])
 	}
-	smart.Renew(i, preset)
+	steady.Renew(i)
 	go tune(i, transport)
 	return n
 }
 
 // ResetConnections closes the running VPN's connections to the network and
-// has the transports and the sites checked again, for a channel that comes
+// has the transports checked again, for a channel that comes
 // back after an outage on the same network or that DPI started to cut: the
-// apps' connections stuck on the dead ones reconnect at once, the sites the
-// smart mode sent directly while no server answered go through the servers
-// again, and the smart mode tunes its DPI preset again. It returns how many
+// apps' connections stuck on the dead ones reconnect at once, and the smart
+// mode tunes its DPI preset again. It returns how many
 // connections were closed.
 func ResetConnections() int {
 	n := engine.CloseConnections()
@@ -57,7 +53,6 @@ func ResetConnections() int {
 	mu.Unlock()
 	if i != nil {
 		steady.Renew(i)
-		smart.Renew(i, 0)
 		go tune(i, kind)
 	}
 	return n

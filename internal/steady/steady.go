@@ -5,6 +5,10 @@
 // transport is left only for a clearly faster one, and the one in use is
 // checked more often so a dead server is left within seconds.
 //
+// With evasion (the smart mode) the picker also reaches the servers through
+// a DPI preset when they do not open plainly: Tune picks the preset, or none,
+// on every start and network change.
+//
 // The picker is an Xray outbound handler with the tag xrayconf.PickTag(role).
 package steady
 
@@ -13,6 +17,7 @@ import (
 	stderrors "errors"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/xtls/xray-core/app/observatory"
@@ -37,6 +42,10 @@ type Options struct {
 	// Tags are the transports, best priority first. The first carries
 	// traffic until the observatory has measured them.
 	Tags []string
+	// Variants are those of Tags with a copy per DPI preset
+	// (xrayconf.VariantTag); Preset is the preset to start with, 0 for none.
+	Variants []string
+	Preset   int
 	// ProbeURL is what the checks request through an exit in Russia; through
 	// a server abroad they request meter.ChannelURLs (see meter.CheckURLs).
 	ProbeURL string
@@ -46,17 +55,29 @@ type Options struct {
 	Check, Recheck, Down time.Duration
 }
 
-// Hooks returns the engine.Start hooks that add a picker for every role with
-// several transports.
-func Hooks(p *profile.Profile) []func(*core.Instance) error {
+// Hooks returns the engine.Start hooks that add a picker for every role
+// xrayconf.Build routes through one (xrayconf.HasPick). With evasion, as
+// Build's Options.Evasion, the pickers start with preset (0 for none).
+func Hooks(p *profile.Profile, evasion bool, preset int) []func(*core.Instance) error {
 	probe := ""
 	if p.Probe != nil {
 		probe = p.Probe.URL
 	}
+	var variants []string
+	if evasion {
+		variants = xrayconf.Variants(p)
+	}
 	var hooks []func(*core.Instance) error
 	for _, role := range []profile.Role{profile.RoleForeign, profile.RoleRU} {
-		if tags := xrayconf.Transports(p, role); len(tags) > 1 {
-			opt := Options{Tag: xrayconf.PickTag(role), Tags: tags, ProbeURL: probe}
+		if xrayconf.HasPick(p, role, evasion) {
+			tags := xrayconf.Transports(p, role)
+			opt := Options{
+				Tag:      xrayconf.PickTag(role),
+				Tags:     tags,
+				ProbeURL: probe,
+				Variants: slices.DeleteFunc(slices.Clone(variants), func(t string) bool { return !slices.Contains(tags, t) }),
+				Preset:   preset,
+			}
 			hooks = append(hooks, func(inst *core.Instance) error { return Attach(inst, opt) })
 		}
 	}
@@ -79,6 +100,9 @@ func Attach(inst *core.Instance, opt Options) error {
 		return stderrors.New("в ядре Xray нет менеджера исходящих")
 	}
 	obs, _ := inst.GetFeature(extension.ObservatoryType()).(extension.Observatory)
+	if opt.Preset < 0 || opt.Preset > len(xrayconf.Presets) || len(opt.Variants) == 0 {
+		opt.Preset = 0
+	}
 	h := &Handler{
 		opt:   opt,
 		inst:  inst,
@@ -90,20 +114,37 @@ func Attach(inst *core.Instance, opt Options) error {
 		down:  map[string]time.Time{},
 		stop:  make(chan struct{}),
 	}
+	h.preset.Store(int32(opt.Preset))
 	return ohm.AddHandler(context.Background(), h)
 }
 
-// Current returns the transport the picker with the tag uses now, or "" when
-// the instance has no such picker.
+// Current returns the outbound the picker with the tag sends traffic
+// through now (a transport, or its copy through the preset in use), or ""
+// when the instance has no such picker.
 func Current(inst *core.Instance, tag string) string {
 	ohm, _ := inst.GetFeature(outbound.ManagerType()).(outbound.Manager)
 	if ohm == nil {
 		return ""
 	}
 	if h, ok := ohm.GetHandler(tag).(*Handler); ok {
-		return h.Current()
+		return h.via(h.Current())
 	}
 	return ""
+}
+
+// pickers returns the pickers of the instance.
+func pickers(inst *core.Instance) []*Handler {
+	ohm, _ := inst.GetFeature(outbound.ManagerType()).(outbound.Manager)
+	if ohm == nil {
+		return nil
+	}
+	var out []*Handler
+	for _, oh := range ohm.ListHandlers(context.Background()) {
+		if h, ok := oh.(*Handler); ok {
+			out = append(out, h)
+		}
+	}
+	return out
 }
 
 // Renew makes the pickers of the instance start over on a new network: what
@@ -111,21 +152,19 @@ func Current(inst *core.Instance, tag string) string {
 // UDP transport may have failed that works here. Every transport is checked
 // again at once.
 func Renew(inst *core.Instance) {
-	ohm, _ := inst.GetFeature(outbound.ManagerType()).(outbound.Manager)
-	if ohm == nil {
-		return
+	for _, h := range pickers(inst) {
+		h.renew()
 	}
-	for _, oh := range ohm.ListHandlers(context.Background()) {
-		if h, ok := oh.(*Handler); ok {
-			h.mu.Lock()
-			clear(h.alive)
-			clear(h.rtt)
-			clear(h.down)
-			h.fails, h.measured = 0, false
-			h.mu.Unlock()
-			go h.prime()
-		}
-	}
+}
+
+func (h *Handler) renew() {
+	h.mu.Lock()
+	clear(h.alive)
+	clear(h.rtt)
+	clear(h.down)
+	h.fails, h.measured = 0, false
+	h.mu.Unlock()
+	go h.prime()
 }
 
 // Handler is the picker. It implements Xray's outbound.Handler.
@@ -134,6 +173,9 @@ type Handler struct {
 	inst *core.Instance
 	ohm  outbound.Manager
 	obs  extension.Observatory
+
+	// preset is the DPI preset the variants go through, 0 for none.
+	preset atomic.Int32
 
 	mu       sync.Mutex
 	cur      string
@@ -158,6 +200,15 @@ func (h *Handler) Start() error {
 	return nil
 }
 
+// via returns the outbound that carries the transport t now: its copy
+// through the preset in use, or t itself.
+func (h *Handler) via(t string) string {
+	if k := int(h.preset.Load()); k > 0 && slices.Contains(h.opt.Variants, t) {
+		return xrayconf.VariantTag(k, t)
+	}
+	return t
+}
+
 // prime checks every transport at once right after the start, so the first
 // connections do not wait for the observatory's round on a transport that
 // may be dead, as a UDP one often is on mobile networks.
@@ -165,7 +216,7 @@ func (h *Handler) prime() {
 	var wg sync.WaitGroup
 	for _, t := range h.opt.Tags {
 		wg.Go(func() {
-			d := meter.Check(h.inst, t, meter.CheckURLs(t, h.opt.ProbeURL), 5*time.Second)
+			d := meter.Check(h.inst, h.via(t), meter.CheckURLs(t, h.opt.ProbeURL), 5*time.Second)
 			select {
 			case <-h.stop:
 				return
@@ -192,7 +243,7 @@ func (h *Handler) Close() error {
 
 // Dispatch hands the connection to the transport in use.
 func (h *Handler) Dispatch(ctx context.Context, link *transport.Link) {
-	tag := h.Current()
+	tag := h.via(h.Current())
 	handler := h.ohm.GetHandler(tag)
 	if handler == nil {
 		errors.LogWarning(ctx, "steady: no outbound ", tag)
@@ -241,10 +292,15 @@ func (h *Handler) observe() []*observatory.OutboundStatus {
 // smoothing is the weight of a new delay in the running average.
 const smoothing = 0.4
 
-// fold adds the observatory's new probes to the smoothed delays.
+// fold adds the observatory's new probes to the smoothed delays. The
+// observatory checks the transports plainly, so its verdict on those that go
+// through a DPI preset now does not count: the picker's own checks do.
 func (h *Handler) fold(st []*observatory.OutboundStatus) {
 	for _, s := range st {
 		if !slices.Contains(h.opt.Tags, s.OutboundTag) || h.seen[s.OutboundTag] == s.LastTryTime {
+			continue
+		}
+		if h.via(s.OutboundTag) != s.OutboundTag {
 			continue
 		}
 		h.seen[s.OutboundTag] = s.LastTryTime
@@ -284,7 +340,7 @@ func (h *Handler) watch() {
 		case <-time.After(wait):
 		}
 		cur := h.Current()
-		ok := meter.Check(h.inst, cur, meter.CheckURLs(cur, h.opt.ProbeURL), 5*time.Second) >= 0
+		ok := meter.Check(h.inst, h.via(cur), meter.CheckURLs(cur, h.opt.ProbeURL), 5*time.Second) >= 0
 		wait = h.opt.Check
 		h.mu.Lock()
 		if cur == h.cur {

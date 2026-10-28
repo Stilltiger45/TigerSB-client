@@ -24,8 +24,7 @@ class ProfileInfo {
   final String name;
   final bool hasRU;
 
-  /// The profile has lists of blocked sites, so the smart mode differs from
-  /// sending everything through the VPN.
+  /// The profile has lists of blocked sites.
   final bool hasLists;
 
   /// Another VPN's subscription rather than a TigerSB panel.

@@ -27,7 +27,6 @@ import (
 	"github.com/Stilltiger45/TigerSB-client/internal/mieru"
 	"github.com/Stilltiger45/TigerSB-client/internal/naive"
 	"github.com/Stilltiger45/TigerSB-client/internal/netauto"
-	"github.com/Stilltiger45/TigerSB-client/internal/smart"
 	"github.com/Stilltiger45/TigerSB-client/internal/steady"
 	"github.com/Stilltiger45/TigerSB-client/internal/subscription"
 	"github.com/Stilltiger45/TigerSB-client/internal/tuic"
@@ -135,15 +134,15 @@ func Start(fd int, mode string, mtu int) error {
 		}
 	}
 	trim(filepath.Join(dataDir, xrayLog))
-	var ev *smart.Evasion
-	if m == xrayconf.ModeAuto {
-		ev = smart.NewEvasion(p, savedPresets()[network])
-	}
+	// The smart mode reaches the servers through a DPI preset when they do
+	// not open plainly: the one that worked last on this kind of network
+	// until tune checks again.
+	evasion := m == xrayconf.ModeAuto
 	cfg, err := xrayconf.Build(p, xrayconf.Options{
 		Mode:     m,
 		Inbounds: []xrayconf.Inbound{{Tag: "tun-in", Protocol: "tun", MTU: mtu}},
 		LogFile:  filepath.Join(dataDir, xrayLog),
-		Evasion:  ev != nil,
+		Evasion:  evasion,
 		NoGeo:    noGeo,
 	})
 	if err != nil {
@@ -153,12 +152,12 @@ func Start(fd int, mode string, mtu int) error {
 	if err := os.Setenv("XRAY_TUN_FD", strconv.Itoa(fd)); err != nil {
 		return err
 	}
-	i, err := engine.Start(cfg, slices.Concat(tuic.Hooks(p, xrayconf.QUICNoise), mieru.Hooks(p), naive.Hooks(p), steady.Hooks(p), smart.Hooks(p, m, ev))...)
+	i, err := engine.Start(cfg, slices.Concat(tuic.Hooks(p, xrayconf.QUICNoise), mieru.Hooks(p), naive.Hooks(p), steady.Hooks(p, evasion, savedPresets()[network]))...)
 	if err != nil {
 		return err
 	}
 	inst = i
-	if ev != nil {
+	if evasion {
 		go tune(i, network)
 	}
 	if noGeo {
@@ -167,6 +166,14 @@ func Start(fd int, mode string, mtu int) error {
 		inBackground(func() { fetchLists(i, p, 0, need) })
 	}
 	vpnTags, pingTags = xrayconf.Candidates(p)
+	if evasion {
+		// Traffic through the preset copies counts as the servers' own.
+		for _, t := range xrayconf.Variants(p) {
+			for k := range len(xrayconf.Presets) {
+				vpnTags = append(vpnTags, xrayconf.VariantTag(k+1, t))
+			}
+		}
+	}
 	protocols = xrayconf.Protocols(p)
 	probeURL = ""
 	if p.Probe != nil {
@@ -217,13 +224,10 @@ func Healthy() bool {
 	return meter.Check(i, tag, meter.CheckURLs(xrayconf.BaseTag(tag), url), 5*time.Second) >= 0
 }
 
-// inUse returns the outbound most traffic goes through now: the smart
-// picker's choice for traffic without a domain, the transport a pick
-// outbound keeps, or the fastest of def.
+// inUse returns the outbound most traffic goes through now: the transport
+// a pick outbound keeps (or its copy through a DPI preset), or the fastest of
+// def.
 func inUse(i *core.Instance, def []string) string {
-	if t := smart.InUse(i); t != "" {
-		return t
-	}
 	for _, role := range []profile.Role{profile.RoleForeign, profile.RoleRU} {
 		if t := steady.Current(i, xrayconf.PickTag(role)); t != "" {
 			return t
@@ -317,7 +321,7 @@ func SetNetwork(transport string) {
 // result in the journal and remembers it for the next start there.
 func tune(i *core.Instance, kind string) {
 	tuneMu.Lock()
-	res, err := smart.Tune(i, 8*time.Second)
+	res, err := steady.Tune(i, 8*time.Second)
 	tuneMu.Unlock()
 	mu.Lock()
 	defer mu.Unlock()

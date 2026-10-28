@@ -32,7 +32,7 @@ func SetAssetDir(dir string) error {
 
 // Start builds the config and starts Xray. Close the instance to stop it.
 // setup hooks run on the created instance before it starts, to add what a
-// JSON config cannot describe, such as the per-site picker.
+// JSON config cannot describe, such as the transport picker.
 func Start(config []byte, setup ...func(*core.Instance) error) (*core.Instance, error) {
 	cfg, err := Load(config)
 	if err != nil {

@@ -14,7 +14,7 @@ import (
 
 	"github.com/Stilltiger45/TigerSB-client/internal/certpin"
 	"github.com/Stilltiger45/TigerSB-client/internal/engine"
-	"github.com/Stilltiger45/TigerSB-client/internal/smart"
+	"github.com/Stilltiger45/TigerSB-client/internal/steady"
 	"github.com/Stilltiger45/TigerSB-client/internal/tuic"
 	"github.com/Stilltiger45/TigerSB-client/internal/xrayconf"
 	"github.com/Stilltiger45/TigerSB-client/pkg/profile"
@@ -58,11 +58,7 @@ func client(t *testing.T, p *profile.Profile, mode xrayconf.Mode, noise bool) *c
 	if noise {
 		n = xrayconf.QUICNoise
 	}
-	var ev *smart.Evasion
-	if auto {
-		ev = smart.NewEvasion(p, 3)
-	}
-	inst, err := engine.Start(cfg, append(tuic.Hooks(p, n), smart.Hooks(p, mode, ev)...)...)
+	inst, err := engine.Start(cfg, append(tuic.Hooks(p, n), steady.Hooks(p, auto, 3)...)...)
 	if err != nil {
 		t.Fatal(err)
 	}
