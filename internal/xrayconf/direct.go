@@ -18,8 +18,10 @@ var BuiltinDirectDomains = []string{
 }
 
 // ShieldDomains are services that must never see the tunnel: MAX, VK,
-// Yandex, banks and government services. They watch for VPNs, and some
-// refuse to work behind one. They always go direct, in every mode, and the
+// Yandex, banks, government services, marketplaces and the mobile and home
+// internet operators. They watch for VPNs, and some refuse to work behind one
+// or work worse (prices, delivery and the operators' own pages go by the
+// Russian address). They always go direct, in every mode, and the
 // panel cannot turn this off. ShieldApps are their Android apps, which are
 // left out of the VPN altogether.
 var ShieldDomains = []string{
@@ -50,6 +52,20 @@ var ShieldDomains = []string{
 	// Government services.
 	"domain:gosuslugi.ru", "domain:gu-st.ru", "domain:gov.ru", "domain:nalog.ru",
 	"domain:mos.ru", "domain:emias.info", "domain:pochta.ru", "domain:rzd.ru",
+	// Marketplaces and online stores.
+	"domain:ozon.ru", "domain:ozone.ru", "domain:ozon.travel",
+	"domain:wildberries.ru", "domain:wb.ru", "domain:wbbasket.ru", "domain:wbstatic.net",
+	"domain:avito.ru", "domain:avito.st", "domain:youla.ru",
+	"domain:megamarket.ru", "domain:sbermegamarket.ru", "domain:megamarket.tech",
+	"domain:lamoda.ru", "domain:lmcdn.ru", "domain:aliexpress.ru",
+	"domain:kuper.ru", "domain:sbermarket.ru", "domain:samokat.ru",
+	"domain:dns-shop.ru", "domain:mvideo.ru", "domain:eldorado.ru", "domain:citilink.ru",
+	"domain:detmir.ru", "domain:goldapple.ru", "domain:letu.ru",
+	// Mobile and home internet operators.
+	"domain:mts.ru", "domain:kion.ru", "domain:beeline.ru", "domain:megafon.ru",
+	"domain:t2.ru", "domain:tele2.ru", "domain:yota.ru", "domain:sbermobile.ru",
+	"domain:rt.ru", "domain:rostelecom.ru", "domain:wink.ru",
+	"domain:dom.ru", "domain:domru.ru", "domain:movix.ru", "domain:mgts.ru", "domain:ttk.ru",
 }
 
 // ShieldApps are the Android packages of ShieldDomains' services. Packages
@@ -75,6 +91,16 @@ var ShieldApps = []string{
 	// Government services.
 	"ru.rostel", "ru.gosuslugi.goskey", "ru.fns.lkfl", "ru.altarix.mos.pgu",
 	"ru.russianpost.mobileapp", "ru.emias.app", "ru.rzd.pass",
+	// Marketplaces and online stores.
+	"ru.ozon.app.android", "travel.ozon.mobile", "com.wildberries.ru", "com.avito.android",
+	"com.allgoritm.youla", "ru.megamarket.marketplace", "com.lamoda.lite",
+	"com.alibaba.aliexpresshd", "ru.instamart", "ru.sbcs.store", "com.yandex.lavka",
+	"ru.dns.shop.android", "ru.filit.mvideo.b2c", "ru.mvm.eldo", "ru.citilink",
+	"ru.detmir.dmbonus", "goldapple.ru.goldapple.customers", "ru.letu",
+	// Mobile and home internet operators.
+	"ru.mts.mymts", "ru.mts.mtstv", "ru.beeline.services", "ru.megafon.mlk",
+	"ru.tele2.mytele2", "ru.yota.android", "com.dartit.RTcabinet", "ru.onlime.my.app",
+	"ru.rt.video.app.mobile", "com.ertelecom.agent", "com.ertelecom.domrutv",
 }
 
 // ForeignOnlyDomains are services that refuse Russian users: AI chats and
