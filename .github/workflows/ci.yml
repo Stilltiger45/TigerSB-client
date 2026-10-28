@@ -11,6 +11,8 @@ permissions:
 jobs:
   go:
     strategy:
+      # One system failing should not hide what the other found.
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.os }}
@@ -27,8 +29,10 @@ jobs:
         shell: bash
         run: |
           # Failed tests also go to the annotations, readable without the log.
-          go test ./... 2>&1 | tee test.log
-          status=${PIPESTATUS[0]}
+          # Actions runs bash with -e and pipefail, so the status is caught
+          # here rather than ending the step before the annotations.
+          status=0
+          go test ./... 2>&1 | tee test.log || status=$?
           if [ "$status" != 0 ]; then
             # Errors before any test ran (the go tool, a test binary that
             # did not start) have none of these marks: then the log's tail.
