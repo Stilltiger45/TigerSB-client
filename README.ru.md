@@ -45,7 +45,7 @@
 3. **Добавьте ключ** одним из способов:
    - откройте ссылку `tigersb://…` из Telegram, почты или панели — приложение откроется с уже вставленным ключом;
    - отсканируйте QR-код;
-   - вставьте ключ вручную: подойдут `tigersb://`, ссылка на подписку `https://` или ссылки `vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://`, `tuic://`.
+   - вставьте ключ вручную: подойдут `tigersb://`, ссылка на подписку `https://` или ссылки `vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://`, `tuic://`, `mierus://`, `mieru://`, `naive+https://`.
 4. **Нажмите кнопку подключения.** Всё.
 
 Ключ выдаёт тот, кто держит сервер: в [TigerSB-panel](https://github.com/Stilltiger45/TigerSB-panel) он на вкладке «Пользователи». Приложение обновляется само: меню справа → «Проверить обновление».
@@ -73,12 +73,14 @@
 |---|---|---|
 | [Xray-core](https://github.com/XTLS/Xray-core) 26.3.27 | ядро VPN: VLESS (Reality, XHTTP, gRPC), VMess, Trojan, Shadowsocks, Hysteria 2; маршрутизация, балансировщик, замер задержки | MPL-2.0 |
 | [sing-quic](https://github.com/SagerNet/sing-quic) из sing-box | протокол TUIC v5, встроен в Xray как обычный исходящий | GPL-3.0 |
+| [mieru](https://github.com/enfein/mieru) | клиент Mieru (TCP и UDP), встроен в Xray как обычный исходящий | GPL-3.0 |
+| свой код (`internal/naive`) | клиент NaïveProxy: HTTP/2 CONNECT с отбивкой поверх TLS с отпечатком Chrome, встроен в Xray как обычный исходящий | GPL-3.0 |
 | [gVisor](https://gvisor.dev) | сетевой стек системного VPN (TUN) | Apache-2.0 |
 | [Go](https://go.dev) 1.26 и gomobile | ядро клиента, консольная утилита `tigersb-core`, библиотека для Android | BSD-3-Clause |
 | [Flutter](https://flutter.dev) 3.47 и Dart | интерфейс приложения | BSD-3-Clause |
 | [Kotlin](https://kotlinlang.org) 2.4 | системный VPN Android (VpnService), слежение за сетью, Keystore | Apache-2.0 |
 
-Код по папкам: `pkg/profile` — формат профиля и ключа (его же использует панель), `internal/` — ядро (подписки, сборка конфига Xray, умная маршрутизация, TUIC, замеры, автонастройка сети), `mobile/` — API для Android через gomobile, `app/` — приложение на Flutter и Kotlin, `cmd/tigersb-core` — консольная утилита.
+Код по папкам: `pkg/profile` — формат профиля и ключа (его же использует панель), `internal/` — ядро (подписки, сборка конфига Xray, умная маршрутизация, TUIC, Mieru и NaïveProxy, замеры, автонастройка сети), `mobile/` — API для Android через gomobile, `app/` — приложение на Flutter и Kotlin, `cmd/tigersb-core` — консольная утилита.
 
 ## Как это работает
 
@@ -102,7 +104,7 @@
 ```bash
 go build -o tigersb-core ./cmd/tigersb-core
 
-./tigersb-core import 'tigersb://add?url=...&pk=...'   # или https://…, vless://…, hysteria2://…, tuic://…
+./tigersb-core import 'tigersb://add?url=...&pk=...'   # или https://…, vless://…, hysteria2://…, tuic://…, mierus://…, naive+https://…
 ./tigersb-core run                                     # SOCKS5 127.0.0.1:10808, HTTP 127.0.0.1:10809
 ```
 

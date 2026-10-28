@@ -9,9 +9,10 @@ TigerSB-client распространяется под GPL-3.0 (см. [LICENSE](
 | github.com/andybalholm/brotli | v1.0.6 | MIT |
 | github.com/apernet/quic-go | v0.59.1-0.20260217092621-db4786c77a22 | MIT |
 | github.com/cloudflare/circl | v1.6.3 | BSD |
+| github.com/enfein/mieru/v3 | v3.39.0 | GPL-3.0 |
 | github.com/ghodss/yaml | v1.0.1-0.20220118164431-d8423dcdf344 | MIT |
 | github.com/gofrs/uuid/v5 | v5.5.1 | MIT |
-| github.com/google/btree | v1.1.2 | Apache-2.0 |
+| github.com/google/btree | v1.1.3 | Apache-2.0 |
 | github.com/gorilla/websocket | v1.5.3 | BSD |
 | github.com/juju/ratelimit | v1.0.2 | LGPL |
 | github.com/klauspost/compress | v1.17.9 | Apache-2.0 |

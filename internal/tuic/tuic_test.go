@@ -235,7 +235,7 @@ func testSelfSigned(t *testing.T, relay string) {
 	}
 	inst, socks, udp := start(t, p)
 
-	got, err := get(t, socks, site.URL)
+	got, err := get(t, socks, viaName(site))
 	if err != nil || got != "через tuic" {
 		t.Fatalf("TCP: got %q, %v", got, err)
 	}
@@ -302,7 +302,7 @@ func TestTUICAfterNetworkChange(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, socks, _ := start(t, p)
-	if got, err := get(t, socks, site.URL); err != nil || got != "через tuic" {
+	if got, err := get(t, socks, viaName(site)); err != nil || got != "через tuic" {
 		t.Fatalf("before: got %q, %v", got, err)
 	}
 	if n := engine.CloseConnections(); n == 0 {
@@ -310,7 +310,7 @@ func TestTUICAfterNetworkChange(t *testing.T) {
 	}
 	var got string
 	for range 3 {
-		if got, err = get(t, socks, site.URL); err == nil {
+		if got, err = get(t, socks, viaName(site)); err == nil {
 			break
 		}
 		time.Sleep(500 * time.Millisecond)
@@ -318,4 +318,11 @@ func TestTUICAfterNetworkChange(t *testing.T) {
 	if got != "через tuic" {
 		t.Fatalf("after: got %q, %v", got, err)
 	}
+}
+
+// viaName is the site's URL by the name localhost: by its address
+// 127.0.0.1 it would go direct, as the client sends addresses of the
+// device's own network.
+func viaName(s *httptest.Server) string {
+	return strings.Replace(s.URL, "127.0.0.1", "localhost", 1)
 }

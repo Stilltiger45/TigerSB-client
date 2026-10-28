@@ -47,7 +47,7 @@
 3. **Add a key** in any of these ways:
    - open a `tigersb://…` link from Telegram, email or the panel, and the app opens with the key already filled in;
    - scan a QR code;
-   - paste the key by hand: `tigersb://`, an `https://` subscription link, or `vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://`, `tuic://` links.
+   - paste the key by hand: `tigersb://`, an `https://` subscription link, or `vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://`, `tuic://`, `mierus://`, `mieru://`, `naive+https://` links.
 4. **Press the connect button.** That's it.
 
 The key comes from whoever runs the server: in [TigerSB-panel](https://github.com/Stilltiger45/TigerSB-panel) it is on the Users tab. The app updates itself: menu on the right → «Проверить обновление» (Check for update).
@@ -75,12 +75,14 @@ A Windows app on the same core is the next stage.
 |---|---|---|
 | [Xray-core](https://github.com/XTLS/Xray-core) 26.3.27 | VPN core: VLESS (Reality, XHTTP, gRPC), VMess, Trojan, Shadowsocks, Hysteria 2; routing, balancer, latency tests | MPL-2.0 |
 | [sing-quic](https://github.com/SagerNet/sing-quic) from sing-box | TUIC v5, plugged into Xray as a regular outbound | GPL-3.0 |
+| [mieru](https://github.com/enfein/mieru) | Mieru client (TCP and UDP), plugged into Xray as a regular outbound | GPL-3.0 |
+| own code (`internal/naive`) | NaïveProxy client: HTTP/2 CONNECT with padding over TLS with Chrome's fingerprint, plugged into Xray as a regular outbound | GPL-3.0 |
 | [gVisor](https://gvisor.dev) | network stack for the system VPN (TUN) | Apache-2.0 |
 | [Go](https://go.dev) 1.26 and gomobile | client core, the `tigersb-core` CLI, Android library | BSD-3-Clause |
 | [Flutter](https://flutter.dev) 3.47 and Dart | app interface | BSD-3-Clause |
 | [Kotlin](https://kotlinlang.org) 2.4 | Android system VPN (VpnService), network watcher, Keystore | Apache-2.0 |
 
-Code layout: `pkg/profile` is the profile and key format (the panel uses it too), `internal/` is the core (subscriptions, Xray config builder, smart routing, TUIC, meters, network auto-tuning), `mobile/` is the gomobile API for Android, `app/` is the Flutter and Kotlin app, `cmd/tigersb-core` is the CLI.
+Code layout: `pkg/profile` is the profile and key format (the panel uses it too), `internal/` is the core (subscriptions, Xray config builder, smart routing, TUIC, Mieru and NaïveProxy, meters, network auto-tuning), `mobile/` is the gomobile API for Android, `app/` is the Flutter and Kotlin app, `cmd/tigersb-core` is the CLI.
 
 ## How it works
 
@@ -104,7 +106,7 @@ Code layout: `pkg/profile` is the profile and key format (the panel uses it too)
 ```bash
 go build -o tigersb-core ./cmd/tigersb-core
 
-./tigersb-core import 'tigersb://add?url=...&pk=...'   # or https://…, vless://…, hysteria2://…, tuic://…
+./tigersb-core import 'tigersb://add?url=...&pk=...'   # or https://…, vless://…, hysteria2://…, tuic://…, mierus://…, naive+https://…
 ./tigersb-core run                                     # SOCKS5 127.0.0.1:10808, HTTP 127.0.0.1:10809
 ```
 

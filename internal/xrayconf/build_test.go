@@ -563,3 +563,37 @@ func TestQUICNoise(t *testing.T) {
 		t.Errorf("all mode masks %v, want noise then salamander", got)
 	}
 }
+
+// TestCarried checks that the protocols Xray does not have are left out of
+// its config but listed for their packages, and that only mieru over UDP
+// counts as UDP.
+func TestCarried(t *testing.T) {
+	p, _, err := profile.FromLinks("mix", []string{
+		"vless://5783a3e7-e373-51cd-8642-c83782b807c5@203.0.113.1:443?security=none#tcp",
+		"tuic://5783a3e7-e373-51cd-8642-c83782b807c5:pw@203.0.113.1:8444?sni=tuic.example.org#tuic",
+		"mierus://u:pw@203.0.113.1?port=6666&protocol=TCP#mieru-tcp",
+		"mierus://u:pw@203.0.113.1?port=6667&protocol=UDP#mieru-udp",
+		"naive+https://u:pw@naive.example.org#naive",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for protocol, n := range map[string]int{"tuic": 1, "mieru": 2, "naive": 1} {
+		if got := xrayconf.Carried(p, protocol); len(got) != n {
+			t.Errorf("%s: %d carried, want %d", protocol, len(got), n)
+		}
+	}
+	b, _ := buildOpt(t, p, xrayconf.Options{Mode: xrayconf.ModeAll, Evasion: true})
+	for _, o := range b.Outbounds {
+		if o.Protocol == "tuic" || o.Protocol == "mieru" || o.Protocol == "naive" {
+			t.Errorf("%s outbound %s left in the Xray config", o.Protocol, o.Tag)
+		}
+	}
+	// The transports are s1 to s5 in the order of the links.
+	if udp := xrayconf.UDPTransports(p); !slices.Equal(udp, []string{"foreign/sub/s2", "foreign/sub/s4"}) {
+		t.Errorf("over UDP: %v, want TUIC and mieru over UDP", udp)
+	}
+	if v := xrayconf.Variants(p); !slices.Equal(v, []string{"foreign/sub/s1"}) {
+		t.Errorf("copies through the presets for %v, want only VLESS", v)
+	}
+}

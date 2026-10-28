@@ -24,6 +24,8 @@ import (
 	"github.com/Stilltiger45/TigerSB-client/internal/engine"
 	"github.com/Stilltiger45/TigerSB-client/internal/geodata"
 	"github.com/Stilltiger45/TigerSB-client/internal/meter"
+	"github.com/Stilltiger45/TigerSB-client/internal/mieru"
+	"github.com/Stilltiger45/TigerSB-client/internal/naive"
 	"github.com/Stilltiger45/TigerSB-client/internal/netauto"
 	"github.com/Stilltiger45/TigerSB-client/internal/smart"
 	"github.com/Stilltiger45/TigerSB-client/internal/steady"
@@ -151,7 +153,7 @@ func Start(fd int, mode string, mtu int) error {
 	if err := os.Setenv("XRAY_TUN_FD", strconv.Itoa(fd)); err != nil {
 		return err
 	}
-	i, err := engine.Start(cfg, slices.Concat(tuic.Hooks(p, xrayconf.QUICNoise), steady.Hooks(p), smart.Hooks(p, m, ev))...)
+	i, err := engine.Start(cfg, slices.Concat(tuic.Hooks(p, xrayconf.QUICNoise), mieru.Hooks(p), naive.Hooks(p), steady.Hooks(p), smart.Hooks(p, m, ev))...)
 	if err != nil {
 		return err
 	}

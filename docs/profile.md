@@ -12,7 +12,7 @@
 |---|---|
 | `tigersb://add?url=<адрес подписки>&pk=<публичный ключ>&name=<имя>` | скачивает профиль и принимает только подпись этим ключом |
 | `https://…` | если по адресу панель TigerSB — скачивает профиль и запоминает ключ первой подписи (доверие при первом подключении). Если это подписка другого VPN — читает из неё список серверов (см. ниже) |
-| `vless://…`, `vmess://…`, `trojan://…`, `ss://…`, `hysteria2://…` (или `hy2://…`), `tuic://…` | собирает профиль из одной ссылки, без подписки и без выхода в РФ |
+| `vless://…`, `vmess://…`, `trojan://…`, `ss://…`, `hysteria2://…` (или `hy2://…`), `tuic://…`, `mierus://…`, `mieru://…`, `naive+https://…` | собирает профиль из одной ссылки, без подписки и без выхода в РФ |
 
 `url` обязан начинаться с `https://`. `pk` — публичный ключ Ed25519 в base64url без `=`. Собрать ключ: `tigersb-core link -url … -pk … -name …`.
 
@@ -20,7 +20,7 @@
 
 Ссылку `https://` на подписку любого другого VPN можно вставить как ключ. Клиент понимает:
 
-- список ссылок `vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://`, `tuic://`, обычным текстом или в base64 (Marzban, 3x-ui, Remnawave и большинство других панелей);
+- список ссылок `vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://`, `tuic://`, `mierus://`, `mieru://`, `naive+https://`, обычным текстом или в base64 (Marzban, 3x-ui, Remnawave и большинство других панелей);
 - JSON-массив конфигов Xray: из каждого берётся первый outbound с прокси.
 
 Ссылки, которые клиент не умеет открыть (например, `wireguard://`), пропускаются. Все серверы попадают в один выход `foreign` с одинаковым приоритетом, поэтому клиент замеряет задержку до каждого, ведёт трафик через самый быстрый и сам переключается, если сервер перестал отвечать. Списков блокировок в таких подписках нет, поэтому весь трафик, кроме банков и госуслуг, идёт через VPN.
@@ -48,6 +48,39 @@
 ```
 
 `pinnedPeerCertSha256` нужен только для самоподписанного сертификата.
+
+## Mieru
+
+Понимаются оба вида ссылок, которые выдаёт сервер mieru (mita):
+
+- простая, как у `mieru export config simple`: `mierus://имя:пароль@адрес?profile=default&port=6666&protocol=TCP&port=9998-9999&protocol=UDP&mtu=1400&multiplexing=MULTIPLEXING_HIGH&handshake-mode=HANDSHAKE_NO_WAIT#имя`. Портов может быть несколько, у каждого свой `protocol` (`TCP` или `UDP`), порт может быть диапазоном. `traffic-pattern` передаётся как есть (base64 от protobuf);
+- полная, как у `mieru export config`: `mieru://base64(protobuf ClientConfig)`. Берётся активный профиль из неё.
+
+В Xray нет mieru, поэтому транспорт везёт официальная библиотека клиента mieru, встроенная в ядро как обычный исходящий. UDP приложений идёт через сервер (UDP associate), как у самого mieru. Транспорт, у которого первый порт UDP, умная маршрутизация считает транспортом поверх UDP (как Hysteria 2 и TUIC). Панель описывает его так:
+
+```json
+{"protocol": "mieru",
+ "settings": {"address": "mieru.example.org", "username": "…", "password": "…", "profile": "default",
+              "ports": [{"port": "6666", "protocol": "TCP"}, {"port": "9998-9999", "protocol": "UDP"}],
+              "mtu": 1400, "multiplexing": "MULTIPLEXING_HIGH", "handshakeMode": "HANDSHAKE_NO_WAIT"}}
+```
+
+или целиком конфигом mieru: `{"protocol": "mieru", "settings": {"config": "<base64 protobuf ClientConfig>"}}`.
+
+## NaïveProxy
+
+Ссылка `naive+https://имя:пароль@адрес:порт?sni=…&padding=true&extra-headers=…&insecure=1#имя` понимается так же, как в NekoBox, v2rayN и Hiddify. Порт по умолчанию 443. `extra-headers` — дополнительные заголовки запроса CONNECT, строки `Имя: значение` через `\r\n`. `padding=false` выключает отбивку. `insecure=1` работает как у Hysteria 2: сертификат закрепляется при добавлении ключа; `pinSHA256=` закрепляет его сразу. `naive+quic://` (HTTP/3) не поддерживается.
+
+Сервер NaïveProxy — это Caddy с forwardproxy от klzgrad или sing-box. Клиент подключается к нему по TLS с отпечатком Chrome (через Xray, как остальные транспорты), держит одно соединение HTTP/2 и открывает в нём поток CONNECT на каждое соединение. Если сервер согласен (отвечает заголовком `Padding`), первые восемь кадров в каждую сторону идут со случайной отбивкой, как у настоящего NaïveProxy. Неверный пароль клиент узнаёт и у сервера, который при этом прикидывается обычным сайтом. NaïveProxy возит только TCP: UDP через такой транспорт не идёт (браузеры тогда переходят с QUIC на TCP). Панель описывает транспорт так:
+
+```json
+{"protocol": "naive",
+ "settings": {"address": "naive.example.org", "port": 443, "username": "…", "password": "…",
+              "padding": true, "headers": {"X-Name": "value"}},
+ "streamSettings": {"network": "raw", "security": "tls",
+                    "tlsSettings": {"serverName": "naive.example.org", "fingerprint": "chrome", "alpn": ["h2"],
+                                    "pinnedPeerCertSha256": "…"}}}
+```
 
 ## Конверт
 

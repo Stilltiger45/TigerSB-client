@@ -15,6 +15,7 @@ import (
 var linkSchemes = map[string]bool{
 	"vless": true, "vmess": true, "trojan": true, "ss": true,
 	"hysteria2": true, "hy2": true, "tuic": true,
+	"mierus": true, "mieru": true, "naive+https": true,
 }
 
 // IsLink reports whether s looks like a share link the client can read.
@@ -24,7 +25,7 @@ func IsLink(s string) bool {
 }
 
 // FromVLESS turns a single share link (vless://, vmess://, trojan://, ss://,
-// hysteria2:// or tuic://) into a profile with one foreign exit. Without an RU exit and lists,
+// hysteria2://, tuic://, mierus://, mieru:// or naive+https://) into a profile with one foreign exit. Without an RU exit and lists,
 // the main mode sends everything but the direct list through it.
 func FromVLESS(link string) (*Profile, error) {
 	xray, name, err := ParseLink(link)
@@ -34,13 +35,13 @@ func FromVLESS(link string) (*Profile, error) {
 	scheme, _, _ := strings.Cut(strings.TrimSpace(link), "://")
 	p := &Profile{
 		V:       Version,
-		ID:      strings.ToLower(scheme),
+		ID:      strings.ReplaceAll(strings.ToLower(scheme), "+", "-"),
 		Name:    name,
 		Updated: time.Now().UTC().Truncate(time.Second),
 		Exits: []Exit{{
 			ID:         "link",
 			Role:       RoleForeign,
-			Transports: []Transport{{ID: strings.ToLower(scheme), Prio: 10, Name: name, Xray: xray}},
+			Transports: []Transport{{ID: strings.ReplaceAll(strings.ToLower(scheme), "+", "-"), Prio: 10, Name: name, Xray: xray}},
 		}},
 	}
 	if err := p.Validate(); err != nil {
@@ -109,6 +110,14 @@ func ParseLink(link string) (json.RawMessage, string, error) {
 		return hysteria2Outbound(link)
 	case "tuic":
 		return tuicOutbound(link)
+	case "mierus":
+		return mierusOutbound(link)
+	case "mieru":
+		return mieruOutbound(link)
+	case "naive+https":
+		return naiveOutbound(link)
+	case "naive+quic":
+		return nil, "", fmt.Errorf("NaïveProxy поверх QUIC (naive+quic://) не поддерживается, нужна ссылка naive+https://")
 	}
 	return nil, "", fmt.Errorf("ссылки %s:// не поддерживаются", scheme)
 }
@@ -552,4 +561,146 @@ func pinHex(s string) string {
 		}
 	}
 	return s
+}
+
+// mierusOutbound reads mieru's simple links, as "mieru export config simple"
+// writes them:
+// mierus://user:password@host?profile=default&port=6666&protocol=TCP&port=9998-9999&protocol=UDP&mtu=1400&multiplexing=MULTIPLEXING_HIGH&handshake-mode=HANDSHAKE_NO_WAIT&traffic-pattern=base64#name.
+// Xray has no mieru: the outbound is written in Xray's style for the
+// profile, and package mieru carries it.
+func mierusOutbound(link string) (json.RawMessage, string, error) {
+	u, err := url.Parse(link)
+	if err != nil {
+		return nil, "", fmt.Errorf("неверная ссылка mierus://")
+	}
+	user := u.User.Username()
+	password, _ := u.User.Password()
+	if user == "" || password == "" {
+		return nil, "", fmt.Errorf("в ссылке mierus:// нет имени пользователя или пароля")
+	}
+	host := u.Hostname()
+	if host == "" {
+		return nil, "", fmt.Errorf("в ссылке mierus:// нет адреса сервера")
+	}
+	q := u.Query()
+	ports, protocols := q["port"], q["protocol"]
+	if len(ports) == 0 || len(ports) != len(protocols) {
+		return nil, "", fmt.Errorf("в ссылке mierus:// порты и протоколы не совпадают")
+	}
+	var bindings []any
+	for i, port := range ports {
+		if !portOrRange(port) {
+			return nil, "", fmt.Errorf("неверный порт %q в ссылке mierus://", port)
+		}
+		proto := strings.ToUpper(protocols[i])
+		if proto != "TCP" && proto != "UDP" {
+			return nil, "", fmt.Errorf("протокол %q в ссылке mierus:// не поддерживается", protocols[i])
+		}
+		bindings = append(bindings, map[string]any{"port": port, "protocol": proto})
+	}
+	settings := dropEmpty(map[string]any{
+		"address":        host,
+		"username":       user,
+		"password":       password,
+		"profile":        or(q.Get("profile"), "default"),
+		"multiplexing":   q.Get("multiplexing"),
+		"handshakeMode":  q.Get("handshake-mode"),
+		"trafficPattern": q.Get("traffic-pattern"),
+	})
+	settings["ports"] = bindings
+	if m := q.Get("mtu"); m != "" {
+		mtu, err := strconv.Atoi(m)
+		if err != nil || mtu < 1280 || mtu > 1500 {
+			return nil, "", fmt.Errorf("неверный MTU %q в ссылке mierus://", m)
+		}
+		settings["mtu"] = mtu
+	}
+	out, err := outbound("mieru", settings, nil)
+	return out, or(u.Fragment, q.Get("profile")), err
+}
+
+// mieruOutbound reads mieru's full links, mieru://base64(protobuf of the
+// client config), as "mieru export config" writes them. The config is kept
+// as it is: package mieru decodes it.
+func mieruOutbound(link string) (json.RawMessage, string, error) {
+	link = strings.TrimSpace(link)
+	enc, name, _ := strings.Cut(link[len("mieru://"):], "#")
+	if _, err := base64.StdEncoding.DecodeString(enc); err != nil || enc == "" {
+		return nil, "", fmt.Errorf("неверная ссылка mieru://")
+	}
+	if n, err := url.PathUnescape(name); err == nil {
+		name = n
+	}
+	out, err := outbound("mieru", map[string]any{"config": enc}, nil)
+	return out, name, err
+}
+
+// portOrRange reports whether s is a port or a range of ports such as
+// "9998-9999".
+func portOrRange(s string) bool {
+	from, to, isRange := strings.Cut(s, "-")
+	a, err := strconv.Atoi(from)
+	if err != nil || a < 1 || a > 65535 {
+		return false
+	}
+	if !isRange {
+		return true
+	}
+	b, err := strconv.Atoi(to)
+	return err == nil && b >= a && b <= 65535
+}
+
+// naiveOutbound reads NaïveProxy links as NekoBox, v2rayN and Hiddify write
+// them: naive+https://user:password@host:port?sni=&padding=true&extra-headers=&insecure=1#name.
+// Xray has no NaïveProxy: the outbound is written in Xray's style (TLS with
+// Chrome's fingerprint, HTTP/2) for the profile, and package naive carries it.
+func naiveOutbound(link string) (json.RawMessage, string, error) {
+	u, err := url.Parse(link)
+	if err != nil {
+		return nil, "", fmt.Errorf("неверная ссылка naive+https://")
+	}
+	user := u.User.Username()
+	password, _ := u.User.Password()
+	host := u.Hostname()
+	port := 443
+	if p := u.Port(); p != "" {
+		port, err = strconv.Atoi(p)
+		if err != nil || port < 1 || port > 65535 {
+			return nil, "", fmt.Errorf("в ссылке naive+https:// неверный адрес сервера")
+		}
+	}
+	if host == "" {
+		return nil, "", fmt.Errorf("в ссылке naive+https:// неверный адрес сервера")
+	}
+	q := u.Query()
+	headers := map[string]any{}
+	for _, line := range strings.Split(strings.ReplaceAll(q.Get("extra-headers"), "\r\n", "\n"), "\n") {
+		k, v, ok := strings.Cut(line, ":")
+		if k = strings.TrimSpace(k); ok && k != "" {
+			headers[k] = strings.TrimSpace(v)
+		}
+	}
+	pin := pinHex(q.Get("pinSHA256"))
+	insecure := q.Get("insecure") == "1" || q.Get("allowInsecure") == "1" || q.Get("allow_insecure") == "1"
+	tls := dropEmpty(map[string]any{
+		"serverName":           or(q.Get("sni"), q.Get("peer"), hostIfName(host)),
+		"pinnedPeerCertSha256": pin,
+		"allowInsecure":        pin == "" && insecure,
+	})
+	// Chrome's TLS, as the real NaïveProxy shows, and HTTP/2 only.
+	tls["fingerprint"] = "chrome"
+	tls["alpn"] = []string{"h2"}
+	settings := dropEmpty(map[string]any{
+		"address":  host,
+		"port":     port,
+		"username": user,
+		"password": password,
+	})
+	// Padding is on unless the link turns it off; the server agrees to it or not.
+	settings["padding"] = q.Get("padding") != "false" && q.Get("padding") != "0"
+	if len(headers) > 0 {
+		settings["headers"] = headers
+	}
+	out, err := outbound("naive", settings, map[string]any{"network": "raw", "security": "tls", "tlsSettings": tls})
+	return out, u.Fragment, err
 }
