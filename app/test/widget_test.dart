@@ -8,6 +8,7 @@ import 'package:tigersb/app.dart';
 import 'package:tigersb/core.dart';
 import 'package:tigersb/licenses.dart';
 import 'package:tigersb/screens/about_screen.dart';
+import 'package:tigersb/ui/palette.dart';
 
 class FakeCore implements Core {
   ProfileInfo? profile;
@@ -76,6 +77,14 @@ class FakeCore implements Core {
 
   @override
   Future<void> setMode(Mode m) async => currentMode = m;
+
+  bool light = false;
+
+  @override
+  Future<bool> lightTheme() async => light;
+
+  @override
+  Future<void> setLightTheme(bool v) async => light = v;
 
   VpnStats nextStats = const VpnStats(up: 0, down: 0, ping: -1, uptime: 0);
   int statsCalls = 0;
@@ -402,6 +411,8 @@ void main() {
 
     expect(find.text('Версия 0.1.0'), findsOneWidget);
     await tester.scrollUntilVisible(find.text('Исходный код на GitHub'), 200);
+    await tester.ensureVisible(find.text('Исходный код на GitHub'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Исходный код на GitHub'));
     expect(core.opened, [sourceUrl]);
 
@@ -410,6 +421,41 @@ void main() {
     await tester.tap(find.text('Лицензии компонентов'));
     await tester.pumpAndSettle();
     expect(find.byType(LicensePage), findsOneWidget);
+  });
+
+  testWidgets('about switches the theme at once and saves it', (tester) async {
+    addTearDown(() => lightTheme.value = false);
+    final core = FakeCore()..profile = ProfileInfo(name: 'Дом', hasRU: true, fetched: DateTime.now(), exits: const []);
+    await tester.pumpWidget(TigerApp(core: core));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('О приложении'));
+    await tester.pumpAndSettle();
+
+    Color? titleColor() => tester.widget<Text>(find.text('TigerSB')).style?.color;
+    expect(titleColor(), const Color(0xFFF7F3EE));
+    await tester.tap(find.text('Светлая'));
+    await tester.pumpAndSettle();
+    expect(core.light, isTrue);
+    expect(Palette.light, isTrue);
+    expect(Theme.of(tester.element(find.text('TigerSB'))).brightness, Brightness.light);
+    // Widgets that read Palette are built again with the light colours.
+    expect(titleColor(), Palette.white);
+    expect(titleColor(), isNot(const Color(0xFFF7F3EE)));
+
+    // The main screen under it kept its state and is light too.
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.text('Дом'), findsOneWidget);
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('О приложении'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Тёмная'));
+    await tester.pumpAndSettle();
+    expect(core.light, isFalse);
+    expect(titleColor(), const Color(0xFFF7F3EE));
   });
 
   testWidgets('the menu checks for an update and installs it', (tester) async {

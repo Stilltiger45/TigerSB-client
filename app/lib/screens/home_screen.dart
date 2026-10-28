@@ -385,7 +385,7 @@ class _HomeScreenState extends State<HomeScreen> {
           actions: [
             GlassIcon(
               child: PopupMenuButton<String>(
-                icon: const Icon(Icons.more_horiz_rounded, color: Palette.white),
+                icon: Icon(Icons.more_horiz_rounded, color: Palette.white),
                 offset: const Offset(0, 52),
                 onSelected: (v) => switch (v) {
                   'update' => _checkUpdate(),
@@ -439,7 +439,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       Text(
                         _status.error!,
                         textAlign: TextAlign.center,
-                        style: const TextStyle(color: Palette.error),
+                        style: TextStyle(color: Palette.error),
                       ),
                     ],
                     const SizedBox(height: 28),
@@ -451,7 +451,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         _modeText,
                         key: ValueKey(_mode),
                         textAlign: TextAlign.center,
-                        style: const TextStyle(color: Palette.muted, fontSize: 14, height: 1.4),
+                        style: TextStyle(color: Palette.muted, fontSize: 14, height: 1.4),
                       ),
                     ),
                     AnimatedSize(
@@ -468,10 +468,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     if (_refreshing)
                       const SizedBox(width: 120, child: LinearProgressIndicator(minHeight: 2))
                     else if (fetched != null)
-                      Text(
-                        'Профиль обновлён ${_date(fetched)}',
-                        style: const TextStyle(color: Palette.faint, fontSize: 12),
-                      ),
+                      Text('Профиль обновлён ${_date(fetched)}', style: TextStyle(color: Palette.faint, fontSize: 12)),
                   ],
                 ),
               ),
@@ -519,13 +516,13 @@ class _ProfileButton extends StatelessWidget {
       onOpen: onOpen,
       alignmentOffset: const Offset(0, 8),
       style: MenuStyle(
-        backgroundColor: const WidgetStatePropertyAll(Color(0xF2140D08)),
+        backgroundColor: WidgetStatePropertyAll(Palette.light ? Palette.popup : const Color(0xF2140D08)),
         surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
         padding: const WidgetStatePropertyAll(EdgeInsets.symmetric(vertical: 8)),
         shape: WidgetStatePropertyAll(
           RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(20),
-            side: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
+            side: BorderSide(color: Palette.white.withValues(alpha: 0.12)),
           ),
         ),
       ),
@@ -539,7 +536,7 @@ class _ProfileButton extends StatelessWidget {
             onLink: p.key.isEmpty ? null : () => onLink(p),
             onDelete: () => onDelete(p),
           ),
-        Divider(height: 12, color: Colors.white.withValues(alpha: 0.1)),
+        Divider(height: 12, color: Palette.white.withValues(alpha: 0.1)),
         MenuItemButton(
           key: const Key('addProfile'),
           leadingIcon: const Icon(Icons.add_rounded, color: Palette.orange),
@@ -594,9 +591,9 @@ class _ProfileRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    Widget action(IconData icon, String tip, VoidCallback? onPressed, [Color color = Palette.muted]) => IconButton(
+    Widget action(IconData icon, String tip, VoidCallback? onPressed, [Color? color]) => IconButton(
       icon: Icon(icon, size: 20),
-      color: color,
+      color: color ?? Palette.muted,
       tooltip: tip,
       visualDensity: VisualDensity.compact,
       onPressed: onPressed,
@@ -690,7 +687,7 @@ class _StatsCard extends StatelessWidget {
           Text(
             up,
             textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 15, color: Palette.muted),
+            style: TextStyle(fontSize: 15, color: Palette.muted),
           ),
         ],
       ),
@@ -712,7 +709,7 @@ class _StatsCard extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          const Text('Обновляется раз в 5 минут', style: TextStyle(color: Palette.faint, fontSize: 12)),
+          Text('Обновляется раз в 5 минут', style: TextStyle(color: Palette.faint, fontSize: 12)),
         ],
       ),
     );

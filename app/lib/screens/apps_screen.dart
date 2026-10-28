@@ -101,7 +101,7 @@ class _AppsScreenState extends State<AppsScreen> {
               Expanded(
                 child: switch ((apps, _error)) {
                   (_, final String e) => Center(
-                    child: Text(e, style: const TextStyle(color: Palette.error)),
+                    child: Text(e, style: TextStyle(color: Palette.error)),
                   ),
                   (null, _) => const Center(child: CircularProgressIndicator(color: Palette.orange)),
                   (final List<AppInfo> list, _) => ListView.builder(
@@ -127,7 +127,7 @@ class _AppsScreenState extends State<AppsScreen> {
       leading: ClipRRect(
         borderRadius: BorderRadius.circular(10),
         child: icon == null
-            ? const SizedBox(width: 40, height: 40, child: Icon(Icons.android_rounded, color: Palette.faint))
+            ? SizedBox(width: 40, height: 40, child: Icon(Icons.android_rounded, color: Palette.faint))
             : Image.memory(icon, width: 40, height: 40, gaplessPlayback: true),
       ),
       title: Text(a.label, maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -139,7 +139,7 @@ class _AppsScreenState extends State<AppsScreen> {
               activeThumbColor: Palette.ink,
               activeTrackColor: Palette.orange,
               inactiveThumbColor: Palette.muted,
-              inactiveTrackColor: Colors.white.withValues(alpha: 0.06),
+              inactiveTrackColor: Palette.white.withValues(alpha: 0.06),
               onChanged: (v) => _toggle(a.package, v),
             ),
       onTap: always ? null : () => _toggle(a.package, !_user.contains(a.package)),

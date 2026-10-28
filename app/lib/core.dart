@@ -178,6 +178,10 @@ abstract class Core {
   Future<Mode> mode();
   Future<void> setMode(Mode m);
 
+  /// The theme the user chose: true for the light one, false for the dark.
+  Future<bool> lightTheme();
+  Future<void> setLightTheme(bool light);
+
   /// Apps with a launcher icon.
   Future<List<AppInfo>> apps();
 
@@ -330,6 +334,12 @@ class PlatformCore implements Core {
 
   @override
   Future<void> setMode(Mode m) => _call('setMode', {'mode': m.name});
+
+  @override
+  Future<bool> lightTheme() async => await _call<bool>('lightTheme') ?? false;
+
+  @override
+  Future<void> setLightTheme(bool light) => _call('setLightTheme', {'light': light});
 
   @override
   Future<bool> connect() async => await _call<bool>('connect') ?? false;

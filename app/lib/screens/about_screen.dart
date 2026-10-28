@@ -4,6 +4,7 @@ import '../core.dart';
 import '../ui/buttons.dart';
 import '../ui/fx.dart';
 import '../ui/glass.dart';
+import '../ui/mode_switch.dart';
 import '../ui/palette.dart';
 
 const sourceUrl = 'https://github.com/Stilltiger45/TigerSB-client';
@@ -35,6 +36,12 @@ class _AboutScreenState extends State<AboutScreen> {
     ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Нет браузера, чтобы открыть ссылку')));
   }
 
+  /// Switches the theme at once and saves it for the next start.
+  void _setTheme(bool light) {
+    lightTheme.value = light;
+    widget.core.setLightTheme(light).catchError((Object _) {});
+  }
+
   void _openLicenses() => showLicensePage(
     context: context,
     applicationName: 'TigerSB',
@@ -48,7 +55,7 @@ class _AboutScreenState extends State<AboutScreen> {
 
   @override
   Widget build(BuildContext context) {
-    const body = TextStyle(color: Palette.white, fontSize: 14, height: 1.4);
+    final body = TextStyle(color: Palette.white, fontSize: 14, height: 1.4);
     return Ambient(
       fx: Fx.idle,
       child: Scaffold(
@@ -61,7 +68,7 @@ class _AboutScreenState extends State<AboutScreen> {
             children: [
               Image.asset('assets/tiger.png', width: 96, height: 96),
               const SizedBox(height: 12),
-              const Text(
+              Text(
                 'TigerSB',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Palette.white, fontSize: 26, fontWeight: FontWeight.w700),
@@ -70,10 +77,22 @@ class _AboutScreenState extends State<AboutScreen> {
               Text(
                 _about.version.isEmpty ? ' ' : 'Версия ${_about.version}',
                 textAlign: TextAlign.center,
-                style: const TextStyle(color: Palette.muted, fontSize: 14),
+                style: TextStyle(color: Palette.muted, fontSize: 14),
               ),
               const SizedBox(height: 20),
-              const _Card(
+              _Card(
+                icon: Icons.contrast_rounded,
+                title: 'Тема',
+                child: Segments(
+                  key: const Key('theme'),
+                  labels: const {false: 'Тёмная', true: 'Светлая'},
+                  value: Palette.light,
+                  onChanged: _setTheme,
+                  height: 40,
+                ),
+              ),
+              const SizedBox(height: 12),
+              _Card(
                 icon: Icons.bolt_rounded,
                 title: 'Что это',
                 child: Text(
@@ -89,7 +108,7 @@ class _AboutScreenState extends State<AboutScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
+                    Text(
                       'TigerSB — свободная программа под лицензией GNU GPL 3.0. Её можно использовать, изучать, '
                       'менять и распространять, если сохранять ту же лицензию и открывать исходный код. '
                       'Программа предоставляется без каких-либо гарантий.',
@@ -99,7 +118,7 @@ class _AboutScreenState extends State<AboutScreen> {
                     InkWell(
                       onTap: _openSource,
                       borderRadius: BorderRadius.circular(8),
-                      child: const Padding(
+                      child: Padding(
                         padding: EdgeInsets.symmetric(vertical: 6),
                         child: Row(
                           children: [
@@ -164,7 +183,7 @@ class _Card extends StatelessWidget {
             const SizedBox(width: 8),
             Text(
               title,
-              style: const TextStyle(color: Palette.white, fontSize: 16, fontWeight: FontWeight.w700),
+              style: TextStyle(color: Palette.white, fontSize: 16, fontWeight: FontWeight.w700),
             ),
           ],
         ),
@@ -187,9 +206,9 @@ class _Part extends StatelessWidget {
     child: Row(
       children: [
         Expanded(
-          child: Text(name, style: const TextStyle(color: Palette.white, fontSize: 14)),
+          child: Text(name, style: TextStyle(color: Palette.white, fontSize: 14)),
         ),
-        Text(detail, style: const TextStyle(color: Palette.muted, fontSize: 13)),
+        Text(detail, style: TextStyle(color: Palette.muted, fontSize: 13)),
       ],
     ),
   );

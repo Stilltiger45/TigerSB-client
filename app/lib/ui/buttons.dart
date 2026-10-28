@@ -90,7 +90,7 @@ class GlassButton extends StatelessWidget {
                   const SizedBox(width: 8),
                   Text(
                     label,
-                    style: const TextStyle(color: Palette.white, fontSize: 15, fontWeight: FontWeight.w600),
+                    style: TextStyle(color: Palette.white, fontSize: 15, fontWeight: FontWeight.w600),
                   ),
                 ],
               ),

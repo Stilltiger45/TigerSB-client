@@ -204,6 +204,7 @@ class _AmbientPainter extends CustomPainter {
   final FxStyle style;
   final ValueListenable<double> seconds;
   final ValueListenable<double> travel;
+  final bool light = Palette.light;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -243,7 +244,7 @@ class _AmbientPainter extends CustomPainter {
     haze(
       Offset(w * (0.12 + 0.05 * math.sin(t * 0.1)), h * (0.4 + 0.08 * math.sin(t * 0.07))),
       w * 0.9,
-      Palette.white,
+      Palette.shine,
       0.15 * style.split,
     );
     // The button's light from the middle of the screen.
@@ -259,7 +260,7 @@ class _AmbientPainter extends CustomPainter {
       final fade = math.sin(p * math.pi); // dim at both ends
       final twinkle = 0.65 + 0.35 * math.sin(t * 2.2 * s.speed + s.phase * 20);
       final white = s.tone < style.white;
-      final color = white ? Palette.white : (s.tone > 0.7 ? Palette.orangeLight : Palette.orange);
+      final color = white ? Palette.shine : (s.tone > 0.7 ? Palette.orangeLight : Palette.orange);
       final a = (0.85 * fade * twinkle).clamp(0.0, 1.0);
       final c = Offset(x, y);
       canvas.drawCircle(
@@ -274,5 +275,5 @@ class _AmbientPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_AmbientPainter old) => old.style != style;
+  bool shouldRepaint(_AmbientPainter old) => old.style != style || old.light != light;
 }
