@@ -1,16 +1,46 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'core.dart';
 import 'ui/palette.dart';
 import 'screens/home_screen.dart';
 import 'screens/key_screen.dart';
 
-class TigerApp extends StatelessWidget {
+class TigerApp extends StatefulWidget {
   const TigerApp({super.key, required this.core});
 
   final Core core;
+
+  @override
+  State<TigerApp> createState() => _TigerAppState();
+}
+
+class _TigerAppState extends State<TigerApp> {
+  @override
+  void initState() {
+    super.initState();
+    lightTheme.addListener(_themeChanged);
+  }
+
+  @override
+  void dispose() {
+    lightTheme.removeListener(_themeChanged);
+    super.dispose();
+  }
+
+  /// Widgets take their colours from Palette when they build, and many are
+  /// const, so every widget is built again. Screens keep their state.
+  void _themeChanged() {
+    setState(() {});
+    void rebuild(Element e) {
+      e.markNeedsBuild();
+      e.visitChildren(rebuild);
+    }
+
+    (context as Element).visitChildren(rebuild);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -18,7 +48,10 @@ class TigerApp extends StatelessWidget {
       title: 'TigerSB',
       debugShowCheckedModeBanner: false,
       theme: tigerTheme(),
-      home: Root(core: core),
+      // Palette changes at once, so the theme does too.
+      themeAnimationDuration: Duration.zero,
+      builder: (context, child) => AnnotatedRegion<SystemUiOverlayStyle>(value: overlayStyle(), child: child!),
+      home: Root(core: widget.core),
     );
   }
 }

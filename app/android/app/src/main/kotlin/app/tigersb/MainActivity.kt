@@ -129,6 +129,11 @@ class MainActivity : FlutterActivity() {
                         if (VpnState.phase == VpnState.Phase.CONNECTED) TigerVpnService.start(this@MainActivity)
                         result.success(null)
                     }
+                    "lightTheme" -> result.success(Core.lightTheme(this@MainActivity))
+                    "setLightTheme" -> {
+                        Core.setLightTheme(this@MainActivity, call.argument<Boolean>("light") == true)
+                        result.success(null)
+                    }
                     "connect" -> connect(result)
                     "shareJournal" -> background(result) {
                         val text = Mobile.journal()

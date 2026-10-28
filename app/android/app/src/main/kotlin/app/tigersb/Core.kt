@@ -48,6 +48,13 @@ object Core {
     fun setMode(context: Context, mode: String) {
         prefs(context).edit().putString("mode", mode).apply()
     }
+
+    /** The app's theme: light when the user chose it in «О приложении», dark otherwise. */
+    fun lightTheme(context: Context): Boolean = prefs(context).getBoolean("lightTheme", false)
+
+    fun setLightTheme(context: Context, light: Boolean) {
+        prefs(context).edit().putBoolean("lightTheme", light).apply()
+    }
 }
 
 /** What the VPN is doing now. The service writes it, the screen and the tile read it. */

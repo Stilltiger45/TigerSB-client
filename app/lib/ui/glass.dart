@@ -2,6 +2,8 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+import 'palette.dart';
+
 /// Light liquid glass: blurs what is behind, with a soft sheen from the top
 /// left and a thin bright edge.
 class Glass extends StatelessWidget {
@@ -43,6 +45,7 @@ class _GlassPainter extends CustomPainter {
 
   final double radius;
   final Color? tint;
+  final bool light = Palette.light;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -56,8 +59,8 @@ class _GlassPainter extends CustomPainter {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            Color.alphaBlend((tint ?? Colors.transparent).withValues(alpha: 0.06), const Color(0x17FFFFFF)),
-            Color.alphaBlend((tint ?? Colors.transparent).withValues(alpha: 0.02), const Color(0x05FFFFFF)),
+            Color.alphaBlend((tint ?? Colors.transparent).withValues(alpha: 0.06), Palette.glassFill[0]),
+            Color.alphaBlend((tint ?? Colors.transparent).withValues(alpha: 0.02), Palette.glassFill[1]),
           ],
         ).createShader(rect),
     );
@@ -68,7 +71,9 @@ class _GlassPainter extends CustomPainter {
         ..shader = RadialGradient(
           center: const Alignment(-0.6, -1.2),
           radius: 1.2,
-          colors: const [Color(0x22FFFFFF), Color(0x00FFFFFF)],
+          colors: Palette.light
+              ? const [Color(0x66FFFFFF), Color(0x00FFFFFF)]
+              : const [Color(0x22FFFFFF), Color(0x00FFFFFF)],
         ).createShader(rect),
     );
     // Edge: bright at the top left, fading towards the bottom right.
@@ -77,15 +82,15 @@ class _GlassPainter extends CustomPainter {
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1
-        ..shader = const LinearGradient(
+        ..shader = LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [Color(0x59FFFFFF), Color(0x14FFFFFF), Color(0x26FFFFFF)],
-          stops: [0, 0.55, 1],
+          colors: Palette.glassEdge,
+          stops: const [0, 0.55, 1],
         ).createShader(rect),
     );
   }
 
   @override
-  bool shouldRepaint(_GlassPainter old) => old.radius != radius || old.tint != tint;
+  bool shouldRepaint(_GlassPainter old) => old.radius != radius || old.tint != tint || old.light != light;
 }

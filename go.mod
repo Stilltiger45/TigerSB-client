@@ -5,6 +5,7 @@ go 1.26.0
 require (
 	github.com/apernet/quic-go v0.59.1-0.20260217092621-db4786c77a22
 	github.com/enfein/mieru/v3 v3.39.0
+	github.com/ghodss/yaml v1.0.1-0.20220118164431-d8423dcdf344
 	github.com/gofrs/uuid/v5 v5.5.1
 	github.com/sagernet/sing v0.9.0-beta.4
 	github.com/sagernet/sing-quic v0.7.1
@@ -17,7 +18,6 @@ require (
 require (
 	github.com/andybalholm/brotli v1.0.6 // indirect
 	github.com/cloudflare/circl v1.6.3 // indirect
-	github.com/ghodss/yaml v1.0.1-0.20220118164431-d8423dcdf344 // indirect
 	github.com/google/btree v1.1.3 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/juju/ratelimit v1.0.2 // indirect

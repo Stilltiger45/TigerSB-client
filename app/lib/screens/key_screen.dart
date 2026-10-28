@@ -102,7 +102,7 @@ class _KeyScreenState extends State<KeyScreen> {
                     const SizedBox(height: 8),
                     Text('V P N', textAlign: TextAlign.center, style: capsStyle.copyWith(letterSpacing: 6)),
                     const SizedBox(height: 22),
-                    const Text(
+                    Text(
                       'Вставьте ключ или ссылку на подписку любого VPN, либо отсканируйте QR-код.',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: Palette.muted, fontSize: 15, height: 1.4),
@@ -173,7 +173,7 @@ class _Logo extends StatelessWidget {
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           gradient: const RadialGradient(colors: [Color(0x1FFF7A1A), Color(0x05FFFFFF)]),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.14)),
+          border: Border.all(color: Palette.white.withValues(alpha: 0.14)),
           boxShadow: [BoxShadow(color: Palette.orange.withValues(alpha: 0.25), blurRadius: 50)],
         ),
         padding: const EdgeInsets.all(14),

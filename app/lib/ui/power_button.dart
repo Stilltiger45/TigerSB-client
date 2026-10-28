@@ -88,12 +88,16 @@ class _Disc extends StatelessWidget {
                   shape: BoxShape.circle,
                   gradient: on
                       ? Palette.fire
-                      : const LinearGradient(
+                      : LinearGradient(
                           begin: Alignment.topLeft,
                           end: Alignment.bottomRight,
-                          colors: [Color(0x26FFFFFF), Color(0x0AFFFFFF)],
+                          colors: Palette.light
+                              ? const [Color(0xD9FFFFFF), Color(0x99FFFFFF)]
+                              : const [Color(0x26FFFFFF), Color(0x0AFFFFFF)],
                         ),
-                  border: Border.all(color: Colors.white.withValues(alpha: on ? 0.35 : 0.22)),
+                  border: Border.all(
+                    color: (on || !Palette.light ? Colors.white : Palette.white).withValues(alpha: on ? 0.35 : 0.22),
+                  ),
                 ),
                 child: Stack(
                   alignment: Alignment.center,
@@ -109,7 +113,7 @@ class _Disc extends StatelessWidget {
                           ? SizedBox.square(
                               key: const ValueKey('busy'),
                               dimension: size * 0.3,
-                              child: const CircularProgressIndicator(strokeWidth: 3, color: Palette.orangeLight),
+                              child: CircularProgressIndicator(strokeWidth: 3, color: Palette.orangeLight),
                             )
                           : Icon(
                               Icons.power_settings_new_rounded,
@@ -180,6 +184,8 @@ class _GlintPainter extends CustomPainter {
 class _RingPainter extends CustomPainter {
   _RingPainter({required this.fx, required this.seconds, required this.radius}) : super(repaint: seconds);
 
+  final bool light = Palette.light;
+
   final Fx fx;
   final ValueListenable<double> seconds;
   final double radius;
@@ -197,7 +203,7 @@ class _RingPainter extends CustomPainter {
       Paint()
         ..style = PaintingStyle.stroke
         ..strokeWidth = 1
-        ..color = Colors.white.withValues(alpha: 0.1),
+        ..color = Palette.white.withValues(alpha: 0.1),
     );
 
     switch (fx) {
@@ -266,5 +272,5 @@ class _RingPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_RingPainter old) => old.fx != fx || old.radius != radius;
+  bool shouldRepaint(_RingPainter old) => old.fx != fx || old.radius != radius || old.light != light;
 }
