@@ -400,7 +400,9 @@ func TestShieldAlwaysDirect(t *testing.T) {
 		for _, r := range b.Routing.Rules {
 			order = append(order, r.RuleTag)
 			if r.RuleTag == "shield" && (!slices.Contains(r.Domain, "domain:max.ru") || !slices.Contains(r.Domain, "domain:vk.com") ||
-				!slices.Contains(r.Domain, "domain:yandex.ru") || !slices.Contains(r.Domain, "domain:gosuslugi.ru")) {
+				!slices.Contains(r.Domain, "domain:yandex.ru") || !slices.Contains(r.Domain, "domain:gosuslugi.ru") ||
+				!slices.Contains(r.Domain, "domain:ozon.ru") || !slices.Contains(r.Domain, "domain:wildberries.ru") ||
+				!slices.Contains(r.Domain, "domain:mts.ru") || !slices.Contains(r.Domain, "domain:megafon.ru")) {
 				t.Errorf("%s: shield domains %v", m, r.Domain)
 			}
 		}
@@ -412,6 +414,25 @@ func TestShieldAlwaysDirect(t *testing.T) {
 	_, dest := build(t, fixture(t), xrayconf.ModeOff)
 	if _, ok := dest["shield"]; ok {
 		t.Error("off mode needs no shield rule")
+	}
+}
+
+// TestShieldLists checks the shield lists for repeats and for domains that
+// must go abroad instead.
+func TestShieldLists(t *testing.T) {
+	for name, list := range map[string][]string{"domains": xrayconf.ShieldDomains, "apps": xrayconf.ShieldApps} {
+		seen := map[string]bool{}
+		for _, v := range list {
+			if seen[v] {
+				t.Errorf("%s: %s twice", name, v)
+			}
+			seen[v] = true
+		}
+	}
+	for _, d := range xrayconf.ForeignOnlyDomains {
+		if slices.Contains(xrayconf.ShieldDomains, d) {
+			t.Errorf("%s is both shielded and foreign only", d)
+		}
 	}
 }
 

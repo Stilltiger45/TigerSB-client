@@ -62,7 +62,7 @@ A Windows app on the same core is the next stage.
 
 ## What else it does
 
-- **Apps outside the VPN.** MAX, VK, Yandex, banking and government apps always bypass the VPN, so they cannot see the tunnel or the server address. You can add your own apps to the list.
+- **Apps outside the VPN.** MAX, VK, Yandex, banking, government, marketplace and mobile operator apps always bypass the VPN, so they cannot see the tunnel or the server address. You can add your own apps to the list.
 - **Stable connection.** A dead server is replaced within seconds, and the VPN stays on when the phone switches between Wi-Fi and mobile data.
 - **Several profiles.** The profile name at the top opens a list: switch with one tap; each has Refresh, Link and Delete.
 - **Extras.** Speed, traffic and ping on the home screen, a quick settings tile, the protocol in the notification, automatic profile and block-list updates, "Send log" in the menu.
@@ -97,7 +97,7 @@ Code layout: `pkg/profile` is the profile and key format (the panel uses it too)
 - **Certificate pinning.** For servers with a self-signed certificate (`insecure=1` in the link) the client remembers the certificate's SHA-256 at import and accepts only that one afterwards, instead of the unsafe `allowInsecure`.
 - **Key storage.** The state file with the subscription key is encrypted with AES-256-GCM, and the encryption key is kept in Android Keystore. App backups are off (`allowBackup=false`).
 - **Screen protection.** `FLAG_SECURE` blocks screenshots and screen recording, taps through other windows are ignored, and other apps' overlays are hidden.
-- **App isolation.** MAX, VK, Yandex, banking and government apps are excluded from the tunnel by the system (`addDisallowedApplication`) and cannot see the server address. The panel cannot turn this list off.
+- **App isolation.** MAX, VK, Yandex, banking, government, marketplace and mobile operator apps are excluded from the tunnel by the system (`addDisallowedApplication`) and cannot see the server address. The panel cannot turn this list off.
 - **Updates.** The app takes `version.json` and the APK only from this repository's GitHub release and hands the APK to the system installer. Android installs an update only when it is signed with the same key as the installed version.
 - **Device limit.** When fetching a subscription the client sends `x-hwid` and device details, as Remnawave and similar panels expect, so the server can count devices.
 
