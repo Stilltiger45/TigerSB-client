@@ -251,25 +251,60 @@ class _AmbientPainter extends CustomPainter {
     // The button's light from the middle of the screen.
     haze(Offset(w / 2, h * 0.36), w * 0.55, Palette.orange, 0.12 * g);
 
+    // The style's own weather: dawn light for Заря, a red glow from above
+    // for Король проклятий.
+    switch (look) {
+      case AppStyle.zarya:
+        haze(Offset(w / 2, h * 1.02), w * 0.95, Palette.second, 0.2 * g);
+      case AppStyle.curse:
+        haze(Offset(w / 2, -h * 0.05), w * 0.9, Palette.orangeDeep, 0.3 * g);
+      case AppStyle.tiger || AppStyle.miku:
+        break;
+    }
+
     final shown = (style.particles * _sparks.length).round();
+    // Mike's notes jump to a beat.
+    final beat = math.pow(math.sin(t * 2.6 * math.pi / 2).abs(), 6).toDouble();
     for (var i = 0; i < shown; i++) {
       final s = _sparks[i];
-      // Rise from below the screen to above it, then start again.
       final p = (s.phase + travel.value * 0.035 * s.speed) % 1.0;
-      final y = h * (1.08 - p * 1.16);
-      final x = w * s.x + math.sin(t * 0.6 * s.speed + s.phase * 6.28) * s.sway;
       final fade = math.sin(p * math.pi); // dim at both ends
       final twinkle = 0.65 + 0.35 * math.sin(t * 2.2 * s.speed + s.phase * 20);
       final white = s.tone < style.white;
       final color = white ? Palette.shine : (s.tone > 0.7 ? Palette.second : Palette.orange);
-      final a = (0.85 * fade * twinkle).clamp(0.0, 1.0);
-      final angle = switch (look.mote) {
-        Mote.flake => s.phase * 6.28 + t * 0.7 * s.speed,
-        Mote.slash => -0.95 + (s.tone - 0.5) * 0.6,
-        Mote.note => math.sin(t * 1.6 * s.speed + s.phase * 6.28) * 0.35,
-        Mote.spark => 0.0,
-      };
-      drawMote(canvas, look.mote, Offset(x, y), s.size, color, a, angle: angle);
+      var a = (0.85 * fade * twinkle).clamp(0.0, 1.0);
+      var size = s.size;
+      final double x, y, angle;
+      switch (look.mote) {
+        case Mote.spark:
+          // Sparks rise from below the screen to above it.
+          y = h * (1.08 - p * 1.16);
+          x = w * s.x + math.sin(t * 0.6 * s.speed + s.phase * 6.28) * s.sway;
+          angle = 0;
+        case Mote.flake:
+          // Dust drifts with the wind across the Zone and slowly settles.
+          x = w * ((s.x + p * 1.3) % 1.0) + math.sin(t * 0.9 * s.speed + s.phase * 6.28) * s.sway * 0.4;
+          y = h * (-0.04 + ((s.tone + p * 0.45) % 1.0) * 1.08);
+          angle = s.phase * 6.28 + t * 0.7 * s.speed;
+        case Mote.slash:
+          // Cuts flash in place, each time somewhere else, and fade.
+          final k = (s.phase * 7 + travel.value * 0.06 * s.speed).floor();
+          final q = (s.phase * 7 + travel.value * 0.06 * s.speed) % 1.0;
+          final x0 = math.sin(i * 12.9898 + k * 78.233) * 43758.5453;
+          final y0 = math.sin(i * 39.3468 + k * 11.135) * 24634.6345;
+          x = w * (x0 - x0.floorToDouble());
+          y = h * (y0 - y0.floorToDouble());
+          a = (q < 0.1 ? q / 0.1 : 1 - (q - 0.1) / 0.9) * 0.9;
+          size = s.size * 1.3;
+          angle = -0.95 + (s.tone - 0.5) * 0.6;
+        case Mote.note:
+          // Notes float up in waves and jump on the beat.
+          y = h * (1.08 - p * 1.16) - beat * 6 * s.speed;
+          x = w * s.x + math.sin(t * 1.2 * s.speed + s.phase * 6.28) * s.sway * 2;
+          size = s.size * (1 + 0.3 * beat);
+          angle = math.sin(t * 1.6 * s.speed + s.phase * 6.28) * 0.35;
+      }
+      drawMote(canvas, look.mote, Offset(x, y), size, color, a, angle: angle);
     }
   }
 
