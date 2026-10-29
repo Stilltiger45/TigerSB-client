@@ -7,13 +7,12 @@ import 'package:flutter/material.dart';
 import 'fx.dart';
 import 'palette.dart';
 
-/// The big round button. Off it is clear glass; on it glows orange, and the
-/// ring around it moves in the way of the routing mode:
+/// The big round button. Off it is clear glass; on it glows in the style's
+/// colour, and the ring around it moves in the way of the routing mode, its
+/// own for each style. In the standard one:
 /// - smart: three sparks circle the button, looking for the best way;
 /// - basic: a white and an orange arc turn against each other, direct and VPN;
 /// - all: waves run out of the button, everything goes through the tunnel.
-/// The style changes the sparks' shape and what runs out in the all mode:
-/// sun rays, slashes of a domain or an equaliser.
 class PowerButton extends StatelessWidget {
   const PowerButton({super.key, required this.fx, required this.onPressed, this.size = 200});
 
@@ -209,38 +208,286 @@ class _RingPainter extends CustomPainter {
         ..color = Palette.white.withValues(alpha: 0.1),
     );
 
+    final outer = size.width / 2;
     switch (fx) {
       case Fx.idle:
         break;
       case Fx.connecting:
         _arc(canvas, c, r, t * 4.2, 1.6, Palette.orangeLight, 3);
+      // Each style has its own effect for each mode.
       case Fx.smart:
-        for (var i = 0; i < 3; i++) {
-          final a = t * 0.9 + i * 2 * math.pi / 3;
-          _arc(canvas, c, r, a - 0.9, 0.9, Palette.orange, 2.4);
-          final p = c + Offset(math.cos(a), math.sin(a)) * r;
-          // Heads point along the way they fly.
-          final angle = look.mote == Mote.note ? 0.0 : a + math.pi / 2;
-          drawMote(canvas, look.mote, p, look.mote == Mote.spark ? 4 : 3, Palette.orangeLight, 1, angle: angle);
+        switch (look) {
+          case AppStyle.tiger:
+            _orbits(canvas, c, t, r);
+          case AppStyle.zarya:
+            _radar(canvas, c, t, r, outer);
+          case AppStyle.curse:
+            _cleave(canvas, c, t, r, outer);
+          case AppStyle.miku:
+            _autotune(canvas, c, t, r, outer);
         }
       case Fx.basic:
-        _arc(canvas, c, r, t * 0.8, 1.9, Palette.white, 2.4);
-        _arc(canvas, c, r, -t * 0.8 + math.pi, 1.9, Palette.orange, 2.4);
+        switch (look) {
+          case AppStyle.tiger:
+            _arc(canvas, c, r, t * 0.8, 1.9, Palette.white, 2.4);
+            _arc(canvas, c, r, -t * 0.8 + math.pi, 1.9, Palette.orange, 2.4);
+          case AppStyle.zarya:
+            _compass(canvas, c, t, r, outer);
+          case AppStyle.curse:
+            _binding(canvas, c, t, r);
+          case AppStyle.miku:
+            _duet(canvas, c, t, r);
+        }
       case Fx.all:
-        final outer = size.width / 2;
         switch (look) {
           case AppStyle.tiger:
             _waves(canvas, c, t, outer, 1);
+            _arc(canvas, c, r, t * 1.6, math.pi * 2, Palette.orange, 1.6);
           case AppStyle.zarya:
-            _waves(canvas, c, t, outer, 0.6);
+            _dawn(canvas, c, t, r);
             _rays(canvas, c, t, r, outer);
           case AppStyle.curse:
-            _waves(canvas, c, t, outer, 0.35);
+            _teeth(canvas, c, t, r, outer);
             _slashes(canvas, c, t, r, outer);
           case AppStyle.miku:
             _equaliser(canvas, c, t, r, outer);
+            _arc(canvas, c, r, t * 1.6, math.pi * 2, Palette.second, 1.6);
         }
-        _arc(canvas, c, r, t * 1.6, math.pi * 2, Palette.orange, 1.6);
+    }
+  }
+
+  static Offset _dir(double a) => Offset(math.cos(a), math.sin(a));
+
+  /// A steady random number in 0..1 for a pair of integers.
+  static double _rnd(int i, int k) {
+    final x = math.sin(i * 12.9898 + k * 78.233) * 43758.5453;
+    return x - x.floorToDouble();
+  }
+
+  /// Tiger, smart: three sparks circle the button, looking for the best way.
+  void _orbits(Canvas canvas, Offset c, double t, double r) {
+    for (var i = 0; i < 3; i++) {
+      final a = t * 0.9 + i * 2 * math.pi / 3;
+      _arc(canvas, c, r, a - 0.9, 0.9, Palette.orange, 2.4);
+      drawMote(canvas, Mote.spark, c + _dir(a) * r, 4, Palette.orangeLight, 1);
+    }
+  }
+
+  /// Заря, smart: an anomaly detector sweeps the ring, and finds light up
+  /// where it passes.
+  void _radar(Canvas canvas, Offset c, double t, double r, double outer) {
+    final a = t * 1.7;
+    final band = outer - 4 - radius;
+    final mid = radius + band / 2;
+    final rect = Rect.fromCircle(center: c, radius: mid);
+    canvas.drawArc(
+      rect,
+      a - 1.3,
+      1.3,
+      false,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = band
+        ..shader = SweepGradient(
+          startAngle: 0,
+          endAngle: 1.3,
+          colors: [Palette.orange.withValues(alpha: 0), Palette.orange.withValues(alpha: 0.5)],
+          transform: GradientRotation(a - 1.3),
+        ).createShader(rect),
+    );
+    canvas.drawLine(
+      c + _dir(a) * radius,
+      c + _dir(a) * (outer - 4),
+      Paint()
+        ..strokeWidth = 2
+        ..strokeCap = StrokeCap.round
+        ..color = Palette.orangeLight,
+    );
+    // Range rings.
+    for (final rr in [r, outer - 6]) {
+      canvas.drawCircle(
+        c,
+        rr,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1
+          ..color = Palette.orange.withValues(alpha: 0.25),
+      );
+    }
+    // Finds: each lights up as the sweep passes it and slowly fades.
+    final turn = (a / (2 * math.pi)).floor();
+    for (var i = 0; i < 6; i++) {
+      final at = _rnd(i, turn) * 2 * math.pi;
+      final since = (a - at) % (2 * math.pi);
+      final alpha = (1 - since / 3).clamp(0.0, 1.0);
+      if (alpha == 0) continue;
+      final d = radius + 6 + (band - 10) * _rnd(i + 9, turn);
+      drawMote(canvas, Mote.spark, c + _dir(at) * d, 2.4, Palette.second, alpha);
+    }
+  }
+
+  /// Заря, basic: a compass bezel turns slowly; a white needle points the
+  /// direct way and a green one the VPN's, the opposite way.
+  void _compass(Canvas canvas, Offset c, double t, double r, double outer) {
+    const n = 48;
+    final tick = Paint()
+      ..strokeWidth = 1.6
+      ..strokeCap = StrokeCap.round;
+    for (var i = 0; i < n; i++) {
+      final a = t * 0.12 + i * 2 * math.pi / n;
+      final long = i % 6 == 0;
+      tick.color = Palette.orange.withValues(alpha: long ? 0.8 : 0.35);
+      canvas.drawLine(c + _dir(a) * (r + 2), c + _dir(a) * (r + (long ? 10 : 5)), tick);
+    }
+    final swing = -math.pi / 2 + 0.45 * math.sin(t * 0.9) + 0.12 * math.sin(t * 3.1);
+    void needle(double a, Color color) {
+      final d = _dir(a), side = _dir(a + math.pi / 2);
+      final path = Path()
+        ..moveTo(c.dx + d.dx * (outer - 2), c.dy + d.dy * (outer - 2))
+        ..lineTo(c.dx + d.dx * (r + 3) + side.dx * 6, c.dy + d.dy * (r + 3) + side.dy * 6)
+        ..lineTo(c.dx + d.dx * (r + 3) - side.dx * 6, c.dy + d.dy * (r + 3) - side.dy * 6)
+        ..close();
+      canvas.drawPath(
+        path,
+        Paint()
+          ..color = color.withValues(alpha: 0.5)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+      );
+      canvas.drawPath(path, Paint()..color = color);
+    }
+
+    needle(swing, Palette.shine);
+    needle(swing + math.pi, Palette.orange);
+  }
+
+  /// Заря, all: the dawn glow breathes around the button.
+  void _dawn(Canvas canvas, Offset c, double t, double r) {
+    canvas.drawCircle(
+      c,
+      r + 4,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 6
+        ..color = Palette.second.withValues(alpha: 0.25 + 0.2 * math.sin(t * 1.2))
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+    );
+  }
+
+  /// Король проклятий, smart: invisible blades cut across the ring in
+  /// crossing pairs, one after another.
+  void _cleave(Canvas canvas, Offset c, double t, double r, double outer) {
+    const cycle = 0.7;
+    for (var i = 0; i < 3; i++) {
+      final time = t / cycle + i / 3;
+      final k = time.floor();
+      final p = time - k;
+      final a = _rnd(i, k) * 2 * math.pi;
+      final grow = (p / 0.18).clamp(0.0, 1.0);
+      final alpha = p < 0.18 ? 1.0 : (1 - (p - 0.18) / 0.82);
+      final at = c + _dir(a) * (r + (outer - r) * 0.35);
+      for (final cross in [-0.4, 0.4]) {
+        drawMote(
+          canvas,
+          Mote.slash,
+          at,
+          5.2 * grow + 0.5,
+          cross < 0 ? Palette.orange : Palette.orangeLight,
+          alpha,
+          angle: a + math.pi / 2 + cross,
+        );
+      }
+    }
+  }
+
+  /// Король проклятий, basic: a vow binds the button: two chains turn
+  /// against each other, held by four seals.
+  void _binding(Canvas canvas, Offset c, double t, double r) {
+    for (final (rr, speed, n) in [(r, 0.5, 22), (r + 12, -0.35, 28)]) {
+      for (var i = 0; i < n; i++) {
+        final a = t * speed + i * 2 * math.pi / n;
+        final upright = i.isEven;
+        canvas.save();
+        canvas.translate(c.dx + math.cos(a) * rr, c.dy + math.sin(a) * rr);
+        canvas.rotate(a + math.pi / 2);
+        canvas.drawRRect(
+          RRect.fromRectAndRadius(
+            Rect.fromCenter(center: Offset.zero, width: upright ? 9 : 7, height: upright ? 4.5 : 2.2),
+            const Radius.circular(2.2),
+          ),
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.5
+            ..color = (rr == r ? Palette.orange : Palette.orangeDeep).withValues(alpha: 0.9),
+        );
+        canvas.restore();
+      }
+    }
+    for (var k = 0; k < 4; k++) {
+      final a = math.pi / 4 + k * math.pi / 2;
+      final pulse = 0.55 + 0.45 * math.sin(t * 2.4 + k * math.pi / 2);
+      drawMote(canvas, Mote.flake, c + _dir(a) * (r + 6), 3.4, Palette.orangeLight, pulse, angle: a);
+    }
+  }
+
+  /// Король проклятий, all: the domain's teeth rise around the button.
+  void _teeth(Canvas canvas, Offset c, double t, double r, double outer) {
+    const n = 30;
+    final paint = Paint()..color = Palette.orangeDeep.withValues(alpha: 0.85);
+    for (var i = 0; i < n; i++) {
+      final a = i * 2 * math.pi / n + t * 0.1;
+      final len = 5 + (outer - r - 10) * 0.6 * (0.5 + 0.5 * math.sin(t * 2.2 + i * 2.4)).abs();
+      final d = _dir(a), side = _dir(a + math.pi / 2);
+      final base = c + d * (r + 1);
+      canvas.drawPath(
+        Path()
+          ..moveTo(base.dx + side.dx * 3.5, base.dy + side.dy * 3.5)
+          ..lineTo(base.dx + d.dx * len, base.dy + d.dy * len)
+          ..lineTo(base.dx - side.dx * 3.5, base.dy - side.dy * 3.5)
+          ..close(),
+        paint,
+      );
+    }
+  }
+
+  /// Mike, smart: a voice's waveform around the button, tuned as it goes.
+  void _autotune(Canvas canvas, Offset c, double t, double r, double outer) {
+    final amp = (outer - r - 8) * 0.45;
+    for (final (color, phase, scale) in [(Palette.orange, 0.0, 1.0), (Palette.second, 1.7, 0.6)]) {
+      final path = Path();
+      for (var k = 0; k <= 180; k++) {
+        final a = k / 180 * 2 * math.pi;
+        final env = 0.55 + 0.45 * math.sin(a * 3 - t * 2 + phase);
+        final rr = r + 6 + amp * scale * env * math.sin(a * 10 + t * 6 + phase);
+        final p = c + _dir(a) * rr;
+        k == 0 ? path.moveTo(p.dx, p.dy) : path.lineTo(p.dx, p.dy);
+      }
+      canvas.drawPath(
+        path,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2
+          ..strokeJoin = StrokeJoin.round
+          ..color = color.withValues(alpha: 0.9),
+      );
+    }
+  }
+
+  /// Mike, basic: a duet: two lights run around the stage's lamps the
+  /// opposite ways, teal and pink.
+  void _duet(Canvas canvas, Offset c, double t, double r) {
+    const n = 28;
+    final one = (t * 7) % n, two = n - (t * 7) % n;
+    double near(double head, int i) {
+      final d = (i - head).abs();
+      return math.exp(-math.min(d, n - d) / 1.6);
+    }
+
+    for (var i = 0; i < n; i++) {
+      final at = c + _dir(i * 2 * math.pi / n - math.pi / 2) * (r + 8);
+      final a1 = near(one, i), a2 = near(two, i);
+      canvas.drawCircle(at, 2.4, Paint()..color = Palette.white.withValues(alpha: 0.22));
+      if (a1 > 0.05) drawMote(canvas, Mote.spark, at, 2.2 + a1 * 2, Palette.orange, a1);
+      if (a2 > 0.05) drawMote(canvas, Mote.spark, at, 2.2 + a2 * 2, Palette.second, a2);
     }
   }
 
