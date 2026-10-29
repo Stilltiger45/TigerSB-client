@@ -69,6 +69,16 @@ object Core {
 
     fun style(context: Context): String = prefs(context).getString("style", "tiger") ?: "tiger"
 
+    /** How the style looks outside the app: in the status bar, the notification and the tile. */
+    class Look(val statusIcon: Int, val launcherIcon: Int, val color: Int)
+
+    fun look(context: Context): Look = when (style(context)) {
+        "zarya" -> Look(R.drawable.ic_stat_zarya, R.mipmap.ic_launcher_zarya, 0xFF8BE33A.toInt())
+        "curse" -> Look(R.drawable.ic_stat_curse, R.mipmap.ic_launcher_curse, 0xFFEE1C2E.toInt())
+        "miku" -> Look(R.drawable.ic_stat_miku, R.mipmap.ic_launcher_miku, 0xFF39C5BB.toInt())
+        else -> Look(R.drawable.ic_stat_tiger, R.mipmap.ic_launcher, 0xFFFF7A1A.toInt())
+    }
+
     /**
      * Saves the style and shows its icon on the home screen: its launcher
      * alias is turned on before the others are turned off, so the app always

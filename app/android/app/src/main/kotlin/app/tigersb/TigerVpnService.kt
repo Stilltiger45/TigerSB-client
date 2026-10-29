@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
+import android.graphics.drawable.Icon
 import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.Network
@@ -40,9 +41,12 @@ class TigerVpnService : VpnService() {
         private const val TAG = "TigerSB"
         const val ACTION_START = "app.tigersb.START"
         const val ACTION_STOP = "app.tigersb.STOP"
+
+        // Shows the notification again in the style the user just chose.
+        const val ACTION_RESTYLE = "app.tigersb.RESTYLE"
+
         private const val CHANNEL = "vpn"
         private const val NOTIFICATION_ID = 1
-        private const val ORANGE = 0xFFFF7A1A.toInt()
 
         // How often the notification checks which protocol carries traffic.
         private const val PROTOCOL_EVERY_MS = 30_000L
@@ -78,6 +82,12 @@ class TigerVpnService : VpnService() {
 
         fun stop(context: Context) {
             context.startService(Intent(context, TigerVpnService::class.java).setAction(ACTION_STOP))
+        }
+
+        /** Restyles the notification of a running VPN; does nothing when it is off. */
+        fun restyle(context: Context) {
+            if (VpnState.phase == VpnState.Phase.DISCONNECTED || VpnState.phase == VpnState.Phase.ERROR) return
+            context.startService(Intent(context, TigerVpnService::class.java).setAction(ACTION_RESTYLE))
         }
     }
 
@@ -131,6 +141,15 @@ class TigerVpnService : VpnService() {
                 shutdown()
             }
             return START_NOT_STICKY
+        }
+        if (intent?.action == ACTION_RESTYLE) {
+            // Started only for this: there is no VPN to restyle.
+            val (title, detail) = shown ?: run {
+                stopSelf(startId)
+                return START_NOT_STICKY
+            }
+            startForegroundCompat(title, detail)
+            return START_STICKY
         }
         if (intent == null) worker.execute { note("Android перезапустил службу VPN") }
         // ACTION_START from the app or the tile, or the system starting an
@@ -545,8 +564,17 @@ class TigerVpnService : VpnService() {
         this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE,
     )
 
-    /** title on top; detail, such as the protocol, below it when set. */
+    // The notification's title and detail, to show them again in a new style.
+    @Volatile
+    private var shown: Pair<String, String>? = null
+
+    /**
+     * title on top; detail, such as the protocol, below it when set. The icons
+     * and the colour are the style's.
+     */
     private fun startForegroundCompat(title: String, detail: String = "") {
+        shown = title to detail
+        val look = Core.look(this)
         val nm = getSystemService(NotificationManager::class.java)
         val builder = if (Build.VERSION.SDK_INT >= 26) {
             nm.createNotificationChannel(
@@ -561,8 +589,9 @@ class TigerVpnService : VpnService() {
             this, 1, Intent(this, TigerVpnService::class.java).setAction(ACTION_STOP), PendingIntent.FLAG_IMMUTABLE,
         )
         val n = builder
-            .setSmallIcon(R.drawable.ic_stat_vpn)
-            .setColor(ORANGE)
+            .setSmallIcon(look.statusIcon)
+            .setLargeIcon(Icon.createWithResource(this, look.launcherIcon))
+            .setColor(look.color)
             .setSubText("TigerSB")
             .setContentTitle(title)
             .setContentText(detail.ifEmpty { null })
