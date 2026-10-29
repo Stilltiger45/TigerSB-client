@@ -75,7 +75,7 @@ func clientProfile(raw json.RawMessage) (*appctlpb.ClientProfile, error) {
 	}
 	s := c.Settings
 	if s.Config != "" {
-		return fromConfig(s.Config)
+		return xrayconf.MieruProfile(s.Config)
 	}
 	if s.Username == "" || s.Password == "" || s.Address == "" || len(s.Ports) == 0 {
 		return nil, stderrors.New("нет адреса, портов, имени или пароля")
@@ -133,28 +133,6 @@ func clientProfile(raw json.RawMessage) (*appctlpb.ClientProfile, error) {
 		p.TrafficPattern = tp
 	}
 	return p, nil
-}
-
-// fromConfig takes the active profile of a client config from a mieru://
-// link.
-func fromConfig(enc string) (*appctlpb.ClientProfile, error) {
-	b, err := base64.StdEncoding.DecodeString(enc)
-	if err != nil {
-		return nil, stderrors.New("неверная ссылка mieru://")
-	}
-	c := &appctlpb.ClientConfig{}
-	if err := proto.Unmarshal(b, c); err != nil {
-		return nil, stderrors.New("неверная ссылка mieru://")
-	}
-	for _, p := range c.GetProfiles() {
-		if p.GetProfileName() == c.GetActiveProfile() {
-			return p, nil
-		}
-	}
-	if len(c.GetProfiles()) == 0 {
-		return nil, stderrors.New("в ссылке mieru:// нет профиля")
-	}
-	return c.GetProfiles()[0], nil
 }
 
 // Attach adds the mieru outbound to a created, not yet started Xray instance.

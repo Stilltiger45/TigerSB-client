@@ -63,7 +63,7 @@ A Windows app on the same core is the next stage.
 ## What else it does
 
 - **Apps outside the VPN.** MAX, VK, Yandex, banking, government, marketplace and mobile operator apps always bypass the VPN, so they cannot see the tunnel or the server address. You can add your own apps to the list.
-- **Protocols your way.** The «Протоколы» menu turns off the protocols that work poorly on your networks; the VPN goes through the others.
+- **Protocols your way.** The «Протоколы» menu turns off the protocols that work poorly on your networks; the VPN goes through the others. Mieru and NaïveProxy always show how they run (TCP, UDP or QUIC), so each can be turned off on its own.
 - **Stable connection.** A dead server is replaced within seconds, and the VPN stays on when the phone switches between Wi-Fi and mobile data.
 - **Several profiles.** The profile name at the top opens a list: switch with one tap; each has Refresh, Link and Delete.
 - **Extras.** Speed, traffic and ping on the home screen, a quick settings tile, the protocol in the notification, automatic profile and block-list updates, "Send log" in the menu, light and dark themes under About.

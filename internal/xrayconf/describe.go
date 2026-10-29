@@ -13,12 +13,9 @@ import (
 // cannot read.
 func Describe(xray json.RawMessage) string {
 	var ob struct {
-		Protocol string `json:"protocol"`
-		Settings struct {
-			Version int  `json:"version"`
-			QUIC    bool `json:"quic"`
-		} `json:"settings"`
-		Stream struct {
+		Protocol string          `json:"protocol"`
+		Settings json.RawMessage `json:"settings"`
+		Stream   struct {
 			Network  string `json:"network"`
 			Security string `json:"security"`
 		} `json:"streamSettings"`
@@ -26,21 +23,31 @@ func Describe(xray json.RawMessage) string {
 	if json.Unmarshal(xray, &ob) != nil || ob.Protocol == "" {
 		return ""
 	}
+	var settings struct {
+		Version int  `json:"version"`
+		QUIC    bool `json:"quic"`
+	}
+	json.Unmarshal(ob.Settings, &settings)
 	switch ob.Protocol {
 	case "hysteria":
-		if ob.Settings.Version == 2 {
+		if settings.Version == 2 {
 			return "Hysteria 2"
 		}
 		return "Hysteria"
 	case "tuic":
 		return "TUIC"
+	// Mieru and NaïveProxy run over TCP or over UDP (QUIC), and the name
+	// says which: one of them may work on a network where the other does not.
 	case "mieru":
-		return "Mieru"
+		if mieruOverUDP(ob.Settings) {
+			return "Mieru · UDP"
+		}
+		return "Mieru · TCP"
 	case "naive":
-		if ob.Settings.QUIC {
+		if settings.QUIC {
 			return "NaïveProxy · QUIC"
 		}
-		return "NaïveProxy"
+		return "NaïveProxy · TCP"
 	}
 	parts := []string{protocolNames.name(ob.Protocol)}
 	switch ob.Stream.Security {
