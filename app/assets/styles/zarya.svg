@@ -1,10 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
   <defs>
-    <linearGradient id="gz" gradientUnits="userSpaceOnUse" x1="0" y1="16" x2="0" y2="86">
-      <stop offset="0" stop-color="#FFE27A"/>
-      <stop offset="0.6" stop-color="#FFC44D"/>
-      <stop offset="0.66" stop-color="#9BD84A"/>
-      <stop offset="1" stop-color="#3FAE4A"/>
+    <linearGradient id="gz" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#C8FF6A"/>
+      <stop offset="1" stop-color="#6FD42A"/>
     </linearGradient>
     <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
       <feGaussianBlur stdDeviation="2.2" result="b"/>
@@ -12,17 +10,14 @@
     </filter>
   </defs>
   <g filter="url(#glow)">
-  <g fill="none" stroke="url(#gz)" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round">
-    <!-- the sun rising over the Zone -->
-    <path d="M26 60 A24 24 0 0 1 74 60"/>
-    <path d="M50 27 L50 17 M33 34 L27.5 26 M67 34 L72.5 26 M22.5 46 L14 42.5 M77.5 46 L86 42.5"/>
-    <!-- the horizon and the road into it -->
-    <path d="M14 60 L86 60"/>
-    <path d="M47 66 L42 84 M53 66 L58 84"/>
-    <path d="M22 68 L34 68 M66 68 L78 68 M28 76 L36 76 M64 76 L72 76"/>
-  </g>
-  <g fill="url(#gz)">
-    <path d="M38 60 A12 12 0 0 1 62 60 Z"/>
-  </g>
+    <!-- the patch -->
+    <circle cx="50" cy="50" r="38" fill="none" stroke="url(#gz)" stroke-width="3.4"/>
+    <!-- a wolf's head in profile, snarling -->
+    <path fill="url(#gz)" fill-rule="evenodd" d="
+      M19 45 L33 39 L42 33 L45 30 L47 17 L54 27 L60 16 L63 30
+      C71 34 77 44 75 54 L81 60 L73 61 L78 69 L69 67 L69 77 L61 69 L56 75 L51 66
+      L44 64 L32 62 L25 59 L40 53 L31 50.5 L30 54 L28 50 L22 48.5 Z
+      M43 41 L53 37.5 L50 43 Z
+      M57 52 L66 47 L62 55 Z"/>
   </g>
 </svg>

@@ -32,16 +32,16 @@ enum AppStyle {
       all: 'Весь трафик — через VPN.',
     ),
   ),
-  // A faction of free stalkers: the Zone has no master. Dawn gold over its
-  // green, and dust rising in the morning light.
+  // A faction of free stalkers: the Zone has no master. The wolf patch's
+  // lime on black, dust rising in the dawn light.
   zarya(
     title: 'Заря',
     logo: 'assets/styles/zarya.png',
     mote: Mote.flake,
-    accent: Color(0xFF8FD14F),
-    accentDeep: Color(0xFF3FAE4A),
-    accentTop: Color(0xFFFFE27A),
-    accentLightDark: Color(0xFFFFD66B),
+    accent: Color(0xFF8BE33A),
+    accentDeep: Color(0xFF4CB82A),
+    accentTop: Color(0xFFC8FF6A),
+    accentLightDark: Color(0xFFB8F27A),
     accentLightLight: Color(0xFF3C8A25),
     second: Color(0xFFFFD66B),
     ink: Color(0xFF0D1A05),
@@ -62,9 +62,9 @@ enum AppStyle {
     title: 'Король проклятий',
     logo: 'assets/styles/curse.png',
     mote: Mote.slash,
-    accent: Color(0xFFE5243B),
+    accent: Color(0xFFEE1C2E),
     accentDeep: Color(0xFF8E0E1F),
-    accentTop: Color(0xFFFF7A86),
+    accentTop: Color(0xFFFF5A5A),
     accentLightDark: Color(0xFFFF7A86),
     accentLightLight: Color(0xFFB5162B),
     second: null,
