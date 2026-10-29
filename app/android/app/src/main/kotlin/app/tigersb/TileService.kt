@@ -2,6 +2,7 @@ package app.tigersb
 
 import android.app.PendingIntent
 import android.content.Intent
+import android.graphics.drawable.Icon
 import android.net.VpnService
 import android.os.Build
 import android.service.quicksettings.Tile
@@ -48,6 +49,7 @@ class TileService : android.service.quicksettings.TileService() {
             VpnState.Phase.CONNECTED, VpnState.Phase.CONNECTING -> Tile.STATE_ACTIVE
             else -> Tile.STATE_INACTIVE
         }
+        tile.icon = Icon.createWithResource(this, Core.look(this).statusIcon)
         tile.updateTile()
     }
 }

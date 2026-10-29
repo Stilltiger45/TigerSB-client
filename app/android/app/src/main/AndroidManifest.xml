@@ -109,7 +109,7 @@
         <service
             android:name=".TileService"
             android:exported="true"
-            android:icon="@drawable/ic_stat_vpn"
+            android:icon="@drawable/ic_stat_tiger"
             android:label="TigerSB"
             android:permission="android.permission.BIND_QUICK_SETTINGS_TILE">
             <intent-filter>

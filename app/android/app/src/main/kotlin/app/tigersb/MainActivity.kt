@@ -143,6 +143,7 @@ class MainActivity : FlutterActivity() {
                     "style" -> result.success(Core.style(this@MainActivity))
                     "setStyle" -> {
                         Core.setStyle(this@MainActivity, call.argument<String>("style") ?: "tiger")
+                        TigerVpnService.restyle(this@MainActivity)
                         result.success(null)
                     }
                     "connect" -> connect(result)

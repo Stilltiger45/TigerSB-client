@@ -1,13 +1,17 @@
-// Renders the styles' icons from app/assets/styles/*.svg: the in-app logo and
-// the Android launcher icons (adaptive foreground and monochrome, and the
-// legacy square). Run from the repository root with Playwright installed:
-//   node scripts/style-icons.js
+// Renders the styles' icons from app/assets/styles/*.svg: the in-app logo, the
+// Android launcher icons (adaptive foreground and monochrome, and the legacy
+// square) and, for every style with the standard one, the white status bar
+// icon of the notification and the tile. Run from the repository root with Playwright installed:
+//   node scripts/style-icons.js [style...]
+// Names of styles render only those, so the others' files stay as they are.
 const { chromium } = require('playwright');
 const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-const styles = ['zarya', 'curse', 'miku'];
+const only = process.argv.slice(2);
+const pick = (name) => only.length === 0 || only.includes(name);
+const styles = ['zarya', 'curse', 'miku'].filter(pick);
 const res = 'app/android/app/src/main/res';
 const densities = { mdpi: 1, hdpi: 1.5, xhdpi: 2, xxhdpi: 3, xxxhdpi: 4 };
 
@@ -46,6 +50,21 @@ const densities = { mdpi: 1, hdpi: 1.5, xhdpi: 2, xxhdpi: 3, xxxhdpi: 4 };
 </adaptive-icon>
 `,
     );
+  }
+  // Status bar icons: the shape alone, without the glow, lines a bit bolder.
+  const all = { tiger: 'app/assets/tiger.svg', ...Object.fromEntries(styles.map((n) => [n, `app/assets/styles/${n}.svg`])) };
+  for (const [name, file] of Object.entries(all).filter(([name]) => pick(name))) {
+    const svg = fs
+      .readFileSync(file, 'utf8')
+      .replace(/ filter="url\(#glow\)"/g, '')
+      .replace(/stroke-width="([\d.]+)"/g, (_, w) => `stroke-width="${Math.max(w * 1.6, 1)}"`);
+    for (const [d, k] of Object.entries(densities)) {
+      const dir = path.join(res, `drawable-${d}`);
+      fs.mkdirSync(dir, { recursive: true });
+      const out = path.join(dir, `ic_stat_${name}.png`);
+      await render(svg, out, 24 * k, Math.round(24 * k * 1.04));
+      execFileSync('convert', [out, '-fill', 'white', '-colorize', '100', out]);
+    }
   }
   await browser.close();
 })();

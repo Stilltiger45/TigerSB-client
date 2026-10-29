@@ -21,22 +21,39 @@ import (
 	"github.com/Stilltiger45/TigerSB-client/scripts/soak/load"
 )
 
+// freePort returns a port free on network: "tcp", "udp", or "tcp+udp" for a
+// SOCKS inbound, which takes the same port for both. The port is free when
+// it is picked; Windows often hands a just-freed TCP port's number to a UDP
+// socket, so "tcp+udp" checks both at once.
 func freePort(t *testing.T, network string) int {
 	t.Helper()
-	if network == "tcp" {
+	if network == "udp" {
+		pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer pc.Close()
+		return pc.LocalAddr().(*net.UDPAddr).Port
+	}
+	for range 50 {
 		l, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
 			t.Fatal(err)
 		}
-		defer l.Close()
-		return l.Addr().(*net.TCPAddr).Port
+		port := l.Addr().(*net.TCPAddr).Port
+		if network == "tcp" {
+			l.Close()
+			return port
+		}
+		pc, err := net.ListenPacket("udp", fmt.Sprintf("127.0.0.1:%d", port))
+		l.Close()
+		if err == nil {
+			pc.Close()
+			return port
+		}
 	}
-	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer pc.Close()
-	return pc.LocalAddr().(*net.UDPAddr).Port
+	t.Fatal("no port free on both TCP and UDP")
+	return 0
 }
 
 // client runs the app's core for the profile in mode. TUIC sends noise
@@ -47,7 +64,7 @@ func client(t *testing.T, p *profile.Profile, mode xrayconf.Mode, noise bool) *c
 	auto := mode == xrayconf.ModeAuto
 	cfg, err := xrayconf.Build(p, xrayconf.Options{
 		Mode:     mode,
-		Inbounds: []xrayconf.Inbound{{Tag: "socks-in", Protocol: "socks", Listen: "127.0.0.1", Port: freePort(t, "tcp")}},
+		Inbounds: []xrayconf.Inbound{{Tag: "socks-in", Protocol: "socks", Listen: "127.0.0.1", Port: freePort(t, "tcp+udp")}},
 		Evasion:  auto,
 		LogLevel: "none",
 	})
