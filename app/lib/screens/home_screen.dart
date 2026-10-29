@@ -334,10 +334,11 @@ class _HomeScreenState extends State<HomeScreen> {
     widget.onAdd();
   }
 
+  /// The mode's description, in the words of the style.
   String get _modeText => switch (_mode) {
-    Mode.auto => 'Как «Базовая», и обход блокировок DPI подбирается сам под вашу сеть.',
-    Mode.basic => 'Российские сайты (.ru, .рф, российские IP) — напрямую, остальное — через VPN.',
-    Mode.all => 'Весь трафик — через VPN.',
+    Mode.auto => Palette.style.words.auto,
+    Mode.basic => Palette.style.words.basic,
+    Mode.all => Palette.style.words.all,
   };
 
   /// The look of the screen: the routing mode's while connected.
@@ -353,12 +354,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   String get _hint => switch (_status.phase) {
     Phase.connected => switch (_mode) {
-      Mode.auto => 'УМНАЯ МАРШРУТИЗАЦИЯ',
-      Mode.basic => 'РОССИЯ НАПРЯМУЮ',
-      Mode.all => 'ВСЁ ЧЕРЕЗ VPN',
+      Mode.auto => Palette.style.words.autoHint,
+      Mode.basic => Palette.style.words.basicHint,
+      Mode.all => Palette.style.words.allHint,
     },
-    Phase.connecting => 'ИЩУ СЕРВЕР',
-    _ => 'НАЖМИТЕ, ЧТОБЫ ВКЛЮЧИТЬ',
+    Phase.connecting => Palette.style.words.connecting,
+    _ => Palette.style.words.idle,
   };
 
   @override
@@ -548,7 +549,7 @@ class _ProfileButton extends StatelessWidget {
         Divider(height: 12, color: Palette.white.withValues(alpha: 0.1)),
         MenuItemButton(
           key: const Key('addProfile'),
-          leadingIcon: const Icon(Icons.add_rounded, color: Palette.orange),
+          leadingIcon: Icon(Icons.add_rounded, color: Palette.orange),
           onPressed: onAdd,
           child: const Text('Добавить профиль'),
         ),
@@ -562,12 +563,12 @@ class _ProfileButton extends StatelessWidget {
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Image.asset('assets/tiger.png', width: 30, height: 30),
+              Image.asset(Palette.style.logo, width: 30, height: 30),
               const SizedBox(width: 10),
               Flexible(child: Text(profile.name, overflow: TextOverflow.ellipsis)),
               if (profile.signed) ...[
                 const SizedBox(width: 6),
-                const Tooltip(
+                Tooltip(
                   message: 'Профиль подписан панелью TigerSB',
                   child: Icon(Icons.verified_rounded, size: 18, color: Palette.orange),
                 ),
@@ -634,7 +635,7 @@ class _ProfileRow extends StatelessWidget {
                     ),
                     if (profile.signed) ...[
                       const SizedBox(width: 4),
-                      const Icon(Icons.verified_rounded, size: 15, color: Palette.orange),
+                      Icon(Icons.verified_rounded, size: 15, color: Palette.orange),
                     ],
                   ],
                 ),

@@ -56,7 +56,7 @@ class _ProtocolsScreenState extends State<ProtocolsScreen> {
                   padding: const EdgeInsets.all(16),
                   child: Row(
                     children: [
-                      const Icon(Icons.tune_rounded, color: Palette.orange, size: 28),
+                      Icon(Icons.tune_rounded, color: Palette.orange, size: 28),
                       const SizedBox(width: 14),
                       Expanded(
                         child: Text(

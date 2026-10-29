@@ -1,7 +1,9 @@
 package app.tigersb
 
 import android.annotation.SuppressLint
+import android.content.ComponentName
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.Settings
 import android.os.Handler
@@ -55,6 +57,34 @@ object Core {
 
     fun setLightTheme(context: Context, light: Boolean) {
         prefs(context).edit().putBoolean("lightTheme", light).apply()
+    }
+
+    /** The app's style: the launcher alias of each, which carries its icon. */
+    private val styles = mapOf(
+        "tiger" to "app.tigersb.StyleTiger",
+        "zarya" to "app.tigersb.StyleZarya",
+        "curse" to "app.tigersb.StyleCurse",
+        "miku" to "app.tigersb.StyleMiku",
+    )
+
+    fun style(context: Context): String = prefs(context).getString("style", "tiger") ?: "tiger"
+
+    /**
+     * Saves the style and shows its icon on the home screen: its launcher
+     * alias is turned on before the others are turned off, so the app always
+     * has one. The launcher takes a few seconds to notice.
+     */
+    fun setStyle(context: Context, style: String) {
+        val chosen = if (style in styles) style else "tiger"
+        prefs(context).edit().putString("style", chosen).apply()
+        val pm = context.packageManager
+        fun set(alias: String, on: Boolean) = pm.setComponentEnabledSetting(
+            ComponentName(context.packageName, alias),
+            if (on) PackageManager.COMPONENT_ENABLED_STATE_ENABLED else PackageManager.COMPONENT_ENABLED_STATE_DISABLED,
+            PackageManager.DONT_KILL_APP,
+        )
+        set(styles.getValue(chosen), true)
+        for ((name, alias) in styles) if (name != chosen) set(alias, false)
     }
 }
 

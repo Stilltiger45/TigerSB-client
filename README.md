@@ -67,6 +67,7 @@ A Windows app on the same core is the next stage.
 - **Stable connection.** A dead server is replaced within seconds, and the VPN stays on when the phone switches between Wi-Fi and mobile data.
 - **Several profiles.** The profile name at the top opens a list: switch with one tap; each has Refresh, Link and Delete.
 - **Extras.** Speed, traffic and ping on the home screen, a quick settings tile, the protocol in the notification, automatic profile and block-list updates, "Send log" in the menu, light and dark themes under About.
+- **Styles.** About also has several looks for the app, each with its own colour, home screen icon, words for the modes and effects around the button. Which ones is for you to find out.
 
 # For developers
 

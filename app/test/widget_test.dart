@@ -86,6 +86,14 @@ class FakeCore implements Core {
   @override
   Future<void> setLightTheme(bool v) async => light = v;
 
+  String savedStyle = 'tiger';
+
+  @override
+  Future<String> style() async => savedStyle;
+
+  @override
+  Future<void> setStyle(String v) async => savedStyle = v;
+
   VpnStats nextStats = const VpnStats(up: 0, down: 0, ping: -1, uptime: 0);
   int statsCalls = 0;
 
@@ -511,6 +519,31 @@ void main() {
     expect(titleColor(), const Color(0xFFF7F3EE));
   });
 
+  testWidgets('about switches the style at once and saves it', (tester) async {
+    addTearDown(() => appStyle.value = AppStyle.tiger);
+    final core = FakeCore()..profile = ProfileInfo(name: 'Дом', hasRU: true, fetched: DateTime.now(), exits: const []);
+    await tester.pumpWidget(TigerApp(core: core));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('подбирается сам под вашу сеть'), findsOneWidget);
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('О приложении'));
+    await tester.pumpAndSettle();
+
+    await tester.ensureVisible(find.byKey(const Key('style-curse')));
+    await tester.tap(find.byKey(const Key('style-curse')));
+    await tester.pumpAndSettle();
+    expect(core.savedStyle, 'curse');
+    expect(Palette.orange, AppStyle.curse.accent);
+    expect(Theme.of(tester.element(find.text('Стиль'))).colorScheme.primary, AppStyle.curse.accent);
+
+    // The main screen speaks in the style's words.
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.textContaining('рассекает'), findsOneWidget);
+    expect(find.text(AppStyle.curse.words.idle), findsOneWidget);
+  });
+
   testWidgets('the menu checks for an update and installs it', (tester) async {
     final core = FakeCore()..profile = ProfileInfo(name: 'Дом', hasRU: true, fetched: DateTime.now(), exits: const []);
     await tester.pumpWidget(TigerApp(core: core));
@@ -558,17 +591,21 @@ void main() {
     expect(packages, containsAll(['TigerSB', 'Go', 'github.com/xtls/xray-core', 'github.com/sagernet/sing-quic']));
   });
 
-  testWidgets('every mode animates without errors', (tester) async {
+  testWidgets('every mode animates without errors in every style', (tester) async {
     tester.platformDispatcher.clearAccessibilityFeaturesTestValue();
+    addTearDown(() => appStyle.value = AppStyle.tiger);
     final core = FakeCore()..profile = ProfileInfo(name: 'Дом', hasRU: true, fetched: DateTime.now(), exits: const []);
     await tester.pumpWidget(TigerApp(core: core));
     await tester.pump(const Duration(seconds: 1));
     await tester.tap(find.byKey(const Key('power')));
-    for (final m in ['Базовая', 'Все', 'Умная']) {
-      await tester.pump(const Duration(milliseconds: 500));
-      await tester.tap(find.text(m));
-      for (var i = 0; i < 30; i++) {
-        await tester.pump(const Duration(milliseconds: 100));
+    for (final style in AppStyle.values) {
+      appStyle.value = style;
+      for (final m in ['Базовая', 'Все', 'Умная']) {
+        await tester.pump(const Duration(milliseconds: 500));
+        await tester.tap(find.text(m));
+        for (var i = 0; i < 30; i++) {
+          await tester.pump(const Duration(milliseconds: 100));
+        }
       }
     }
     expect(tester.takeException(), isNull);

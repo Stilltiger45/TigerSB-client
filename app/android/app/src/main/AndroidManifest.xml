@@ -38,10 +38,6 @@
               android:name="io.flutter.embedding.android.NormalTheme"
               android:resource="@style/NormalTheme"
               />
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN"/>
-                <category android:name="android.intent.category.LAUNCHER"/>
-            </intent-filter>
             <!-- A tigersb://add?… link from the panel opens the app with the key. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -50,6 +46,52 @@
                 <data android:scheme="tigersb" />
             </intent-filter>
         </activity>
+        <!-- The home screen icon, one per style: the style chosen in «О приложении»
+             turns its alias on and the others off (Core.setStyle). -->
+        <activity-alias
+            android:name=".StyleTiger"
+            android:targetActivity=".MainActivity"
+            android:icon="@mipmap/ic_launcher"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".StyleZarya"
+            android:targetActivity=".MainActivity"
+            android:icon="@mipmap/ic_launcher_zarya"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".StyleCurse"
+            android:targetActivity=".MainActivity"
+            android:icon="@mipmap/ic_launcher_curse"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity-alias>
+        <activity-alias
+            android:name=".StyleMiku"
+            android:targetActivity=".MainActivity"
+            android:icon="@mipmap/ic_launcher_miku"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity-alias>
 
         <service
             android:name=".TigerVpnService"

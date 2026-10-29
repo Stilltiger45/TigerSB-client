@@ -37,21 +37,13 @@ class FireButton extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   if (busy)
-                    const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Palette.ink),
-                    )
+                    SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Palette.ink))
                   else
                     Icon(icon, color: Palette.ink, size: 22),
                   const SizedBox(width: 10),
                   Text(
                     label,
-                    style: const TextStyle(
-                      color: Palette.ink,
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.3,
-                    ),
+                    style: TextStyle(color: Palette.ink, fontSize: 16, fontWeight: FontWeight.w700, letterSpacing: 0.3),
                   ),
                 ],
               ),

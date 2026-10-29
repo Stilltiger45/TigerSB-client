@@ -10,12 +10,13 @@ Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   registerLicenses();
   final core = PlatformCore();
-  // The saved theme comes before the first frame, so a light app does not
-  // flash dark.
+  // The saved theme and style come before the first frame, so a light app
+  // does not flash dark, nor a styled one orange.
   try {
     lightTheme.value = await core.lightTheme();
+    appStyle.value = AppStyle.byName(await core.style());
   } catch (_) {
-    // Dark, as before the user chose.
+    // Dark and standard, as before the user chose.
   }
   runApp(TigerApp(core: core));
 }

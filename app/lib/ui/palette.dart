@@ -1,20 +1,29 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import 'style.dart';
+
+export 'style.dart';
+
 /// Which theme is on: false is the dark one. Widgets read [Palette] when
 /// they build, so TigerApp rebuilds every widget when this changes.
 final lightTheme = ValueNotifier<bool>(false);
 
-/// TigerSB colours: orange, black and white. In the light theme black and
-/// white swap places: [black] is the background and [white] the text.
+/// TigerSB colours: the style's main colour ("orange", as in the standard
+/// style), black and white. In the light theme black and white swap places:
+/// [black] is the background and [white] the text.
 abstract final class Palette {
   static bool get light => lightTheme.value;
+  static AppStyle get style => appStyle.value;
 
   static Color get black => light ? const Color(0xFFF6F1EA) : const Color(0xFF070708);
-  static const ink = Color(0xFF1A0D03); // text on orange
-  static const orange = Color(0xFFFF7A1A);
-  static Color get orangeLight => light ? const Color(0xFFD25A00) : const Color(0xFFFFB15C);
-  static const orangeDeep = Color(0xFFFF5A00);
+  static Color get ink => style.ink; // text on orange
+  static Color get orange => style.accent;
+  static Color get orangeLight => light ? style.accentLightLight : style.accentLightDark;
+  static Color get orangeDeep => style.accentDeep;
+
+  /// The colour of a share of the sparks.
+  static Color get second => style.second ?? orangeLight;
   static Color get white => light ? const Color(0xFF1E150D) : const Color(0xFFF7F3EE);
   static Color get muted => white.withValues(alpha: 0.65);
   static Color get faint => white.withValues(alpha: 0.38);
@@ -35,11 +44,11 @@ abstract final class Palette {
   static Color get popup => light ? const Color(0xF7FFFFFF) : const Color(0xF0141416);
 
   /// The orange fill of the power button, the mode thumb and the main button.
-  static const fire = LinearGradient(
+  static LinearGradient get fire => LinearGradient(
     begin: Alignment.topLeft,
     end: Alignment.bottomRight,
-    colors: [Color(0xFFFFB15C), orange, orangeDeep],
-    stops: [0, 0.55, 1],
+    colors: [style.accentTop, orange, orangeDeep],
+    stops: const [0, 0.55, 1],
   );
 }
 
@@ -94,10 +103,10 @@ ThemeData tigerTheme() {
       style: FilledButton.styleFrom(backgroundColor: Palette.orange, foregroundColor: Palette.ink),
     ),
     textButtonTheme: TextButtonThemeData(style: TextButton.styleFrom(foregroundColor: Palette.orangeLight)),
-    progressIndicatorTheme: const ProgressIndicatorThemeData(color: Palette.orange),
-    textSelectionTheme: const TextSelectionThemeData(
+    progressIndicatorTheme: ProgressIndicatorThemeData(color: Palette.orange),
+    textSelectionTheme: TextSelectionThemeData(
       cursorColor: Palette.orange,
-      selectionColor: Color(0x55FF7A1A),
+      selectionColor: Palette.orange.withValues(alpha: 0.33),
       selectionHandleColor: Palette.orange,
     ),
     inputDecorationTheme: InputDecorationTheme(
@@ -113,7 +122,7 @@ ThemeData tigerTheme() {
       ),
       focusedBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(18),
-        borderSide: const BorderSide(color: Palette.orange, width: 1.4),
+        borderSide: BorderSide(color: Palette.orange, width: 1.4),
       ),
       errorBorder: OutlineInputBorder(
         borderRadius: BorderRadius.circular(18),

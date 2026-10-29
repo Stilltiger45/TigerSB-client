@@ -12,6 +12,8 @@ import 'palette.dart';
 /// - smart: three sparks circle the button, looking for the best way;
 /// - basic: a white and an orange arc turn against each other, direct and VPN;
 /// - all: waves run out of the button, everything goes through the tunnel.
+/// The style changes the sparks' shape and what runs out in the all mode:
+/// sun rays, slashes of a domain or an equaliser.
 class PowerButton extends StatelessWidget {
   const PowerButton({super.key, required this.fx, required this.onPressed, this.size = 200});
 
@@ -185,6 +187,7 @@ class _RingPainter extends CustomPainter {
   _RingPainter({required this.fx, required this.seconds, required this.radius}) : super(repaint: seconds);
 
   final bool light = Palette.light;
+  final AppStyle look = Palette.style;
 
   final Fx fx;
   final ValueListenable<double> seconds;
@@ -215,26 +218,97 @@ class _RingPainter extends CustomPainter {
         for (var i = 0; i < 3; i++) {
           final a = t * 0.9 + i * 2 * math.pi / 3;
           _arc(canvas, c, r, a - 0.9, 0.9, Palette.orange, 2.4);
-          _spark(canvas, c + Offset(math.cos(a), math.sin(a)) * r, Palette.orangeLight, 4);
+          final p = c + Offset(math.cos(a), math.sin(a)) * r;
+          // Heads point along the way they fly.
+          final angle = look.mote == Mote.note ? 0.0 : a + math.pi / 2;
+          drawMote(canvas, look.mote, p, look.mote == Mote.spark ? 4 : 3, Palette.orangeLight, 1, angle: angle);
         }
       case Fx.basic:
         _arc(canvas, c, r, t * 0.8, 1.9, Palette.white, 2.4);
         _arc(canvas, c, r, -t * 0.8 + math.pi, 1.9, Palette.orange, 2.4);
       case Fx.all:
-        // Waves leave the button every 1.2 s and fade as they grow.
-        for (var i = 0; i < 3; i++) {
-          final p = ((t / 1.8) + i / 3) % 1.0;
-          final rr = radius + p * (size.width / 2 - radius);
-          canvas.drawCircle(
-            c,
-            rr,
-            Paint()
-              ..style = PaintingStyle.stroke
-              ..strokeWidth = 2.2 * (1 - p) + 0.4
-              ..color = Palette.orange.withValues(alpha: 0.7 * (1 - p)),
-          );
+        final outer = size.width / 2;
+        switch (look) {
+          case AppStyle.tiger:
+            _waves(canvas, c, t, outer, 1);
+          case AppStyle.zarya:
+            _waves(canvas, c, t, outer, 0.6);
+            _rays(canvas, c, t, r, outer);
+          case AppStyle.curse:
+            _waves(canvas, c, t, outer, 0.35);
+            _slashes(canvas, c, t, r, outer);
+          case AppStyle.miku:
+            _equaliser(canvas, c, t, r, outer);
         }
         _arc(canvas, c, r, t * 1.6, math.pi * 2, Palette.orange, 1.6);
+    }
+  }
+
+  /// Waves leave the button every 0.6 s and fade as they grow.
+  void _waves(Canvas canvas, Offset c, double t, double outer, double strength) {
+    for (var i = 0; i < 3; i++) {
+      final p = ((t / 1.8) + i / 3) % 1.0;
+      final rr = radius + p * (outer - radius);
+      canvas.drawCircle(
+        c,
+        rr,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.2 * (1 - p) + 0.4
+          ..color = Palette.orange.withValues(alpha: 0.7 * (1 - p) * strength),
+      );
+    }
+  }
+
+  /// Dawn: rays turn slowly around the button, breathing in and out.
+  void _rays(Canvas canvas, Offset c, double t, double r, double outer) {
+    const n = 16;
+    for (var i = 0; i < n; i++) {
+      final a = t * 0.25 + i * 2 * math.pi / n;
+      final len = (outer - r - 6) * (0.45 + 0.35 * math.sin(t * 1.4 + i * 1.7)) * (i.isEven ? 1 : 0.6);
+      final dir = Offset(math.cos(a), math.sin(a));
+      final from = c + dir * (r + 6);
+      final paint = Paint()
+        ..strokeWidth = 2
+        ..strokeCap = StrokeCap.round
+        ..shader = LinearGradient(colors: [Palette.second.withValues(alpha: 0.8), Palette.second.withValues(alpha: 0)])
+            .createShader(Rect.fromPoints(from, from + dir * len));
+      canvas.drawLine(from, from + dir * len, paint);
+    }
+  }
+
+  /// A domain: slashes flash all around the button and fade, each in its
+  /// own place and time.
+  void _slashes(Canvas canvas, Offset c, double t, double r, double outer) {
+    const n = 14;
+    for (var i = 0; i < n; i++) {
+      final cycle = 0.9 + (i % 5) * 0.17;
+      final p = ((t + i * 0.37) / cycle) % 1.0;
+      final round = ((t + i * 0.37) / cycle).floor();
+      // A new place on each flash.
+      final seed = math.sin((i * 12.9898 + round * 78.233)) * 43758.5453;
+      final rnd = seed - seed.floorToDouble();
+      final a = rnd * 2 * math.pi;
+      final at = c + Offset(math.cos(a), math.sin(a)) * (r + 4 + (outer - r - 14) * ((rnd * 7) % 1.0));
+      final alpha = p < 0.15 ? p / 0.15 : (1 - p) / 0.85;
+      drawMote(canvas, Mote.slash, at, 2.6, i.isEven ? Palette.orange : Palette.orangeLight, alpha, angle: a + 0.9);
+    }
+  }
+
+  /// A stage: bars around the button jump to the beat, in two colours.
+  void _equaliser(Canvas canvas, Offset c, double t, double r, double outer) {
+    const n = 48;
+    final paint = Paint()
+      ..strokeWidth = 3
+      ..strokeCap = StrokeCap.round;
+    for (var i = 0; i < n; i++) {
+      final a = i * 2 * math.pi / n - math.pi / 2;
+      final beat = math.pow(math.sin(t * 2.6 * math.pi / 2).abs(), 3).toDouble();
+      final level = 0.25 + 0.45 * (0.5 + 0.5 * math.sin(t * 3.1 + i * 0.9)) * (0.6 + 0.4 * beat);
+      final len = (outer - r - 8) * level;
+      final dir = Offset(math.cos(a), math.sin(a));
+      paint.color = (i.isEven ? Palette.orange : Palette.second).withValues(alpha: 0.85);
+      canvas.drawLine(c + dir * (r + 5), c + dir * (r + 5 + len), paint);
     }
   }
 
@@ -260,17 +334,7 @@ class _RingPainter extends CustomPainter {
     canvas.drawArc(rect, start, sweep, false, paint);
   }
 
-  void _spark(Canvas canvas, Offset p, Color color, double size) {
-    canvas.drawCircle(
-      p,
-      size * 2.6,
-      Paint()
-        ..color = color.withValues(alpha: 0.45)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, size * 1.4),
-    );
-    canvas.drawCircle(p, size, Paint()..color = color);
-  }
-
   @override
-  bool shouldRepaint(_RingPainter old) => old.fx != fx || old.radius != radius || old.light != light;
+  bool shouldRepaint(_RingPainter old) =>
+      old.fx != fx || old.radius != radius || old.light != light || old.look != look;
 }

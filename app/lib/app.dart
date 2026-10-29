@@ -22,11 +22,13 @@ class _TigerAppState extends State<TigerApp> {
   void initState() {
     super.initState();
     lightTheme.addListener(_themeChanged);
+    appStyle.addListener(_themeChanged);
   }
 
   @override
   void dispose() {
     lightTheme.removeListener(_themeChanged);
+    appStyle.removeListener(_themeChanged);
     super.dispose();
   }
 
@@ -144,9 +146,9 @@ class _RootState extends State<Root> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Image.asset('assets/tiger.png', width: 96, height: 96),
+              Image.asset(Palette.style.logo, width: 96, height: 96),
               const SizedBox(height: 24),
-              const SizedBox(
+              SizedBox(
                 width: 24,
                 height: 24,
                 child: CircularProgressIndicator(strokeWidth: 2.5, color: Palette.orange),

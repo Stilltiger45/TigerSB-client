@@ -191,6 +191,11 @@ abstract class Core {
   Future<bool> lightTheme();
   Future<void> setLightTheme(bool light);
 
+  /// The client's style by its name ("tiger" by default). Saving one also
+  /// switches the launcher icon to the style's.
+  Future<String> style();
+  Future<void> setStyle(String style);
+
   /// Apps with a launcher icon.
   Future<List<AppInfo>> apps();
 
@@ -356,6 +361,12 @@ class PlatformCore implements Core {
 
   @override
   Future<void> setLightTheme(bool light) => _call('setLightTheme', {'light': light});
+
+  @override
+  Future<String> style() async => await _call<String>('style') ?? 'tiger';
+
+  @override
+  Future<void> setStyle(String style) => _call('setStyle', {'style': style});
 
   @override
   Future<bool> connect() async => await _call<bool>('connect') ?? false;
