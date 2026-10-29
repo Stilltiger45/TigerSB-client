@@ -8,7 +8,6 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
-import android.graphics.drawable.Icon
 import android.net.ConnectivityManager
 import android.net.LinkProperties
 import android.net.Network
@@ -16,6 +15,7 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.VpnService
 import android.os.Build
+import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelFileDescriptor
@@ -569,7 +569,7 @@ class TigerVpnService : VpnService() {
     private var shown: Pair<String, String>? = null
 
     /**
-     * title on top; detail, such as the protocol, below it when set. The icons
+     * title on top; detail, such as the protocol, below it when set. The icon
      * and the colour are the style's.
      */
     private fun startForegroundCompat(title: String, detail: String = "") {
@@ -590,8 +590,11 @@ class TigerVpnService : VpnService() {
         )
         val n = builder
             .setSmallIcon(look.statusIcon)
-            .setLargeIcon(Icon.createWithResource(this, look.launcherIcon))
             .setColor(look.color)
+            // Android 17 and Samsung's "app icons in notifications" put the
+            // app's own icon on the left, which stays the tiger whatever the
+            // style; this asks for the style's icon instead (EXTRA_PREFER_SMALL_ICON).
+            .addExtras(Bundle().apply { putBoolean("android.app.preferSmallIcon", true) })
             .setSubText("TigerSB")
             .setContentTitle(title)
             .setContentText(detail.ifEmpty { null })
