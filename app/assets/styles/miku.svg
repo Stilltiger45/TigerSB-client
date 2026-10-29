@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="gm" x1="0" y1="0.1" x2="0" y2="0.9">
+      <stop offset="0" stop-color="#8FF5EA"/>
+      <stop offset="1" stop-color="#14A89D"/>
+    </linearGradient>
+    <linearGradient id="pm" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FF9CC6"/>
+      <stop offset="1" stop-color="#FF4F98"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="2.2" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <g filter="url(#glow)">
+  <g fill="none" stroke="url(#gm)" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round">
+    <!-- headphones -->
+    <path d="M24 50 A26 26 0 0 1 76 50"/>
+    <path d="M20 50 L28 50 L28 64 L20 64 Z M80 50 L72 50 L72 64 L80 64 Z"/>
+    <!-- twin tails falling from them -->
+    <path d="M20 64 C14 74 18 82 12 90"/>
+    <path d="M80 64 C86 74 82 82 88 90"/>
+    <!-- a beamed note -->
+    <path d="M44 72 L44 40 L60 36 L60 68"/>
+    <path d="M44 46 L60 42"/>
+  </g>
+  <g fill="url(#pm)">
+    <ellipse cx="39.5" cy="73" rx="5.5" ry="4.2" transform="rotate(-18 39.5 73)"/>
+    <ellipse cx="55.5" cy="69" rx="5.5" ry="4.2" transform="rotate(-18 55.5 69)"/>
+  </g>
+  </g>
+</svg>

@@ -319,7 +319,7 @@ func testNaive(t *testing.T, srv *server, linkPadding string, wantPadding bool) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "NaïveProxy"
+	want := "NaïveProxy · TCP"
 	if srv.quic {
 		want = "NaïveProxy · QUIC"
 	}

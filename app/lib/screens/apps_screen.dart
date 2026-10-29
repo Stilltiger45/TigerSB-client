@@ -75,7 +75,7 @@ class _AppsScreenState extends State<AppsScreen> {
                   padding: const EdgeInsets.all(16),
                   child: Row(
                     children: [
-                      const Icon(Icons.shield_moon_rounded, color: Palette.orange, size: 28),
+                      Icon(Icons.shield_moon_rounded, color: Palette.orange, size: 28),
                       const SizedBox(width: 14),
                       Expanded(
                         child: Text(
@@ -103,7 +103,7 @@ class _AppsScreenState extends State<AppsScreen> {
                   (_, final String e) => Center(
                     child: Text(e, style: TextStyle(color: Palette.error)),
                   ),
-                  (null, _) => const Center(child: CircularProgressIndicator(color: Palette.orange)),
+                  (null, _) => Center(child: CircularProgressIndicator(color: Palette.orange)),
                   (final List<AppInfo> list, _) => ListView.builder(
                     padding: const EdgeInsets.only(bottom: 24),
                     itemCount: list.length,
@@ -133,7 +133,7 @@ class _AppsScreenState extends State<AppsScreen> {
       title: Text(a.label, maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: always ? Text('ВСЕГДА НАПРЯМУЮ', style: capsStyle.copyWith(fontSize: 10)) : null,
       trailing: always
-          ? const Icon(Icons.lock_rounded, color: Palette.orange, size: 20)
+          ? Icon(Icons.lock_rounded, color: Palette.orange, size: 20)
           : Switch(
               value: _user.contains(a.package),
               activeThumbColor: Palette.ink,

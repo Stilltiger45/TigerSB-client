@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <defs>
+    <linearGradient id="gc" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FF4A4A"/>
+      <stop offset="1" stop-color="#E00012"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="2" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <g filter="url(#glow)" fill="url(#gc)">
+    <!-- the mark on the forehead: two curved blades and a drop -->
+    <path d="M44 32 C40 26 40 19 44 12 C44 18 45 22 47 24 L47 32 L45.5 28 Z"/>
+    <path d="M56 32 C60 26 60 19 56 12 C56 18 55 22 53 24 L53 32 L54.5 28 Z"/>
+    <path d="M42.5 22 L46 25 L44 27 Z M57.5 22 L54 25 L56 27 Z"/>
+    <path d="M50 14 C52 16.5 52 19 50 20 C48 19 48 16.5 50 14 Z"/>
+    <!-- the line under the eyes -->
+    <path d="M36 50 L44 47 L47 43 L53 43 L56 47 L64 50 L55 49 L52 46 L48 46 L45 49 Z"/>
+    <!-- the cheeks and the jaw down to the fangs -->
+    <path d="M17 47 L13 37 L18 43 L17 36 L22 44 L30 46 L23 48.5 L22 51 L31 74 L44 84 L47 80 L45 89 L39 82 L30 77 L19 52 Z"/>
+    <path d="M83 47 L87 37 L82 43 L83 36 L78 44 L70 46 L77 48.5 L78 51 L69 74 L56 84 L53 80 L55 89 L61 82 L70 77 L81 52 Z"/>
+    <path d="M47 82 L49.2 82 L49.5 91 Z M53 82 L50.8 82 L50.5 91 Z"/>
+  </g>
+</svg>

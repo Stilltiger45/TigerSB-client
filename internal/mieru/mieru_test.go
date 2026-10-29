@@ -197,7 +197,7 @@ func TestMieru(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if d := xrayconf.Describe(p.Exits[0].Transports[0].Xray); d != "Mieru" {
+				if d := xrayconf.Describe(p.Exits[0].Transports[0].Xray); d != "Mieru · "+protocol {
 					t.Errorf("described as %q", d)
 				}
 				inst, socks, udp := start(t, p)

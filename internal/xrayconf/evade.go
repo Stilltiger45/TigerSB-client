@@ -166,14 +166,9 @@ func withQUICNoise(ob map[string]json.RawMessage) error {
 // than Xray's TCP transports.
 func OverUDP(xray json.RawMessage) bool {
 	var ob struct {
-		Protocol string `json:"protocol"`
-		Settings struct {
-			Ports []struct {
-				Protocol string `json:"protocol"`
-			} `json:"ports"`
-			QUIC bool `json:"quic"`
-		} `json:"settings"`
-		Stream struct {
+		Protocol string          `json:"protocol"`
+		Settings json.RawMessage `json:"settings"`
+		Stream   struct {
 			Network string `json:"network"`
 		} `json:"streamSettings"`
 	}
@@ -184,9 +179,13 @@ func OverUDP(xray json.RawMessage) bool {
 	case "hysteria", "hysteria2", "tuic":
 		return true
 	case "mieru":
-		return len(ob.Settings.Ports) > 0 && ob.Settings.Ports[0].Protocol == "UDP"
+		return mieruOverUDP(ob.Settings)
 	case "naive":
-		return ob.Settings.QUIC
+		var s struct {
+			QUIC bool `json:"quic"`
+		}
+		json.Unmarshal(ob.Settings, &s)
+		return s.QUIC
 	}
 	switch ob.Stream.Network {
 	case "hysteria", "kcp", "mkcp":

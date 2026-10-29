@@ -22,4 +22,7 @@ flutter:
   uses-material-design: true
   assets:
     - assets/tiger.png
+    - assets/styles/zarya.png
+    - assets/styles/curse.png
+    - assets/styles/miku.png
     - assets/licenses.json

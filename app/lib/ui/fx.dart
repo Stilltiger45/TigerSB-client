@@ -205,6 +205,7 @@ class _AmbientPainter extends CustomPainter {
   final ValueListenable<double> seconds;
   final ValueListenable<double> travel;
   final bool light = Palette.light;
+  final AppStyle look = Palette.style;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -260,20 +261,72 @@ class _AmbientPainter extends CustomPainter {
       final fade = math.sin(p * math.pi); // dim at both ends
       final twinkle = 0.65 + 0.35 * math.sin(t * 2.2 * s.speed + s.phase * 20);
       final white = s.tone < style.white;
-      final color = white ? Palette.shine : (s.tone > 0.7 ? Palette.orangeLight : Palette.orange);
+      final color = white ? Palette.shine : (s.tone > 0.7 ? Palette.second : Palette.orange);
       final a = (0.85 * fade * twinkle).clamp(0.0, 1.0);
-      final c = Offset(x, y);
-      canvas.drawCircle(
-        c,
-        s.size * 3,
-        Paint()
-          ..color = color.withValues(alpha: a * 0.35)
-          ..maskFilter = MaskFilter.blur(BlurStyle.normal, s.size * 1.6),
-      );
-      canvas.drawCircle(c, s.size, Paint()..color = color.withValues(alpha: a));
+      final angle = switch (look.mote) {
+        Mote.flake => s.phase * 6.28 + t * 0.7 * s.speed,
+        Mote.slash => -0.95 + (s.tone - 0.5) * 0.6,
+        Mote.note => math.sin(t * 1.6 * s.speed + s.phase * 6.28) * 0.35,
+        Mote.spark => 0.0,
+      };
+      drawMote(canvas, look.mote, Offset(x, y), s.size, color, a, angle: angle);
     }
   }
 
   @override
-  bool shouldRepaint(_AmbientPainter old) => old.style != style || old.light != light;
+  bool shouldRepaint(_AmbientPainter old) => old.style != style || old.light != light || old.look != look;
+}
+
+/// One spark of the background or the ring in the style's shape: a round
+/// spark, a turning flake of dust, a thin slash or a note. [size] is the
+/// radius of a round spark; the others are about as large.
+void drawMote(Canvas canvas, Mote mote, Offset c, double size, Color color, double alpha, {double angle = 0}) {
+  final glow = Paint()
+    ..color = color.withValues(alpha: alpha * 0.35)
+    ..maskFilter = MaskFilter.blur(BlurStyle.normal, size * 1.6);
+  final fill = Paint()..color = color.withValues(alpha: alpha);
+  switch (mote) {
+    case Mote.spark:
+      canvas.drawCircle(c, size * 3, glow);
+      canvas.drawCircle(c, size, fill);
+    case Mote.flake:
+      canvas.drawCircle(c, size * 3, glow);
+      final d = size * 1.5;
+      final path = Path()
+        ..moveTo(0, -d)
+        ..lineTo(d * 0.7, 0)
+        ..lineTo(0, d)
+        ..lineTo(-d * 0.7, 0)
+        ..close();
+      _drawTurned(canvas, c, angle, path, fill);
+    case Mote.slash:
+      // A blade: long, thin, pointed at both ends.
+      final l = size * 5, w = size * 0.55;
+      final path = Path()
+        ..moveTo(-l, 0)
+        ..quadraticBezierTo(0, -w * 2, l, 0)
+        ..quadraticBezierTo(0, w, -l, 0)
+        ..close();
+      _drawTurned(canvas, c, angle, path, glow..maskFilter = MaskFilter.blur(BlurStyle.normal, size));
+      _drawTurned(canvas, c, angle, path, fill);
+    case Mote.note:
+      canvas.drawCircle(c, size * 3, glow);
+      final h = size * 1.3;
+      final path = Path()
+        ..addOval(Rect.fromCenter(center: Offset.zero, width: h * 2.4, height: h * 1.7))
+        ..addRect(Rect.fromLTWH(h * 0.85, -h * 4, h * 0.45, h * 4))
+        ..moveTo(h * 1.3, -h * 4)
+        ..quadraticBezierTo(h * 2.6, -h * 3.2, h * 2.1, -h * 1.9)
+        ..quadraticBezierTo(h * 2.1, -h * 2.9, h * 1.3, -h * 3.1)
+        ..close();
+      _drawTurned(canvas, c, angle - 0.3, path, fill);
+  }
+}
+
+void _drawTurned(Canvas canvas, Offset c, double angle, Path path, Paint paint) {
+  canvas.save();
+  canvas.translate(c.dx, c.dy);
+  canvas.rotate(angle);
+  canvas.drawPath(path, paint);
+  canvas.restore();
 }

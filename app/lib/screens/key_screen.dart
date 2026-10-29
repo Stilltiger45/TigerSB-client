@@ -177,7 +177,7 @@ class _Logo extends StatelessWidget {
           boxShadow: [BoxShadow(color: Palette.orange.withValues(alpha: 0.25), blurRadius: 50)],
         ),
         padding: const EdgeInsets.all(14),
-        child: Image.asset('assets/tiger.png'),
+        child: Image.asset(Palette.style.logo),
       ),
     );
   }

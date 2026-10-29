@@ -42,13 +42,19 @@ class _AboutScreenState extends State<AboutScreen> {
     widget.core.setLightTheme(light).catchError((Object _) {});
   }
 
+  /// Switches the style at once and saves it, with its launcher icon.
+  void _setStyle(AppStyle style) {
+    appStyle.value = style;
+    widget.core.setStyle(style.name).catchError((Object _) {});
+  }
+
   void _openLicenses() => showLicensePage(
     context: context,
     applicationName: 'TigerSB',
     applicationVersion: _about.version,
     applicationIcon: Padding(
       padding: const EdgeInsets.all(12),
-      child: Image.asset('assets/tiger.png', width: 56, height: 56),
+      child: Image.asset(Palette.style.logo, width: 56, height: 56),
     ),
     applicationLegalese: '© 2026 авторы TigerSB. GNU GPL 3.0.',
   );
@@ -66,7 +72,7 @@ class _AboutScreenState extends State<AboutScreen> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
             children: [
-              Image.asset('assets/tiger.png', width: 96, height: 96),
+              Image.asset(Palette.style.logo, width: 96, height: 96),
               const SizedBox(height: 12),
               Text(
                 'TigerSB',
@@ -93,11 +99,45 @@ class _AboutScreenState extends State<AboutScreen> {
               ),
               const SizedBox(height: 12),
               _Card(
+                icon: Icons.palette_outlined,
+                title: 'Стиль',
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Two in a row.
+                    for (var i = 0; i < AppStyle.values.length; i += 2) ...[
+                      if (i > 0) const SizedBox(height: 10),
+                      Row(
+                        children: [
+                          for (final style in AppStyle.values.skip(i).take(2)) ...[
+                            if (style != AppStyle.values[i]) const SizedBox(width: 10),
+                            Expanded(
+                              child: _StyleTile(
+                                style: style,
+                                chosen: style == Palette.style,
+                                onTap: () => _setStyle(style),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ],
+                    const SizedBox(height: 10),
+                    Text(
+                      'Меняет цвет, значок, описания режимов и эффекты. Значок на рабочем столе сменится через '
+                      'несколько секунд; если он пропал, добавьте его снова из списка приложений.',
+                      style: TextStyle(color: Palette.muted, fontSize: 12.5, height: 1.35),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              _Card(
                 icon: Icons.bolt_rounded,
                 title: 'Что это',
                 child: Text(
-                  'VPN-клиент для подписок TigerSB и других VPN. Сам выбирает быстрый сервер и путь для каждого '
-                  'сайта, а банки, госуслуги и российские сервисы оставляет без VPN.',
+                  'VPN-клиент для подписок TigerSB и других VPN. Сам выбирает быстрый сервер и обход блокировок '
+                  'под вашу сеть, а банки, госуслуги и российские сервисы оставляет без VPN.',
                   style: body,
                 ),
               ),
@@ -192,6 +232,59 @@ class _Card extends StatelessWidget {
       ],
     ),
   );
+}
+
+/// A style to pick: its logo and name in its own colour.
+class _StyleTile extends StatelessWidget {
+  const _StyleTile({required this.style, required this.chosen, required this.onTap});
+
+  final AppStyle style;
+  final bool chosen;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Palette.light ? style.accentLightLight : style.accentLightDark;
+    return Semantics(
+      selected: chosen,
+      button: true,
+      child: InkWell(
+        key: Key('style-${style.name}'),
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(16),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 250),
+          height: 64,
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            color: style.accent.withValues(alpha: chosen ? 0.16 : 0.05),
+            border: Border.all(color: chosen ? style.accent : Palette.white.withValues(alpha: 0.12), width: 1.4),
+            boxShadow: chosen ? [BoxShadow(color: style.accent.withValues(alpha: 0.3), blurRadius: 16)] : null,
+          ),
+          child: Row(
+            children: [
+              Image.asset(style.logo, width: 34, height: 34),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  style.title,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: chosen ? color : Palette.white,
+                    fontSize: 13.5,
+                    height: 1.15,
+                    fontWeight: chosen ? FontWeight.w700 : FontWeight.w500,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 class _Part extends StatelessWidget {

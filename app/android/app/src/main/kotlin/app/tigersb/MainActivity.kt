@@ -140,6 +140,11 @@ class MainActivity : FlutterActivity() {
                         Core.setLightTheme(this@MainActivity, call.argument<Boolean>("light") == true)
                         result.success(null)
                     }
+                    "style" -> result.success(Core.style(this@MainActivity))
+                    "setStyle" -> {
+                        Core.setStyle(this@MainActivity, call.argument<String>("style") ?: "tiger")
+                        result.success(null)
+                    }
                     "connect" -> connect(result)
                     "shareJournal" -> background(result) {
                         val text = Mobile.journal()
