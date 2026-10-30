@@ -119,6 +119,8 @@ adb push soakload /data/local/tmp/soakload >/dev/null
 adb shell chmod 755 /data/local/tmp/soakload
 adb shell pm grant app.tigersb android.permission.POST_NOTIFICATIONS
 adb shell appops set app.tigersb ACTIVATE_VPN allow
+# Out of battery saving up front: its question comes at a random moment.
+adb shell dumpsys deviceidle whitelist +app.tigersb
 adb logcat -c
 adb logcat -v time > "$out/logcat.txt" 2>&1 &
 logcat=$!
