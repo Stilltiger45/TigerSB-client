@@ -86,7 +86,10 @@ func serverLog(t *testing.T, clientPub []byte, keys map[string]string, j *journa
 	if j != nil {
 		logger = &device.Logger{Verbosef: j.logf, Errorf: j.logf}
 	}
-	dev := device.NewDevice(tun, conn.NewStdNetBind(), logger)
+	// The default bind: the standard one fails every read on Windows
+	// ("wsarecvmsg: … invalid pointer"), and AmneziaWG servers there run
+	// the default one too.
+	dev := device.NewDevice(tun, conn.NewDefaultBind(), logger)
 	t.Cleanup(dev.Close)
 	priv, pub := keyPair(t)
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
