@@ -12,7 +12,8 @@
 |---|---|
 | `tigersb://add?url=<адрес подписки>&pk=<публичный ключ>&name=<имя>` | скачивает профиль и принимает только подпись этим ключом |
 | `https://…` | если по адресу панель TigerSB — скачивает профиль и запоминает ключ первой подписи (доверие при первом подключении). Если это подписка другого VPN — читает из неё список серверов (см. ниже) |
-| `vless://…`, `vmess://…`, `trojan://…`, `ss://…`, `hysteria2://…` (или `hy2://…`), `tuic://…`, `mierus://…`, `mieru://…`, `naive+https://…`, `naive+quic://…` | собирает профиль из одной ссылки, без подписки и без выхода в РФ |
+| `vless://…`, `vmess://…`, `trojan://…`, `ss://…`, `hysteria2://…` (или `hy2://…`), `tuic://…`, `mierus://…`, `mieru://…`, `naive+https://…`, `naive+quic://…`, `wireguard://…` (или `wg://…`, `awg://…`), `vpn://…` | собирает профиль из одной ссылки, без подписки и без выхода в РФ |
+| текст конфига WireGuard или AmneziaWG (`[Interface]` … `[Peer]`) | то же: клиент хранит его как ссылку `wireguard://` |
 
 `url` обязан начинаться с `https://`. `pk` — публичный ключ Ed25519 в base64url без `=`. Собрать ключ: `tigersb-core link -url … -pk … -name …`.
 
@@ -20,14 +21,15 @@
 
 Ссылку `https://` на подписку любого другого VPN можно вставить как ключ. Клиент понимает:
 
-- список ссылок `vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://`, `tuic://`, `mierus://`, `mieru://`, `naive+https://`, `naive+quic://`, обычным текстом или в base64 (Marzban, 3x-ui, Remnawave и большинство других панелей);
+- список ссылок `vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://`, `tuic://`, `mierus://`, `mieru://`, `naive+https://`, `naive+quic://`, `wireguard://`, `vpn://`, обычным текстом или в base64 (Marzban, 3x-ui, Remnawave и большинство других панелей);
+- конфиг WireGuard или AmneziaWG (`.conf`), который отдаёт ссылка;
 - JSON-массив конфигов Xray: из каждого берётся первый outbound с прокси.
-- конфиг Clash (Mihomo, Clash Meta) в YAML: серверы из списка `proxies` типов `vless`, `vmess`, `trojan`, `ss` (без плагинов), `hysteria2`, `tuic` и `mieru`. Транспорты `tcp`, `ws` (и `v2ray-http-upgrade`), `grpc`, `xhttp`; TLS, REALITY, `client-fingerprint`, `skip-cert-verify` и `fingerprint` (отпечаток сертификата). Группы и правила не используются;
-- конфиг sing-box в JSON: серверы из `outbounds` типов `vless`, `vmess`, `trojan`, `shadowsocks` (без плагинов), `hysteria2`, `tuic` и `naive` (без QUIC). Транспорты `ws`, `httpupgrade`, `grpc`; TLS, uTLS и REALITY. `selector`, `urltest`, `direct`, `block` и `dns` пропускаются.
+- конфиг Clash (Mihomo, Clash Meta) в YAML: серверы из списка `proxies` типов `vless`, `vmess`, `trojan`, `ss` (без плагинов), `hysteria2`, `tuic`, `mieru` и `wireguard` (с `amnezia-wg-option` для AmneziaWG). Транспорты `tcp`, `ws` (и `v2ray-http-upgrade`), `grpc`, `xhttp`; TLS, REALITY, `client-fingerprint`, `skip-cert-verify` и `fingerprint` (отпечаток сертификата). Группы и правила не используются;
+- конфиг sing-box в JSON: серверы из `outbounds` типов `vless`, `vmess`, `trojan`, `shadowsocks` (без плагинов), `hysteria2`, `tuic` и `naive`, и WireGuard из `endpoints` (sing-box 1.11+) или из `outbounds` (раньше), с объектом `amnezia` для AmneziaWG. Транспорты `ws`, `httpupgrade`, `grpc`; TLS, uTLS и REALITY. `selector`, `urltest`, `direct`, `block` и `dns` пропускаются.
 
 Каждый сервер из Clash и sing-box переводится в ту же ссылку, какой он был бы в списке, поэтому проверки и умолчания у всех форматов одни.
 
-Ссылки и серверы, которые клиент не умеет открыть (например, WireGuard), пропускаются. Все серверы попадают в один выход `foreign` с одинаковым приоритетом, поэтому клиент замеряет задержку до каждого, ведёт трафик через самый быстрый и сам переключается, если сервер перестал отвечать. Списков блокировок в таких подписках нет, поэтому весь трафик, кроме банков и госуслуг, идёт через VPN.
+Ссылки и серверы, которые клиент не умеет открыть, пропускаются. Все серверы попадают в один выход `foreign` с одинаковым приоритетом, поэтому клиент замеряет задержку до каждого, ведёт трафик через самый быстрый и сам переключается, если сервер перестал отвечать. Списков блокировок в таких подписках нет, поэтому весь трафик, кроме банков и госуслуг, идёт через VPN.
 
 Название подписки берётся из заголовка `profile-title`, а частота обновления — из `profile-update-interval`. В каждом запросе подписки клиент сообщает об устройстве в заголовках `x-hwid`, `x-device-os`, `x-ver-os` и `x-device-model`. По ним панели с ограничением числа устройств (например, HWID в Remnawave) узнают телефон. На Android `x-hwid` — это `ANDROID_ID` приложения: он не меняется до сброса телефона. Если панель отвечает на собственный User-Agent клиента без серверов, клиент повторяет запрос с User-Agent `v2rayNG`.
 
@@ -91,6 +93,31 @@
 ```
 
 По HTTP/3 — с `"quic": true` в `settings` и `"alpn": ["h3"]` без `fingerprint`.
+
+## WireGuard и AmneziaWG
+
+Клиент понимает WireGuard и AmneziaWG версий 1, 2 и 3 (amneziawg-go 3.1). Сервер можно добавить:
+
+- текстом конфига, как его выдают AmneziaWG, wg-easy, Amnezia и панели: `[Interface]` с `PrivateKey`, `Address`, `DNS`, `MTU` и ключами AmneziaWG, `[Peer]` с `PublicKey`, `PresharedKey`, `Endpoint`, `AllowedIPs`, `PersistentKeepalive`. Берётся первый `[Peer]`. Конфиг можно вставить, отсканировать в QR-коде или отдать по ссылке подписки;
+- ссылкой `wireguard://закрытый_ключ@адрес:порт/?publickey=…&presharedkey=…&address=10.8.1.2/32,fd00::2/128&dns=…&mtu=…&allowedips=…&keepalive=…#имя` (форма v2rayN; `wg://` и `awg://` — то же). Ключи AmneziaWG идут в той же строке под своими именами в любом регистре: `jc`, `jmin`, `s1`, `h1`, `i1`, `headerprotectionkey` и так далее;
+- ключом Amnezia `vpn://…` (base64 от qCompress JSON): берётся конфиг WireGuard или AmneziaWG из контейнера по умолчанию, `$PRIMARY_DNS` и `$SECONDARY_DNS` заменяются на DNS ключа. Ключи Amnezia Premium конфига не содержат, такие открывает только приложение Amnezia;
+- из подписок Clash (`type: wireguard`, `amnezia-wg-option`) и sing-box (см. выше).
+
+Ключи AmneziaWG: `Jc`, `Jmin`, `Jmax` (мусорные пакеты перед рукопожатием), `S1`–`S4` (отбивка сообщений), `H1`–`H4` (заголовки, с версии 2 — диапазоны `от-до`), `I1`–`I5` (пакеты-подписи из тегов `<b 0x…>`, `<r N>`, `<rd N>`, `<rc N>`, `<t>`), а с версии 3 — `HeaderProtectionKey` (защита заголовков, ключ как у WireGuard), `ContentPaddingAddition`, `RekeyAfterTime`, `RekeyTimeout`, `RejectAfterTime`, `KeepaliveTimeout`, `MaxHandshakeAttempts` (числа или диапазоны), `RandomTrailers` и `DisableCookies`. `PersistentKeepalive` в версии 3 тоже может быть диапазоном. Ключи AmneziaWG 1.5 `J1`–`J3` и `Itime` версия 2 убрала, клиент их пропускает. Без ключей AmneziaWG это обычный WireGuard. В «Протоколах» сервер называется «WireGuard», «AmneziaWG» (версия 1), «AmneziaWG 2» (есть `S3`, `S4`, `I1`–`I5` или диапазоны в `H1`–`H4`) или «AmneziaWG 3» (есть ключи версии 3).
+
+В Xray есть WireGuard, но без AmneziaWG, поэтому транспорт везёт библиотека amneziawg-go, встроенная в ядро как обычный исходящий. У каждого транспорта своё устройство AmneziaWG, а туннель кончается в сетевом стеке в памяти (gVisor): соединения приложений открываются в нём, TCP и UDP. Устройство шлёт пакеты серверу через один сокет UDP; при смене сети сокет закрывается, как остальные соединения ядра, открывается новый, и сервер сам переходит на новый адрес (так устроен WireGuard). Имя сервера разрешается при запуске; имена сайтов — через DNS из конфига внутри туннеля (без `DNS` — 1.1.1.1 и 8.8.8.8). MTU по умолчанию 1280, `PersistentKeepalive` по умолчанию 25 с, чтобы мобильные NAT не забывали туннель. Транспорт считается транспортом поверх UDP: копий для обхода DPI у него нет.
+
+Панель описывает транспорт как исходящий WireGuard у Xray, плюс `dns` и ключи AmneziaWG в `amnezia` (имена как в `.conf`):
+
+```json
+{"protocol": "wireguard",
+ "settings": {"secretKey": "…", "address": ["10.8.1.2/32"], "dns": ["1.1.1.1"], "mtu": 1280,
+              "peers": [{"publicKey": "…", "preSharedKey": "…", "endpoint": "awg.example.org:51820",
+                         "keepAlive": 25, "allowedIPs": ["0.0.0.0/0", "::/0"]}],
+              "amnezia": {"Jc": "4", "Jmin": "40", "Jmax": "70", "S1": "52", "S2": "71", "S3": "20", "S4": "10",
+                          "H1": "100000-199999", "H2": "200000-299999", "H3": "300000-399999", "H4": "400000-499999",
+                          "I1": "<b 0x16030100><r 32>", "HeaderProtectionKey": "…"}}}
+```
 
 ## Конверт
 

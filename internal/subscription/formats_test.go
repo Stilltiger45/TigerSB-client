@@ -224,14 +224,14 @@ func TestFormatsInsecure(t *testing.T) {
 
 func TestFormatsWithoutUsableServers(t *testing.T) {
 	for name, body := range map[string]string{
-		"clash":   "proxies:\n  - {name: wg, type: wireguard, server: wg.example.org, port: 51820}\n",
-		"singbox": `{"outbounds": [{"type": "wireguard", "tag": "wg"}, {"type": "direct", "tag": "direct"}]}`,
+		"clash":   "proxies:\n  - {name: sn, type: snell, server: sn.example.org, port: 51820}\n",
+		"singbox": `{"outbounds": [{"type": "ssh", "tag": "sn"}, {"type": "direct", "tag": "direct"}]}`,
 	} {
 		links, ok, err := clashLinks([]byte(body))
 		if name == "singbox" {
 			links, ok, err = singBoxLinks([]byte(body))
 		}
-		if !ok || len(links) != 0 || err == nil || !strings.Contains(err.Error(), "wireguard") {
+		if !ok || len(links) != 0 || err == nil || !(strings.Contains(err.Error(), "snell") || strings.Contains(err.Error(), "ssh")) {
 			t.Errorf("%s: %v %v %v", name, links, ok, err)
 		}
 	}
@@ -245,5 +245,75 @@ func TestFormatsNotMistaken(t *testing.T) {
 		if _, ok, _ := singBoxLinks([]byte(body)); ok {
 			t.Errorf("sing-box took %q", body)
 		}
+	}
+}
+
+const (
+	wgPrivate = "eCtXsJZ27+4PbhDkHnB923tkUn2Gj59wZw5wFA75MnU="
+	wgPublic  = "Cr8hWlKvtDt7nrvf+f0brNQQzabAqrjfBvas9pmowjo="
+)
+
+// WireGuard and AmneziaWG servers in Clash (Mihomo) and sing-box configs,
+// and a subscription link that downloads an AmneziaWG .conf.
+func TestWireGuardSubscriptions(t *testing.T) {
+	clash := `proxies:
+  - name: AWG
+    type: wireguard
+    server: awg.example.org
+    port: 51820
+    ip: 10.8.1.2
+    ipv6: fd00::2
+    private-key: ` + wgPrivate + `
+    public-key: ` + wgPublic + `
+    mtu: 1280
+    dns: [1.1.1.1]
+    amnezia-wg-option:
+      jc: 4
+      jmin: 40
+      jmax: 70
+      s1: 52
+      s2: 71
+      s3: 20
+      s4: 10
+      h1: 100000-200000
+      h2: 300000-400000
+      h3: 500000-600000
+      h4: 700000-800000
+      i1: "<r 16>"
+  - name: WG peers
+    type: wireguard
+    ip: 10.8.1.3
+    private-key: ` + wgPrivate + `
+    peers:
+      - server: 203.0.113.7
+        port: 51820
+        public-key: ` + wgPublic + `
+        allowed-ips: ["0.0.0.0/0"]
+`
+	got := checkServers(t, importBody(t, clash), []string{"AWG", "WG peers"})
+	wants(t, "clash awg", got["AWG"], `"protocol":"wireguard"`, `"endpoint":"awg.example.org:51820"`, `"address":["10.8.1.2/32","fd00::2/128"]`,
+		`"H1":"100000-200000"`, `"S4":"10"`, `"Jmin":"40"`, `r 16\u003e`, `"secretKey":"`+wgPrivate+`"`)
+	wants(t, "clash peers", got["WG peers"], `"endpoint":"203.0.113.7:51820"`, `"allowedIPs":["0.0.0.0/0"]`)
+
+	singBox := `{
+  "endpoints": [{"type": "wireguard", "tag": "SB endpoint", "address": ["10.8.1.2/32"], "private_key": "` + wgPrivate + `",
+    "peers": [{"address": "sb.example.org", "port": 51820, "public_key": "` + wgPublic + `", "allowed_ips": ["0.0.0.0/0"], "persistent_keepalive_interval": 15}],
+    "amnezia": {"jc": 3, "jmin": 10, "jmax": 30, "h1": "1-100"}}],
+  "outbounds": [
+    {"type": "wireguard", "tag": "SB outbound", "server": "203.0.113.8", "server_port": 2408, "local_address": ["172.16.0.2"],
+      "private_key": "` + wgPrivate + `", "peer_public_key": "` + wgPublic + `", "mtu": 1280},
+    {"type": "direct", "tag": "direct"}
+  ]
+}`
+	got = checkServers(t, importBody(t, singBox), []string{"SB outbound", "SB endpoint"})
+	wants(t, "sing-box endpoint", got["SB endpoint"], `"endpoint":"sb.example.org:51820"`, `"keepAlive":15`, `"Jc":"3"`, `"H1":"1-100"`)
+	wants(t, "sing-box outbound", got["SB outbound"], `"endpoint":"203.0.113.8:2408"`, `"address":["172.16.0.2/32"]`, `"mtu":1280`)
+
+	conf := "[Interface]\nPrivateKey = " + wgPrivate + "\nAddress = 10.8.1.2/32\nJc = 4\nS3 = 20\n\n[Peer]\nPublicKey = " + wgPublic + "\nEndpoint = 203.0.113.9:443\n"
+	p := importBody(t, conf)
+	got = checkServers(t, p, []string{"203.0.113.9"})
+	wants(t, "conf", got["203.0.113.9"], `"S3":"20"`, `"endpoint":"203.0.113.9:443"`)
+	if d := xrayconf.Describe(p.Exits[0].Transports[0].Xray); d != "AmneziaWG 2" {
+		t.Errorf("described as %q", d)
 	}
 }

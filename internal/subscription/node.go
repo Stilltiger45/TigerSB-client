@@ -15,7 +15,7 @@ import (
 // share link it would be. The links go through profile.FromLinks, so these
 // formats get exactly the checks and defaults that links get.
 type node struct {
-	scheme     string // vless, vmess, trojan, ss, hysteria2, tuic, mierus, naive+https, naive+quic
+	scheme     string // vless, vmess, trojan, ss, hysteria2, tuic, mierus, naive+https, naive+quic, wireguard
 	name       string
 	host       string
 	port       int // 0 for mierus, whose ports are in the query
@@ -118,6 +118,25 @@ func (t transportQuery) put(q url.Values) {
 	set(q, "host", t.host)
 	set(q, "serviceName", t.serviceName)
 	set(q, "mode", t.mode)
+}
+
+// withPrefix gives a lone address of a WireGuard tunnel its prefix.
+func withPrefix(ip string) string {
+	if strings.Contains(ip, "/") {
+		return ip
+	}
+	if strings.Contains(ip, ":") {
+		return ip + "/128"
+	}
+	return ip + "/32"
+}
+
+// amnezia copies AmneziaWG's keys (jc, s1, h1, i1 and so on, in any case)
+// into a wireguard:// link, which reads them by name.
+func amnezia(q url.Values, o obj) {
+	for k := range o {
+		set(q, strings.ToLower(k), o.str(k))
+	}
 }
 
 func set(q url.Values, k, v string) {

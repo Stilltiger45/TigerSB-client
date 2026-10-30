@@ -6,6 +6,7 @@ TigerSB-client распространяется под GPL-3.0 (см. [LICENSE](
 
 | Модуль | Версия | Лицензия |
 |---|---|---|
+| github.com/amnezia-vpn/amneziawg-go/v3 | v3.1.20260828 | MIT |
 | github.com/andybalholm/brotli | v1.0.6 | MIT |
 | github.com/apernet/quic-go | v0.59.1-0.20260217092621-db4786c77a22 | MIT |
 | github.com/cloudflare/circl | v1.6.3 | BSD |

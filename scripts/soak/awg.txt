@@ -1,0 +1,2 @@
+wireguard://mITWdZ6bp0XmcLvl30m%2BwOk%2F4enz1QOpr8fSIPXz0E4%3D@10.0.2.2:20446/?publickey=R%2FVxvODXv3O2N29ybhJGFrMiISlp8IcF1Gp6FnHwLXE%3D&address=10.66.0.2%2F32&dns=1.1.1.1&mtu=1280&jc=3&jmin=50&jmax=100&s1=24&s2=32&s3=16&s4=12&h1=100000-199999&h2=200000-299999&h3=300000-399999&h4=400000-499999&i1=%3Cb+0x16030100%3E%3Cr+32%3E&headerprotectionkey=AT6vwtnuRKNvYlbI0b58T6Lm7zMoRXv%2BEJWCqAdM8hc%3D&contentpaddingaddition=32-128#AmneziaWG
+naive+https://soak:soak-password@192.0.2.1:443#NaiveDead

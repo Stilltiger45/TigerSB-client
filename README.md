@@ -28,7 +28,7 @@
 
 ---
 
-**TigerSB** is a VPN app with nothing to set up: paste a key and you are connected. It picks the fastest server by itself, decides which sites go through the VPN and which go direct, and keeps the connection up when the network changes. It works with its own panel, [TigerSB-panel](https://github.com/Stilltiger45/TigerSB-panel), and with subscriptions from other VPNs (Marzban, 3x-ui, Remnawave and others), including Clash (YAML) and sing-box (JSON) configs.
+**TigerSB** is a VPN app with nothing to set up: paste a key and you are connected. It picks the fastest server by itself, decides which sites go through the VPN and which go direct, and keeps the connection up when the network changes. It works with its own panel, [TigerSB-panel](https://github.com/Stilltiger45/TigerSB-panel), and with subscriptions from other VPNs (Marzban, 3x-ui, Remnawave and others), including Clash (YAML) and sing-box (JSON) configs, and with WireGuard and AmneziaWG.
 
 <p align="center">
   <img src="docs/assets/screens.jpg" alt="App screens: key, Smart, Basic and All modes, About" width="100%">
@@ -47,7 +47,7 @@
 3. **Add a key** in any of these ways:
    - open a `tigersb://…` link from Telegram, email or the panel, and the app opens with the key already filled in;
    - scan a QR code;
-   - paste the key by hand: `tigersb://`, an `https://` subscription link, or `vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://`, `tuic://`, `mierus://`, `mieru://`, `naive+https://`, `naive+quic://` links.
+   - paste the key by hand: `tigersb://`, an `https://` subscription link, or `vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://`, `tuic://`, `mierus://`, `mieru://`, `naive+https://`, `naive+quic://`, `wireguard://` links, an Amnezia `vpn://` key or the text of a WireGuard / AmneziaWG config (`.conf`).
 4. **Press the connect button.** That's it.
 
 The key comes from whoever runs the server: in [TigerSB-panel](https://github.com/Stilltiger45/TigerSB-panel) it is on the Users tab. The app updates itself: menu on the right → «Проверить обновление» (Check for update).
@@ -63,7 +63,7 @@ A Windows app on the same core is the next stage.
 ## What else it does
 
 - **Apps outside the VPN.** MAX, VK, Yandex, banking, government, marketplace and mobile operator apps always bypass the VPN, so they cannot see the tunnel or the server address. You can add your own apps to the list.
-- **Protocols your way.** The «Протоколы» menu turns off the protocols that work poorly on your networks; the VPN goes through the others. Mieru and NaïveProxy always show how they run (TCP, UDP or QUIC), so each can be turned off on its own.
+- **Protocols your way.** The «Протоколы» menu turns off the protocols that work poorly on your networks; the VPN goes through the others. Mieru and NaïveProxy always show how they run (TCP, UDP or QUIC) and AmneziaWG its version (1, 2 or 3), so each can be turned off on its own.
 - **Stable connection.** A dead server is replaced within seconds, and the VPN stays on when the phone switches between Wi-Fi and mobile data.
 - **Several profiles.** The profile name at the top opens a list: switch with one tap; each has Refresh, Link and Delete.
 - **Extras.** Speed, traffic and ping on the home screen, a quick settings tile, the protocol in the notification, automatic profile and block-list updates, "Send log" in the menu, light and dark themes under About.
@@ -79,12 +79,13 @@ A Windows app on the same core is the next stage.
 | [sing-quic](https://github.com/SagerNet/sing-quic) from sing-box | TUIC v5, plugged into Xray as a regular outbound | GPL-3.0 |
 | [mieru](https://github.com/enfein/mieru) | Mieru client (TCP and UDP), plugged into Xray as a regular outbound | GPL-3.0 |
 | own code (`internal/naive`) | NaïveProxy client: CONNECT with padding over HTTP/2 in TLS with Chrome's fingerprint or over HTTP/3 in QUIC, plugged into Xray as a regular outbound | GPL-3.0 |
+| [amneziawg-go](https://github.com/amnezia-vpn/amneziawg-go) | WireGuard and AmneziaWG 1, 2 and 3 (junk packets, padding, header ranges, I1–I5 signature packets, header protection) with its own in-memory network stack, plugged into Xray as a regular outbound | MIT |
 | [gVisor](https://gvisor.dev) | network stack for the system VPN (TUN) | Apache-2.0 |
 | [Go](https://go.dev) 1.26 and gomobile | client core, the `tigersb-core` CLI, Android library | BSD-3-Clause |
 | [Flutter](https://flutter.dev) 3.47 and Dart | app interface | BSD-3-Clause |
 | [Kotlin](https://kotlinlang.org) 2.4 | Android system VPN (VpnService), network watcher, Keystore | Apache-2.0 |
 
-Code layout: `pkg/profile` is the profile and key format (the panel uses it too), `internal/` is the core (subscriptions, Xray config builder, routing and DPI evasion, TUIC, Mieru and NaïveProxy, meters, network auto-tuning), `mobile/` is the gomobile API for Android, `app/` is the Flutter and Kotlin app, `cmd/tigersb-core` is the CLI.
+Code layout: `pkg/profile` is the profile and key format (the panel uses it too), `internal/` is the core (subscriptions, Xray config builder, routing and DPI evasion, TUIC, Mieru, NaïveProxy and AmneziaWG, meters, network auto-tuning), `mobile/` is the gomobile API for Android, `app/` is the Flutter and Kotlin app, `cmd/tigersb-core` is the CLI.
 
 ## How it works
 

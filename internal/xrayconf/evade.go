@@ -162,7 +162,7 @@ func withQUICNoise(ob map[string]json.RawMessage) error {
 }
 
 // OverUDP reports whether the transport runs over UDP: Hysteria 2 and TUIC
-// (QUIC), mKCP, mieru whose first port is UDP. DPI cuts these more readily
+// (QUIC), WireGuard and AmneziaWG, mKCP, mieru whose first port is UDP. DPI cuts these more readily
 // than Xray's TCP transports.
 func OverUDP(xray json.RawMessage) bool {
 	var ob struct {
@@ -176,7 +176,7 @@ func OverUDP(xray json.RawMessage) bool {
 		return false
 	}
 	switch ob.Protocol {
-	case "hysteria", "hysteria2", "tuic":
+	case "hysteria", "hysteria2", "tuic", "wireguard":
 		return true
 	case "mieru":
 		return mieruOverUDP(ob.Settings)

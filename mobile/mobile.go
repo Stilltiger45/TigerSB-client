@@ -21,6 +21,7 @@ import (
 
 	"github.com/xtls/xray-core/core"
 
+	"github.com/Stilltiger45/TigerSB-client/internal/awg"
 	"github.com/Stilltiger45/TigerSB-client/internal/engine"
 	"github.com/Stilltiger45/TigerSB-client/internal/geodata"
 	"github.com/Stilltiger45/TigerSB-client/internal/meter"
@@ -163,7 +164,7 @@ func Start(fd int, mode string, mtu int) error {
 	if err := os.Setenv("XRAY_TUN_FD", strconv.Itoa(fd)); err != nil {
 		return err
 	}
-	i, err := engine.Start(cfg, slices.Concat(tuic.Hooks(p, xrayconf.QUICNoise), mieru.Hooks(p), naive.Hooks(p, xrayconf.QUICNoise), steady.Hooks(p, evasion, savedPresets()[network]))...)
+	i, err := engine.Start(cfg, slices.Concat(tuic.Hooks(p, xrayconf.QUICNoise), mieru.Hooks(p), naive.Hooks(p, xrayconf.QUICNoise), awg.Hooks(p), steady.Hooks(p, evasion, savedPresets()[network]))...)
 	if err != nil {
 		return err
 	}

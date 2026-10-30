@@ -90,6 +90,7 @@ func Attach(inst *core.Instance, tag string, xray json.RawMessage, noise []xrayc
 		server:  net.TCPDestination(net.ParseAddress(s.Address), net.Port(s.Port)),
 		padding: s.Padding,
 	}
+	h.life, h.end = context.WithCancel(context.Background())
 	if s.QUIC {
 		tlsConf, err := quicTLS(xray, s.Address)
 		if err != nil {
@@ -147,6 +148,11 @@ type Handler struct {
 	padding bool
 	h2      *http2.Transport
 
+	// life ends with Close, and with it a dial to the server under way, so
+	// that the VPN turns off at once even while a server does not answer.
+	life context.Context
+	end  context.CancelFunc
+
 	mu    sync.Mutex
 	conns []serverConn // to the server, the newest last
 }
@@ -172,6 +178,7 @@ func (h *Handler) SenderSettings() *serial.TypedMessage { return nil }
 func (h *Handler) ProxySettings() *serial.TypedMessage  { return nil }
 
 func (h *Handler) Close() error {
+	h.end()
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	for _, cc := range h.conns {
@@ -257,6 +264,9 @@ func (h *Handler) open(ctx context.Context, addr string) (*tunnel, error) {
 func (h *Handler) conn(ctx context.Context) (serverConn, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if h.life.Err() != nil {
+		return nil, gonet.ErrClosed
+	}
 	h.conns = slices.DeleteFunc(h.conns, serverConn.closed)
 	for i := len(h.conns) - 1; i >= 0; i-- {
 		if cc := h.conns[i]; cc.usable() {
@@ -265,6 +275,7 @@ func (h *Handler) conn(ctx context.Context) (serverConn, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
+	defer context.AfterFunc(h.life, cancel)()
 	var cc serverConn
 	var err error
 	if h.quic != nil {

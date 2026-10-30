@@ -136,6 +136,10 @@ class TigerVpnService : VpnService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            // No more checks queue up in front of the stop.
+            main.removeCallbacks(protocolTick)
+            main.removeCallbacks(watchTick)
+            main.removeCallbacks(netSwitch)
             worker.execute {
                 note("отключение по кнопке")
                 shutdown()

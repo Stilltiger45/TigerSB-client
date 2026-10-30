@@ -120,6 +120,7 @@ var allowedProtocols = map[string]bool{
 	"tuic":        true, // carried by package tuic, not by Xray
 	"mieru":       true, // carried by package mieru
 	"naive":       true, // carried by package naive
+	"wireguard":   true, // WireGuard and AmneziaWG, carried by package awg
 }
 
 // allowedXrayKeys are the outbound fields a transport may set. The client

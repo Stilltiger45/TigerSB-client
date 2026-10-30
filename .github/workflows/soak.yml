@@ -19,11 +19,11 @@ on:
         required: false
         default: "off"
       profile:
-        description: "vless — один сервер VLESS, mix — VLESS, Hysteria 2 и TUIC"
+        description: "vless — один сервер VLESS, mix — VLESS, Hysteria 2 и TUIC, awg — подписка с AmneziaWG 3 и мёртвым NaïveProxy"
         required: false
         default: "vless"
       scenarios:
-        description: "Нестабильная сеть: switches (частые переключения), outage (10 мин без интернета), mobile (30 мин на мобильной, обрыв, затем Wi-Fi)"
+        description: "Нестабильная сеть: switches (частые переключения), outage (10 мин без интернета), mobile (30 мин на мобильной, обрыв, затем Wi-Fi), toggle (5 раз выключить и включить VPN кнопкой)"
         required: false
         default: "switches"
       switches:

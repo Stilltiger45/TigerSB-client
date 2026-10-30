@@ -12,8 +12,14 @@ class ScanScreen extends StatefulWidget {
 class _ScanScreenState extends State<ScanScreen> {
   bool _done = false;
 
+  /// A link the core reads, or a WireGuard / AmneziaWG config as the
+  /// AmneziaWG apps put it into a QR code.
   bool _looksLikeKey(String s) =>
-      RegExp(r'^(tigersb|https|vless|vmess|trojan|ss)://', caseSensitive: false).hasMatch(s);
+      RegExp(
+        r'^(tigersb|https|vless|vmess|trojan|ss|hysteria2|hy2|tuic|mierus|mieru|naive\+https|naive\+quic|wireguard|wg|awg|vpn)://',
+        caseSensitive: false,
+      ).hasMatch(s) ||
+      s.toLowerCase().contains('[interface]');
 
   void _onDetect(BarcodeCapture capture) {
     if (_done) return;

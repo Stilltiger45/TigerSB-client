@@ -382,11 +382,12 @@ type Outbound struct {
 }
 
 // carriers are the protocols Xray does not have. Each is carried by a
-// package of this client: tuic, mieru, naive.
-var carriers = map[string]bool{"tuic": true, "mieru": true, "naive": true}
+// package of this client: tuic, mieru, naive, and awg for WireGuard, which
+// Xray has without AmneziaWG.
+var carriers = map[string]bool{"tuic": true, "mieru": true, "naive": true, "wireguard": true}
 
 // Carried lists the profile's transports of a protocol Xray does not have
-// (tuic, mieru or naive). Build leaves them out of the config but uses their
+// (tuic, mieru, naive or wireguard). Build leaves them out of the config but uses their
 // tags in pick outbounds and rules like any other; the caller adds an
 // outbound handler for each before starting Xray.
 func Carried(p *profile.Profile, protocol string) []Outbound {
