@@ -12,6 +12,7 @@ import (
 	"net/netip"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -53,12 +54,38 @@ func b64(b []byte) string { return base64.StdEncoding.EncodeToString(b) }
 // "через AWG" and 1.2.3.4:7777 echoes UDP. It returns the port and its
 // public key.
 func server(t *testing.T, clientPub []byte, keys map[string]string) (int, []byte) {
+	return serverLog(t, clientPub, keys, nil)
+}
+
+// journal keeps what a device logs, for the message of a failed test.
+type journal struct {
+	mu    sync.Mutex
+	lines []string
+}
+
+func (j *journal) logf(format string, args ...any) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	j.lines = append(j.lines, fmt.Sprintf(format, args...))
+}
+
+func (j *journal) String() string {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return strings.Join(j.lines[max(0, len(j.lines)-30):], "\n")
+}
+
+func serverLog(t *testing.T, clientPub []byte, keys map[string]string, j *journal) (int, []byte) {
 	t.Helper()
 	tun, tnet, err := netstack.CreateNetTUN([]netip.Addr{netip.MustParseAddr("10.9.0.1"), netip.MustParseAddr(site)}, nil, 1420)
 	if err != nil {
 		t.Fatal(err)
 	}
-	dev := device.NewDevice(tun, conn.NewStdNetBind(), device.NewLogger(device.LogLevelError, "server: "))
+	logger := device.NewLogger(device.LogLevelError, "server: ")
+	if j != nil {
+		logger = &device.Logger{Verbosef: j.logf, Errorf: j.logf}
+	}
+	dev := device.NewDevice(tun, conn.NewStdNetBind(), logger)
 	t.Cleanup(dev.Close)
 	priv, pub := keyPair(t)
 	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
@@ -230,7 +257,8 @@ func TestAmneziaWG(t *testing.T) {
 	for _, v := range versions {
 		t.Run(v.name, func(t *testing.T) {
 			cpriv, cpub := keyPair(t)
-			port, spub := server(t, cpub, v.keys)
+			var j journal
+			port, spub := serverLog(t, cpub, v.keys, &j)
 			key, err := profile.ParseKey(conf(cpriv, spub, port, v.keys))
 			if err != nil {
 				t.Fatal(err)
@@ -245,7 +273,7 @@ func TestAmneziaWG(t *testing.T) {
 			inst, socks, udp := start(t, p)
 			got, err := get(socks, 10*time.Second)
 			if err != nil || got != "через AWG" {
-				t.Fatalf("TCP: got %q, %v", got, err)
+				t.Fatalf("TCP: got %q, %v; the server logged:\n%s", got, err, &j)
 			}
 			echo(t, udp)
 			all, _ := xrayconf.Candidates(p)
