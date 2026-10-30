@@ -148,7 +148,21 @@ if [ -z "$field" ]; then
 fi
 read -r x1 y1 x2 y2 < <(echo "$field" | tr -c '0-9' ' ')
 adb shell input tap $(((x1 + x2) / 2)) $(((y1 + y2) / 2))
-adb shell "input text '$key'"
+# A long key typed at once loses its tail now and then: type it in pieces
+# and check what the field got.
+for _ in 1 2 3; do
+  adb shell input keyevent 123 # to the end of the field
+  adb shell input keyevent $(printf '67 %.0s' $(seq 200))
+  rest=$key
+  while [ -n "$rest" ]; do
+    adb shell "input text '${rest:0:40}'"
+    rest=${rest:40}
+  done
+  adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1
+  adb pull /sdcard/ui.xml "$out/ui.xml" >/dev/null 2>&1
+  grep -qF "text=\"$key\"" "$out/ui.xml" && break
+  echo "the key came out wrong, typing it again"
+done
 adb shell input keyevent 111 # close the keyboard
 sleep 1
 tap "Подключить" || exit 1
