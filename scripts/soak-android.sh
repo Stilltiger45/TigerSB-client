@@ -110,6 +110,10 @@ if [ -n "$awg" ]; then
   # Docker on the runner drops forwarded packets unless told otherwise.
   sudo iptables -I FORWARD 1 -i awg0 -j ACCEPT
   sudo iptables -I FORWARD 1 -o awg0 -j ACCEPT
+  # The bulk server's address leaves the tunnel to the kernel, not to Xray:
+  # send it to the bulk server on 127.0.0.1 as Xray's routing does.
+  sudo sysctl -qw net.ipv4.conf.awg0.route_localnet=1
+  sudo iptables -t nat -A PREROUTING -i awg0 -d 198.51.100.7 -p tcp --dport 9000 -j DNAT --to-destination 127.0.0.1:20480
   ip -o addr show awg0 | tee -a "$out/server.log"
 fi
 
