@@ -39,9 +39,17 @@ type Key struct {
 // address (a TigerSB panel or any other VPN's subscription) or a share link.
 func ParseKey(s string) (Key, error) {
 	s = strings.TrimSpace(s)
+	// A WireGuard or AmneziaWG .conf is kept as the link it amounts to.
+	if IsWireGuardConf(s) {
+		w, err := ParseWireGuardConf(s)
+		if err != nil {
+			return Key{}, err
+		}
+		return Key{Kind: KindVLESS, Raw: w.Link()}, nil
+	}
 	scheme, _, ok := strings.Cut(s, "://")
 	if !ok {
-		return Key{}, fmt.Errorf("это не похоже на ключ: нужна ссылка tigersb://, https://, vless://, vmess://, trojan:// или ss://")
+		return Key{}, fmt.Errorf("это не похоже на ключ: нужна ссылка tigersb://, https://, vless://, vmess://, trojan://, ss://, wireguard://, vpn:// или конфиг WireGuard/AmneziaWG")
 	}
 	switch strings.ToLower(scheme) {
 	case Scheme:

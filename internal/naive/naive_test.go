@@ -534,3 +534,44 @@ func TestCaddy(t *testing.T) {
 		t.Fatal("went through with a wrong password")
 	}
 }
+
+// TestNaiveStopsAtOnce: turning the VPN off does not wait for a server that
+// does not answer. It used to wait for the dial to give up, 15 seconds.
+func TestNaiveStopsAtOnce(t *testing.T) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer l.Close()
+	go func() {
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return
+			}
+			defer c.Close() // silent: the TLS handshake hangs
+		}
+	}()
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pc.Close()
+	for _, link := range []string{
+		fmt.Sprintf("naive+https://naive:secret@127.0.0.1:%d", l.Addr().(*net.TCPAddr).Port),
+		fmt.Sprintf("naive+quic://naive:secret@127.0.0.1:%d", pc.LocalAddr().(*net.UDPAddr).Port),
+	} {
+		p, err := profile.FromVLESS(link)
+		if err != nil {
+			t.Fatal(err)
+		}
+		inst, socks := start(t, p)
+		go client(socks).Get("http://example.com/")
+		time.Sleep(500 * time.Millisecond)
+		began := time.Now()
+		engine.Stop(inst)
+		if d := time.Since(began); d > 2*time.Second {
+			t.Errorf("%s: stopping took %v", link[:10], d)
+		}
+	}
+}

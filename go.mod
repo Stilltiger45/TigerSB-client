@@ -3,6 +3,7 @@ module github.com/Stilltiger45/TigerSB-client
 go 1.26.0
 
 require (
+	github.com/amnezia-vpn/amneziawg-go/v3 v3.1.20260828
 	github.com/apernet/quic-go v0.59.1-0.20260217092621-db4786c77a22
 	github.com/enfein/mieru/v3 v3.39.0
 	github.com/ghodss/yaml v1.0.1-0.20220118164431-d8423dcdf344
@@ -10,6 +11,7 @@ require (
 	github.com/sagernet/sing v0.9.0-beta.4
 	github.com/sagernet/sing-quic v0.7.1
 	github.com/xtls/xray-core v1.260327.0
+	golang.org/x/crypto v0.58.0
 	golang.org/x/net v0.61.0
 	golang.org/x/sys v0.49.0
 	google.golang.org/protobuf v1.36.11
@@ -35,7 +37,6 @@ require (
 	github.com/vishvananda/netns v0.0.5 // indirect
 	github.com/xtls/reality v0.0.0-20260322125925-9234c772ba8f // indirect
 	go4.org/netipx v0.0.0-20231129151722-fdeea329fbba // indirect
-	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/exp v0.0.0-20250911091902-df9299821621 // indirect
 	golang.org/x/mobile v0.0.0-20261011034528-197770444867 // indirect
 	golang.org/x/mod v0.42.0 // indirect

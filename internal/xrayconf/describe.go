@@ -2,6 +2,7 @@ package xrayconf
 
 import (
 	"encoding/json"
+	"net"
 	"slices"
 	"strings"
 
@@ -48,6 +49,8 @@ func Describe(xray json.RawMessage) string {
 			return "NaïveProxy · QUIC"
 		}
 		return "NaïveProxy · TCP"
+	case "wireguard":
+		return wireGuardName(ob.Settings)
 	}
 	parts := []string{protocolNames.name(ob.Protocol)}
 	switch ob.Stream.Security {
@@ -62,6 +65,29 @@ func Describe(xray json.RawMessage) string {
 		parts = append(parts, networkNames.name(n))
 	}
 	return strings.Join(parts, " · ")
+}
+
+// wireGuardName names WireGuard and the versions of AmneziaWG apart: a
+// network that blocks one may let another through.
+func wireGuardName(settings json.RawMessage) string {
+	var s struct {
+		Amnezia map[string]string `json:"amnezia"`
+	}
+	json.Unmarshal(settings, &s)
+	has := func(keys ...string) bool {
+		return slices.ContainsFunc(keys, func(k string) bool { return s.Amnezia[k] != "" })
+	}
+	switch {
+	case has("HeaderProtectionKey", "ContentPaddingAddition", "RekeyAfterTime", "RekeyTimeout", "RejectAfterTime",
+		"KeepaliveTimeout", "MaxHandshakeAttempts", "RandomTrailers", "DisableCookies"):
+		return "AmneziaWG 3"
+	case has("S3", "S4", "I1", "I2", "I3", "I4", "I5") ||
+		slices.ContainsFunc([]string{"H1", "H2", "H3", "H4"}, func(k string) bool { return strings.Contains(s.Amnezia[k], "-") }):
+		return "AmneziaWG 2"
+	case len(s.Amnezia) > 0:
+		return "AmneziaWG"
+	}
+	return "WireGuard"
 }
 
 type names map[string]string
@@ -149,6 +175,9 @@ func ServerHost(p *profile.Profile) string {
 					Servers []struct {
 						Address string `json:"address"`
 					} `json:"servers"`
+					Peers []struct {
+						Endpoint string `json:"endpoint"`
+					} `json:"peers"`
 				} `json:"settings"`
 			}
 			if json.Unmarshal(it.xray, &ob) != nil {
@@ -161,6 +190,10 @@ func ServerHost(p *profile.Profile) string {
 				return s.Servers[0].Address
 			case s.Address != "":
 				return s.Address
+			case len(s.Peers) > 0 && s.Peers[0].Endpoint != "":
+				if host, _, err := net.SplitHostPort(s.Peers[0].Endpoint); err == nil {
+					return host
+				}
 			}
 		}
 	}

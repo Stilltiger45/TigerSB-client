@@ -6,9 +6,9 @@ import (
 	"strings"
 )
 
-// singBoxLinks reads a sing-box JSON config: the servers among its outbounds,
-// as share links. Selectors, urltest, direct, block and dns outbounds are
-// helpers, not servers. ok is false when the body is not a sing-box config
+// singBoxLinks reads a sing-box JSON config: the servers among its outbounds
+// and endpoints (WireGuard since sing-box 1.11), as share links. Selectors,
+// urltest, direct, block and dns outbounds are helpers, not servers. ok is false when the body is not a sing-box config
 // (Xray configs say "protocol" where sing-box says "type").
 func singBoxLinks(body []byte) (links []string, ok bool, err error) {
 	cfg, isObj := decodeObj(body)
@@ -17,7 +17,7 @@ func singBoxLinks(body []byte) (links []string, ok bool, err error) {
 	}
 	var nodes []node
 	var errs []error
-	for _, v := range cfg.list("outbounds") {
+	for _, v := range append(cfg.list("outbounds"), cfg.list("endpoints")...) {
 		ob, _ := v.(map[string]any)
 		typ := obj(ob).str("type")
 		if typ == "" {
@@ -111,6 +111,33 @@ func singBoxNode(o obj) (node, error) {
 		}
 		set(n.q, "extra-headers", strings.Join(headers, "\r\n"))
 		tls.put(n.scheme, n.q)
+	case "wireguard":
+		n.scheme, n.user = "wireguard", o.str("private_key")
+		// An endpoint lists its peers; an outbound (before 1.11) has one,
+		// in its own fields or as the first of peers.
+		peer := obj{"address": o.str("server"), "port": o.str("server_port"), "public_key": o.str("peer_public_key"),
+			"pre_shared_key": o.str("pre_shared_key")}
+		if peers := o.list("peers"); len(peers) > 0 {
+			peer, _ = peers[0].(map[string]any)
+		}
+		n.host, n.port = or(peer.str("address"), peer.str("server")), peer.num("port")
+		if n.port == 0 {
+			n.port = peer.num("server_port")
+		}
+		addrs := o.strs("address")
+		if len(addrs) == 0 {
+			addrs = o.strs("local_address")
+		}
+		for i, a := range addrs {
+			addrs[i] = withPrefix(a)
+		}
+		set(n.q, "address", strings.Join(addrs, ","))
+		set(n.q, "publickey", peer.str("public_key"))
+		set(n.q, "presharedkey", peer.str("pre_shared_key"))
+		set(n.q, "allowedips", strings.Join(peer.strs("allowed_ips"), ","))
+		set(n.q, "keepalive", peer.str("persistent_keepalive_interval"))
+		set(n.q, "mtu", o.str("mtu"))
+		amnezia(n.q, o.obj("amnezia"))
 	default:
 		return node{}, fmt.Errorf("серверы %s не поддерживаются", typ)
 	}

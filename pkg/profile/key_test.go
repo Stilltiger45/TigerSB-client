@@ -38,7 +38,7 @@ func TestParseKey(t *testing.T) {
 	bad := []string{
 		"",
 		"hello",
-		"wireguard://abc@1.2.3.4:51820",
+		"snell://abc@1.2.3.4:51820",
 		"tigersb://add?url=http%3A%2F%2Fp.example.org&pk=" + EncodeKey(pub),
 		"tigersb://add?url=https%3A%2F%2Fp.example.org",
 		"tigersb://other?url=https%3A%2F%2Fp.example.org&pk=" + EncodeKey(pub),

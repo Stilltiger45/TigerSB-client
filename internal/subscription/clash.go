@@ -100,6 +100,28 @@ func clashNode(p obj) (node, error) {
 		set(n.q, "multiplexing", p.str("multiplexing"))
 		set(n.q, "handshake-mode", p.str("handshake-mode"))
 		set(n.q, "traffic-pattern", p.str("traffic-pattern"))
+	case "wireguard":
+		n.scheme, n.user = "wireguard", p.str("private-key")
+		peer := p
+		if peers := p.list("peers"); len(peers) > 0 {
+			peer, _ = peers[0].(map[string]any)
+			n.host, n.port = peer.str("server"), peer.num("port")
+		}
+		var addrs []string
+		if ip := p.str("ip"); ip != "" {
+			addrs = append(addrs, withPrefix(ip))
+		}
+		if ip := p.str("ipv6"); ip != "" {
+			addrs = append(addrs, withPrefix(ip))
+		}
+		set(n.q, "address", strings.Join(addrs, ","))
+		set(n.q, "publickey", peer.str("public-key"))
+		set(n.q, "presharedkey", peer.str("pre-shared-key"))
+		set(n.q, "allowedips", strings.Join(peer.strs("allowed-ips"), ","))
+		set(n.q, "mtu", p.str("mtu"))
+		set(n.q, "dns", strings.Join(p.strs("dns"), ","))
+		set(n.q, "keepalive", p.str("persistent-keepalive"))
+		amnezia(n.q, p.obj("amnezia-wg-option"))
 	default:
 		return node{}, fmt.Errorf("серверы %s не поддерживаются", or(typ, "без типа"))
 	}

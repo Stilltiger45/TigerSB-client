@@ -116,7 +116,7 @@ class _KeyScreenState extends State<KeyScreen> {
                       style: const TextStyle(fontSize: 14),
                       decoration: InputDecoration(
                         labelText: 'Ключ',
-                        hintText: 'tigersb://…, https://… или vless://…',
+                        hintText: 'tigersb://…, https://…, vless://… или конфиг AmneziaWG',
                         errorText: _error,
                         errorMaxLines: 4,
                       ),

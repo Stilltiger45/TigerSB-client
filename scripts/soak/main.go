@@ -5,7 +5,8 @@
 // There are three servers, as a subscription of the soak profile "mix" lists
 // them (mix.txt): plain VLESS over TCP, Hysteria 2 and TUIC. Each sits behind
 // a stand-in for DPI (dpi.go) whose level -dpi sets and the control port
-// changes: GET /dpi?level=off|weak|strong. Connections to BulkIP go to a bulk
+// changes: GET /dpi?level=off|weak|strong. With -awg, an AmneziaWG 3 server
+// for the profile "awg" (awg.txt) runs on that UDP port too (awg.go). Connections to BulkIP go to a bulk
 // server for downloads, uploads and a stream both ways (bulk.go).
 package main
 
@@ -40,6 +41,7 @@ import (
 // Config are the servers' ports and the user's credentials.
 type Config struct {
 	VLESS, Hysteria, TUIC int // public ports, behind the DPI
+	AWG                   int // UDP port of AmneziaWG, not behind the DPI; 0 for none
 	Bulk, Control         int // on 127.0.0.1; 0 means any free port
 	ID, Password          string
 	Level                 Level
@@ -59,6 +61,7 @@ func main() {
 	flag.IntVar(&c.VLESS, "port", 20443, "TCP port of VLESS")
 	flag.IntVar(&c.Hysteria, "hy", 20444, "UDP port of Hysteria 2")
 	flag.IntVar(&c.TUIC, "tuic", 20445, "UDP port of TUIC")
+	flag.IntVar(&c.AWG, "awg", 0, "UDP port of AmneziaWG, 0 for none")
 	flag.IntVar(&c.Bulk, "bulk", 20480, "port of the bulk server on 127.0.0.1")
 	flag.IntVar(&c.Control, "control", 20490, "port of the control on 127.0.0.1")
 	flag.StringVar(&c.ID, "id", "5783a3e7-e373-51cd-8642-c83782b807c5", "user id")
@@ -204,6 +207,12 @@ func Start(c Config) (*Servers, error) {
 			return nil, err
 		}
 		go s.DPI.ServeUDP(pc, u.target)
+	}
+	if c.AWG != 0 {
+		if _, err := runAWG(c.AWG); err != nil {
+			return nil, err
+		}
+		log.Printf("AmneziaWG :%d, tunnel %s", c.AWG, AWGTun)
 	}
 	log.Printf("VLESS :%d, Hysteria 2 :%d, TUIC :%d, bulk %s, DPI %s", c.VLESS, c.Hysteria, c.TUIC, s.BulkAddr, c.Level)
 	return s, nil

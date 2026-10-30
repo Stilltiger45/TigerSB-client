@@ -17,8 +17,13 @@
 #   outage    no internet at all for SOAK_OUTAGE_MINUTES (10), then back at once;
 #   mobile    SOAK_MOBILE_MINUTES (30) on mobile data with the signal cut for a
 #             minute halfway, then Wi-Fi back on.
+#   toggle    the VPN off and on SOAK_TOGGLES (5) times with its button: how
+#             long the tunnel takes to go and the sites to open again.
 # After each event a site is opened through the VPN every second: how soon it
 # opens and the longest stretch it did not go to net.txt.
+# SOAK_PROFILE=awg is a subscription (scripts/soak/awg.txt) with an
+# AmneziaWG 3 server, whose tunnel the runner routes to the internet, and a
+# NaïveProxy server that never answers, as a dead server of a subscription.
 set -uo pipefail
 apk=$1
 out=$2
@@ -27,10 +32,11 @@ modes=${SOAK_MODES:-"Умная Базовая Все"}
 mkdir -p "$out"
 port=20443
 key="vless://5783a3e7-e373-51cd-8642-c83782b807c5@10.0.2.2:$port?security=none#Soak"
-if [ "${SOAK_PROFILE:-vless}" = mix ]; then
+case "${SOAK_PROFILE:-vless}" in mix | awg)
   # A subscription must come over HTTPS that the phone trusts.
-  key="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/scripts/soak/mix.txt"
-fi
+  key="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/${GITHUB_SHA}/scripts/soak/${SOAK_PROFILE}.txt"
+  ;;
+esac
 
 annotate() {
   local level=$1 title=$2 text=$3
@@ -78,9 +84,27 @@ CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o soakload ./scripts/soakload
 phases=${SOAK_DPI:-off}
 dpi=
 case " $phases " in *" 1 "* | *" weak "* | *" strong "*) dpi=1 ;; esac
-./soak-server -port $port -dpi "${phases%% *}" > "$out/server.log" 2>&1 &
+awg=
+if [ "${SOAK_PROFILE:-vless}" = awg ]; then
+  # The AmneziaWG server's tunnel is a TUN device: let it make one, and send
+  # what comes out of it to the internet.
+  sudo setcap cap_net_admin+ep soak-server
+  awg="-awg 20446"
+fi
+./soak-server -port $port -dpi "${phases%% *}" $awg > "$out/server.log" 2>&1 &
 server=$!
 trap 'kill $server' EXIT
+if [ -n "$awg" ]; then
+  for _ in $(seq 20); do ip link show awg0 >/dev/null 2>&1 && break; sleep 0.5; done
+  sudo ip addr add 10.66.0.1/24 dev awg0
+  sudo ip link set awg0 up
+  sudo sysctl -qw net.ipv4.ip_forward=1
+  sudo iptables -t nat -A POSTROUTING -s 10.66.0.0/24 ! -o awg0 -j MASQUERADE
+  # Docker on the runner drops forwarded packets unless told otherwise.
+  sudo iptables -I FORWARD 1 -i awg0 -j ACCEPT
+  sudo iptables -I FORWARD 1 -o awg0 -j ACCEPT
+  ip -o addr show awg0 | tee -a "$out/server.log"
+fi
 
 adb root >/dev/null 2>&1; sleep 3
 adb install -r "$apk"
@@ -259,7 +283,7 @@ uncut() {
 scenarios=${SOAK_SCENARIOS:-switches}
 [ -n "$dead" ] && scenarios=none
 switches=${SOAK_SWITCHES:-4}
-case " $scenarios " in *" switches "* | *" outage "* | *" mobile "*)
+case " $scenarios " in *" switches "* | *" outage "* | *" mobile "* | *" toggle "*)
   tap "Все" || failed=1
   sleep 10
   ;;
@@ -273,6 +297,33 @@ case " $scenarios " in *" switches "*)
     measure "Wi-Fi→мобильная $i" 15 15
     adb shell svc wifi enable
     measure "мобильная→Wi-Fi $i" 15 15
+  done
+  ;;
+esac
+
+# The VPN off and on with its button, as a person does: the tunnel must go
+# within SOAK_OFF_LIMIT_MS (3000) and the sites open again soon after.
+case " $scenarios " in *" toggle "*)
+  for i in $(seq "${SOAK_TOGGLES:-5}"); do
+    tap "Отключить VPN" || { failed=1; break; }
+    began=$(date +%s%3N)
+    off=-
+    while [ $(($(date +%s%3N) - began)) -lt 30000 ]; do
+      if ! adb shell ip -o link show 2>/dev/null | grep -qE ' tun[0-9]+'; then
+        off=$(($(date +%s%3N) - began))
+        break
+      fi
+      sleep 0.1
+    done
+    verdict=ok
+    if [ "$off" = - ] || [ "$off" -gt "${SOAK_OFF_LIMIT_MS:-3000}" ]; then
+      verdict=FAIL
+      failed=1
+    fi
+    echo "$(date +%T) выключение $i: туннель исчез через ${off} мс — $verdict" | tee -a "$net"
+    sleep 3
+    tap "Подключить VPN" || { failed=1; break; }
+    measure "включение $i" 20 15
   done
   ;;
 esac
@@ -324,7 +375,9 @@ kill $logcat
 # one each; anything far above that is a loop.
 restarts=$(grep -c 'TigerSB.*подключено' "$out/logcat.txt")
 echo "core starts: $restarts" | tee -a "$log"
-if [ "$restarts" -gt $((4 + 2 * switches + 4)) ]; then failed=1; fi
+toggles=0
+case " $scenarios " in *" toggle "*) toggles=${SOAK_TOGGLES:-5} ;; esac
+if [ "$restarts" -gt $((4 + 2 * switches + toggles + 4)) ]; then failed=1; fi
 
 # The app's own journal and the core's crash trace, if any, go into the
 # summary: the app log annotation is cut to its last lines.
@@ -348,7 +401,8 @@ adb shell cat $files/crash.log > "$out/crash.log" 2>&1
 # The Smart mode tunes its DPI preset on every core start.
 tunes=$(grep -c 'обход DPI' "$out/events.log")
 echo "DPI tunings: $tunes" | tee -a "$log"
-case " $modes " in *" Умная "*) if [ "$tunes" = 0 ]; then failed=1; fi ;; esac
+# An AmneziaWG server has no DPI presets to tune.
+case " $modes " in *" Умная "*) if [ "$tunes" = 0 ] && [ "${SOAK_PROFILE:-vless}" != awg ]; then failed=1; fi ;; esac
 kill $server
 sleep 1
 if [ -n "$dpi" ]; then

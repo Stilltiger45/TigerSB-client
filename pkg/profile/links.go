@@ -16,6 +16,7 @@ var linkSchemes = map[string]bool{
 	"vless": true, "vmess": true, "trojan": true, "ss": true,
 	"hysteria2": true, "hy2": true, "tuic": true,
 	"mierus": true, "mieru": true, "naive+https": true, "naive+quic": true,
+	"wireguard": true, "wg": true, "awg": true, "vpn": true,
 }
 
 // IsLink reports whether s looks like a share link the client can read.
@@ -25,7 +26,9 @@ func IsLink(s string) bool {
 }
 
 // FromVLESS turns a single share link (vless://, vmess://, trojan://, ss://,
-// hysteria2://, tuic://, mierus://, mieru://, naive+https:// or naive+quic://) into a profile with one foreign exit. Without an RU exit and lists,
+// hysteria2://, tuic://, mierus://, mieru://, naive+https://, naive+quic://,
+// wireguard://, wg://, awg:// or an Amnezia vpn:// key) into a profile with
+// one foreign exit. Without an RU exit and lists,
 // the main mode sends everything but the direct list through it.
 func FromVLESS(link string) (*Profile, error) {
 	xray, name, err := ParseLink(link)
@@ -116,6 +119,10 @@ func ParseLink(link string) (json.RawMessage, string, error) {
 		return mieruOutbound(link)
 	case "naive+https", "naive+quic":
 		return naiveOutbound(link)
+	case "wireguard", "wg", "awg":
+		return wireguardOutbound(link)
+	case "vpn":
+		return amneziaOutbound(link)
 	}
 	return nil, "", fmt.Errorf("ссылки %s:// не поддерживаются", scheme)
 }

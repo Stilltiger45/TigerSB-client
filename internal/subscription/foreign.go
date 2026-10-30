@@ -24,7 +24,8 @@ func isEnvelope(body []byte) bool {
 // parseForeign reads another VPN's subscription: a list of share links, plain
 // or in base64 (Marzban, 3x-ui, Remnawave and most others), a JSON array of
 // Xray configs (what Remnawave and others send to Xray-based clients), a
-// sing-box JSON config or a Clash (Mihomo) YAML config. Every
+// sing-box JSON config, a Clash (Mihomo) YAML config or a WireGuard or
+// AmneziaWG .conf. Every
 // server becomes a transport of one foreign exit, so the client measures them
 // and uses the fastest.
 func parseForeign(subURL string, body []byte, hdr http.Header) (*profile.Profile, error) {
@@ -49,6 +50,14 @@ func parseForeign(subURL string, body []byte, hdr http.Header) (*profile.Profile
 
 // fromBody reads the servers of a subscription in any of the formats.
 func fromBody(name string, body []byte) (*profile.Profile, error) {
+	// A link that downloads a WireGuard or AmneziaWG .conf.
+	if profile.IsWireGuardConf(string(body)) {
+		w, err := profile.ParseWireGuardConf(string(body))
+		if err != nil {
+			return nil, err
+		}
+		return fromLinks(name, []string{w.Link()}, nil)
+	}
 	if links, ok, err := singBoxLinks(body); ok {
 		return fromLinks(name, links, err)
 	}
