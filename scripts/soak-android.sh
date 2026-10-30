@@ -56,6 +56,13 @@ annotate() {
 tap() {
   adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1
   adb pull /sdcard/ui.xml "$out/ui.xml" >/dev/null 2>&1
+  # The battery saving question can come late, over whatever is to be tapped.
+  if [ "$1" != Allow ] && [ "$1" != ALLOW ] && grep -q 'always run in background' "$out/ui.xml"; then
+    tap Allow || tap ALLOW
+    sleep 2
+    adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1
+    adb pull /sdcard/ui.xml "$out/ui.xml" >/dev/null 2>&1
+  fi
   local b
   b=$(grep -oE "(text|content-desc)=\"$1\"[^>]*bounds=\"\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]\"" "$out/ui.xml" | head -1 |
     grep -oE '\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]')
