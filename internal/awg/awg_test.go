@@ -72,7 +72,8 @@ func (j *journal) logf(format string, args ...any) {
 func (j *journal) String() string {
 	j.mu.Lock()
 	defer j.mu.Unlock()
-	return strings.Join(j.lines[max(0, len(j.lines)-30):], "\n")
+	// One line: CI shows the first line of a failure only.
+	return strings.Join(j.lines[max(0, len(j.lines)-25):], " | ")
 }
 
 func serverLog(t *testing.T, clientPub []byte, keys map[string]string, j *journal) (int, []byte) {
@@ -257,7 +258,9 @@ func TestAmneziaWG(t *testing.T) {
 	for _, v := range versions {
 		t.Run(v.name, func(t *testing.T) {
 			cpriv, cpub := keyPair(t)
-			var j journal
+			var j, cj journal
+			awg.SetVerbose(cj.logf)
+			defer awg.SetVerbose(func(string, ...any) {})
 			port, spub := serverLog(t, cpub, v.keys, &j)
 			key, err := profile.ParseKey(conf(cpriv, spub, port, v.keys))
 			if err != nil {
@@ -273,7 +276,7 @@ func TestAmneziaWG(t *testing.T) {
 			inst, socks, udp := start(t, p)
 			got, err := get(socks, 10*time.Second)
 			if err != nil || got != "через AWG" {
-				t.Fatalf("TCP: got %q, %v; the server logged:\n%s", got, err, &j)
+				t.Fatalf("TCP: got %q, %v; server: %s || client: %s", got, err, &j, &cj)
 			}
 			echo(t, udp)
 			all, _ := xrayconf.Candidates(p)

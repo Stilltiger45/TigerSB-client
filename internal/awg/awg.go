@@ -208,7 +208,7 @@ func Attach(inst *core.Instance, tag string, xray json.RawMessage) error {
 	h := &Handler{
 		Base:  base,
 		addrs: addrs,
-		dev:   device.NewDevice(tun, &bind{}, &device.Logger{Verbosef: device.DiscardLogf, Errorf: logf}),
+		dev:   device.NewDevice(tun, &bind{}, &device.Logger{Verbosef: verbosef, Errorf: logf}),
 		net:   tnet,
 		ready: make(chan struct{}),
 	}
@@ -216,6 +216,9 @@ func Attach(inst *core.Instance, tag string, xray json.RawMessage) error {
 	go h.up(uapi, endpoint)
 	return carry.Add(inst, h)
 }
+
+// verbosef gets the devices' detailed log; tests read it.
+var verbosef = device.DiscardLogf
 
 // Handler is a WireGuard or AmneziaWG outbound. It implements Xray's
 // outbound.Handler.
