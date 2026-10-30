@@ -118,11 +118,21 @@ logcat=$!
 trap 'kill $server $logcat' EXIT
 
 adb shell am start -W -n app.tigersb/.MainActivity
-sleep 15
-adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1
-adb pull /sdcard/ui.xml "$out/ui.xml" >/dev/null 2>&1
-field=$(grep -oE 'class="android.widget.EditText"[^>]*bounds="\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]"' "$out/ui.xml" | head -1 |
-  grep -oE '\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]')
+# A slow emulator draws the first screen late: wait for the key's field, or
+# the key goes nowhere and "Подключить" does nothing.
+field=
+for _ in $(seq 30); do
+  sleep 3
+  adb shell uiautomator dump /sdcard/ui.xml >/dev/null 2>&1
+  adb pull /sdcard/ui.xml "$out/ui.xml" >/dev/null 2>&1
+  field=$(grep -oE 'class="android.widget.EditText"[^>]*bounds="\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]"' "$out/ui.xml" | head -1 |
+    grep -oE '\[[0-9]+,[0-9]+\]\[[0-9]+,[0-9]+\]')
+  [ -n "$field" ] && break
+done
+if [ -z "$field" ]; then
+  annotate error "no key field" "$(grep -oE '(text|content-desc)="[^"]+"' "$out/ui.xml" | head -40)"
+  exit 1
+fi
 read -r x1 y1 x2 y2 < <(echo "$field" | tr -c '0-9' ' ')
 adb shell input tap $(((x1 + x2) / 2)) $(((y1 + y2) / 2))
 adb shell "input text '$key'"
