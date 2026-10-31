@@ -205,10 +205,12 @@ func Attach(inst *core.Instance, tag string, xray json.RawMessage) error {
 	logf := func(format string, args ...any) {
 		errors.LogWarning(context.Background(), "awg ", tag, ": ", fmt.Sprintf(format, args...))
 	}
+	b := &bind{}
 	h := &Handler{
 		Base:  base,
 		addrs: addrs,
-		dev:   device.NewDevice(tun, &bind{}, &device.Logger{Verbosef: verbosef, Errorf: logf}),
+		bind:  b,
+		dev:   device.NewDevice(tun, b, &device.Logger{Verbosef: verbosef, Errorf: logf}),
 		net:   tnet,
 		ready: make(chan struct{}),
 	}
@@ -224,6 +226,7 @@ var verbosef = device.DiscardLogf
 // outbound.Handler.
 type Handler struct {
 	*carry.Base
+	bind  *bind
 	dev   *device.Device
 	net   *netstack.Net
 	addrs []netip.Addr // the device's own in the tunnel
@@ -261,7 +264,38 @@ func (h *Handler) up(uapi, endpoint string) {
 		h.err = err
 		return
 	}
-	h.err = h.dev.Up()
+	if h.err = h.dev.Up(); h.err == nil {
+		go h.watchQuiet(uapi)
+	}
+}
+
+// watchQuiet has the bind take a new socket when the server falls silent in
+// the middle of a burst (bind.quiet), and sends a keepalive from it at once:
+// the server learns the new address from it and resends there what it sent
+// into the frozen flow.
+func (h *Handler) watchQuiet(uapi string) {
+	var pk device.NoisePublicKey
+	for line := range strings.Lines(uapi) {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "public_key="); ok {
+			pk.FromHex(v)
+		}
+	}
+	peer := h.dev.LookupPeer(pk)
+	if peer == nil {
+		return
+	}
+	t := time.NewTicker(quietGap / 4)
+	defer t.Stop()
+	for {
+		select {
+		case <-h.life.Done():
+			return
+		case now := <-t.C:
+			if h.bind.quiet(now) {
+				peer.SendKeepalive()
+			}
+		}
+	}
 }
 
 // wait waits for the device to come up.
@@ -385,11 +419,38 @@ func (h *Handler) resolve(ctx context.Context, a net.Address) (netip.Addr, error
 // a change of network, like Xray's own connections; the next read or send
 // then opens a new one on the new network, and the server, seeing the
 // device's packets from a new address, answers there (WireGuard roams).
+//
+// The bind also takes a new socket when the server stops answering: DPI can
+// freeze a UDP flow it does not know after some kilobytes, and a new socket
+// is a new flow, as for TUIC and Hysteria 2 with their port hopping.
 type bind struct {
 	mu     sync.Mutex
 	pc     *gonet.UDPConn
 	closed bool
+
+	unanswered int       // packets sent since the last one came in
+	since      time.Time // when the first of them was sent
+	renewed    time.Time // when the bind last took a new socket for silence
+	heard      time.Time // when the last packet came in
+	burst      int       // packets that came in on this socket since then
 }
+
+// A socket that sent this many packets over silence without a single one
+// coming back is replaced, at most once per silence. While data flows the
+// server answers within a round trip; keepalives alone (one in 25 s, which
+// the server does not answer) take a minute and a half to get there.
+//
+// A download stops the other way: the server sends into the frozen flow and
+// the phone, getting nothing, sends nothing either. So a socket that got a
+// burst of burstPackets or more and then nothing for quietGap is replaced
+// too. After an ordinary burst, a page that has loaded, that costs a new
+// socket and one keepalive.
+const (
+	silence       = 3 * time.Second
+	silentPackets = 4
+	quietGap      = time.Second
+	burstPackets  = 8
+)
 
 var _ conn.Bind = (*bind)(nil)
 
@@ -448,6 +509,11 @@ func (b *bind) receive(packets [][]byte, sizes []int, eps []conn.Endpoint) (int,
 		if pc != nil {
 			n, ap, err := pc.ReadFromUDPAddrPort(packets[0])
 			if err == nil {
+				b.mu.Lock()
+				b.unanswered = 0
+				b.heard = time.Now()
+				b.burst++
+				b.mu.Unlock()
 				sizes[0] = n
 				eps[0] = endpoint(netip.AddrPortFrom(ap.Addr().Unmap(), ap.Port()))
 				return 1, nil
@@ -471,7 +537,7 @@ func (b *bind) Send(bufs [][]byte, ep conn.Endpoint) error {
 	if !ok {
 		return conn.ErrWrongEndpointType
 	}
-	pc := b.current()
+	pc := b.sending()
 	for try := 0; ; try++ {
 		if pc != nil {
 			var err error
@@ -490,6 +556,49 @@ func (b *bind) Send(bufs [][]byte, ep conn.Endpoint) error {
 		}
 		pc = next
 	}
+}
+
+// sending returns the socket to send through: a new one when the server has
+// gone silent on the old.
+func (b *bind) sending() *gonet.UDPConn {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	now := time.Now()
+	if b.unanswered == 0 {
+		b.since = now
+	}
+	b.unanswered++
+	if b.closed || b.pc == nil || b.unanswered < silentPackets ||
+		now.Sub(b.since) < silence || now.Sub(b.renewed) < silence {
+		return b.pc
+	}
+	verbosef("awg: no answer for %v, sending from a new socket", now.Sub(b.since).Round(time.Second))
+	b.renew(now)
+	return b.pc
+}
+
+// quiet tells whether the server fell silent after a burst, and if so takes
+// a new socket.
+func (b *bind) quiet(now time.Time) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.closed || b.pc == nil || b.burst < burstPackets || now.Sub(b.heard) < quietGap {
+		return false
+	}
+	verbosef("awg: silent for %v after %d packets, sending from a new socket", now.Sub(b.heard).Round(time.Second), b.burst)
+	return b.renew(now)
+}
+
+// renew replaces the socket; mu is held.
+func (b *bind) renew(now time.Time) bool {
+	old := b.pc
+	if err := b.listen(); err != nil {
+		b.pc = old
+		return false
+	}
+	old.Close()
+	b.renewed, b.unanswered, b.burst = now, 0, 0
+	return true
 }
 
 func (b *bind) Close() error {

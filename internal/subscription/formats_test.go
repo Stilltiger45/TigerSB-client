@@ -2,6 +2,8 @@ package subscription
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -315,5 +317,18 @@ func TestWireGuardSubscriptions(t *testing.T) {
 	wants(t, "conf", got["203.0.113.9"], `"S3":"20"`, `"endpoint":"203.0.113.9:443"`)
 	if d := xrayconf.Describe(p.Exits[0].Transports[0].Xray); d != "AmneziaWG 2" {
 		t.Errorf("described as %q", d)
+	}
+}
+
+// TestRevokedKey: the panel answers a key it no longer knows with its stub
+// page; the refresh says what happened in words.
+func TestRevokedKey(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprint(w, "<!doctype html><title>Welcome</title>")
+	}))
+	defer srv.Close()
+	_, _, _, err := (&Client{}).fetch(context.Background(), []string{srv.URL}, nil)
+	if !errors.Is(err, ErrRevoked) {
+		t.Fatalf("got %v", err)
 	}
 }

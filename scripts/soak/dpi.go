@@ -26,11 +26,17 @@ const (
 	// strongPackets datagrams of a flow, so noise does not help: Hysteria 2
 	// and TUIC are cut altogether, as where QUIC is blocked outright.
 	Strong
+	// Freeze lets every TCP connection start, then stops what the server
+	// sends after freezeAfter bytes and keeps the connection hanging, as
+	// Russian DPI does to connections abroad; UDP passes.
+	Freeze
 )
+
+const freezeAfter = 16 << 10
 
 const strongPackets = 20
 
-var levelNames = []string{"off", "weak", "strong"}
+var levelNames = []string{"off", "weak", "strong", "freeze"}
 
 func (l Level) String() string { return levelNames[l] }
 
@@ -117,7 +123,7 @@ func (d *DPI) serveTCP(c net.Conn, target string) {
 		return
 	}
 	c.SetReadDeadline(time.Time{})
-	if d.Level() != Off && bytes.Contains(first[:n], d.sign) {
+	if (d.Level() == Weak || d.Level() == Strong) && bytes.Contains(first[:n], d.sign) {
 		d.tcpBlocked.Add(1)
 		c.(*net.TCPConn).SetLinger(0)
 		return
@@ -131,11 +137,18 @@ func (d *DPI) serveTCP(c net.Conn, target string) {
 	if _, err := up.Write(first[:n]); err != nil {
 		return
 	}
+	done := make(chan struct{})
 	go func() {
 		io.Copy(up, c)
 		up.(*net.TCPConn).CloseWrite()
+		close(done)
 	}()
-	io.Copy(c, up)
+	if d.Level() != Freeze {
+		io.Copy(c, up)
+		return
+	}
+	io.CopyN(c, up, freezeAfter)
+	<-done // frozen: nothing more reaches the client until it gives up
 }
 
 func (d *DPI) track(c net.Conn, on bool) {
@@ -204,7 +217,7 @@ func (b *udpBox) forward(p []byte, from net.Addr) {
 	if !f.blocked.Load() && !f.judged {
 		quic := isQUICHandshake(p)
 		switch {
-		case level == Off:
+		case level == Off || level == Freeze:
 			f.judged = true
 		case level == Weak && f.packets == 0 || level == Strong && f.packets < strongPackets:
 			if quic {
@@ -213,7 +226,7 @@ func (b *udpBox) forward(p []byte, from net.Addr) {
 			}
 		}
 		f.packets++
-		if !f.blocked.Load() && (level == Off || level == Weak || f.packets >= strongPackets) {
+		if !f.blocked.Load() && (level == Off || level == Freeze || level == Weak || f.packets >= strongPackets) {
 			f.judged = true
 			b.dpi.udpPassed.Add(1)
 		}

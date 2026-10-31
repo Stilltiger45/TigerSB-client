@@ -60,6 +60,11 @@ type State struct {
 	Fetched time.Time `json:"fetched"`
 }
 
+// ErrRevoked is what a refresh says when the server answers with something
+// other than a profile: the panel does so for a key that was turned off or
+// issued anew.
+var ErrRevoked = errors.New("ключ отключён или перевыпущен: попросите новый")
+
 // Client downloads profiles.
 type Client struct {
 	HTTP *http.Client
@@ -223,7 +228,11 @@ func (c *Client) fetch(ctx context.Context, urls []string, pinned ed25519.Public
 		}
 		return body, p, pk, nil
 	}
-	return nil, nil, nil, fmt.Errorf("не удалось получить профиль: %w", errors.Join(errs...))
+	err := errors.Join(errs...)
+	if errors.Is(err, profile.ErrNotProfile) {
+		return nil, nil, nil, ErrRevoked
+	}
+	return nil, nil, nil, fmt.Errorf("не удалось получить профиль: %w", err)
 }
 
 func (c *Client) get(ctx context.Context, u, userAgent string) ([]byte, http.Header, error) {

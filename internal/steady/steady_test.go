@@ -1,9 +1,14 @@
 package steady
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -157,3 +162,152 @@ func TestRenewForgetsOldNetwork(t *testing.T) {
 	}
 	t.Error("the transport avoided on the old network is still avoided")
 }
+
+// freezer stands in front of a site like Russian DPI on a connection abroad:
+// it passes what the site sends up to limit bytes and then nothing, keeping
+// the connection open. A negative limit passes everything.
+type freezer struct {
+	addr  string
+	limit atomic.Int64
+}
+
+func newFreezer(t *testing.T, target string) *freezer {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { l.Close() })
+	f := &freezer{addr: l.Addr().String()}
+	f.limit.Store(-1)
+	go func() {
+		for {
+			c, err := l.Accept()
+			if err != nil {
+				return
+			}
+			go func() {
+				defer c.Close()
+				up, err := net.Dial("tcp", target)
+				if err != nil {
+					return
+				}
+				defer up.Close()
+				done := make(chan struct{})
+				go func() { io.Copy(up, c); close(done) }()
+				if n := f.limit.Load(); n >= 0 {
+					io.CopyN(c, up, n)
+					<-done
+					return
+				}
+				io.Copy(c, up)
+			}()
+		}
+	}()
+	return f
+}
+
+// frozenSetup runs a picker over two transports to a site with a big page:
+// "ru/x/frozen" goes through a freezer, "ru/x/live" straight. A dokodemo
+// inbound on the returned port carries connections to the site through the
+// picker.
+func frozenSetup(t *testing.T) (*core.Instance, *Handler, *freezer, int, string) {
+	big := bytes.Repeat([]byte("x"), 256<<10)
+	site := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/big" {
+			w.Write(big)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(site.Close)
+	f := newFreezer(t, site.Listener.Addr().String())
+	in, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := in.Addr().(*net.TCPAddr).Port
+	in.Close()
+	host, sitePort, _ := net.SplitHostPort(site.Listener.Addr().String())
+	cfg, _ := json.Marshal(map[string]any{
+		"log": map[string]any{"loglevel": "none"},
+		"inbounds": []any{map[string]any{
+			"tag": "in", "listen": "127.0.0.1", "port": port, "protocol": "dokodemo-door",
+			"settings": map[string]any{"address": host, "port": atoi(sitePort), "network": "tcp"},
+		}},
+		"outbounds": []any{
+			map[string]any{"tag": "ru/x/frozen", "protocol": "freedom", "settings": map[string]any{"redirect": f.addr}},
+			map[string]any{"tag": "ru/x/live", "protocol": "freedom"},
+		},
+		"routing": map[string]any{"rules": []any{
+			map[string]any{"type": "field", "inboundTag": []string{"in"}, "outboundTag": "pick/ru"},
+		}},
+	})
+	inst, err := engine.Start(cfg, func(inst *core.Instance) error {
+		return Attach(inst, Options{
+			Tag: "pick/ru", Tags: []string{"ru/x/frozen", "ru/x/live"}, ProbeURL: site.URL,
+			BulkURLs: []string{site.URL + "/big"}, Stall: time.Second, BulkTimeout: 2 * time.Second,
+		})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { inst.Close() })
+	ohm, _ := inst.GetFeature(outbound.ManagerType()).(outbound.Manager)
+	return inst, ohm.GetHandler("pick/ru").(*Handler), f, port, site.URL
+}
+
+func waitFor(t *testing.T, what string, ok func() bool) {
+	t.Helper()
+	for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(50 * time.Millisecond) {
+		if ok() {
+			return
+		}
+	}
+	t.Fatal(what)
+}
+
+// TestPrimeFindsFrozenTransport: the frozen transport answers the small
+// checks, so only the download right after the start tells it apart.
+func TestPrimeFindsFrozenTransport(t *testing.T) {
+	inst, h, f, _, _ := frozenSetup(t)
+	_ = inst
+	f.limit.Store(16 << 10)
+	h.renew() // the start, now with DPI in place
+	waitFor(t, "the frozen transport is still in use", func() bool { return Current(inst, "pick/ru") == "ru/x/live" })
+	h.mu.Lock()
+	froze := time.Now().Before(h.froze["ru/x/frozen"])
+	h.mu.Unlock()
+	if !froze {
+		t.Error("the frozen transport is not marked")
+	}
+}
+
+// TestStallFindsFrozenTransport: the transport in use freezes in the middle
+// of the session; a connection that gets nothing back has the picker check
+// it and leave it.
+func TestStallFindsFrozenTransport(t *testing.T) {
+	inst, h, f, port, _ := frozenSetup(t)
+	waitFor(t, "not primed", func() bool {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		return len(h.alive) == 2 && !h.bulking && !h.bulked.IsZero()
+	})
+	h.mu.Lock()
+	h.cur, h.measured = "ru/x/frozen", true
+	h.rtt["ru/x/frozen"], h.rtt["ru/x/live"] = 1, 1
+	h.mu.Unlock()
+	if Current(inst, "pick/ru") != "ru/x/frozen" {
+		t.Fatal("not on the frozen transport")
+	}
+	time.Sleep(2 * time.Second) // past the pause after the last inspection
+	f.limit.Store(0)            // its connections get nothing back now
+	c, err := net.Dial("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	c.Write([]byte("GET / HTTP/1.1\r\nHost: x\r\n\r\n"))
+	waitFor(t, "the frozen transport is still in use", func() bool { return Current(inst, "pick/ru") == "ru/x/live" })
+}
+
+func atoi(s string) int { n, _ := strconv.Atoi(s); return n }

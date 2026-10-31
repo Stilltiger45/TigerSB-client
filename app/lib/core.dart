@@ -210,6 +210,11 @@ abstract class Core {
   /// core's warnings and its last crash.
   Future<void> shareJournal();
 
+  /// Copies a secret, such as a subscription key, marked so that keyboards
+  /// and the clipboard's preview do not show it, and clears it from the
+  /// clipboard a minute later if it is still there.
+  Future<void> copySecret(String text);
+
   /// The app's version and the versions of what is inside.
   Future<AboutInfo> about();
 
@@ -329,6 +334,9 @@ class PlatformCore implements Core {
 
   @override
   Future<void> shareJournal() => _call('shareJournal');
+
+  @override
+  Future<void> copySecret(String text) => _call('copySecret', {'text': text});
 
   @override
   Future<AboutInfo> about() async =>

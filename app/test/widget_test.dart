@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tigersb/app.dart';
 import 'package:tigersb/core.dart';
@@ -161,6 +160,11 @@ class FakeCore implements Core {
   @override
   Future<void> shareJournal() async => journals++;
 
+  final copied = <String>[];
+
+  @override
+  Future<void> copySecret(String text) async => copied.add(text);
+
   UpdateInfo? update;
   bool installAllowed = true;
   int installs = 0;
@@ -303,11 +307,6 @@ void main() {
     final core = FakeCore()
       ..profile = ProfileInfo(id: 'home', name: 'Дом', hasRU: true, fetched: DateTime.now(), exits: const [], key: key)
       ..others.add(ProfileInfo(id: 'work', name: 'Работа', hasRU: true, fetched: DateTime.now(), exits: const []));
-    String? copied;
-    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
-      if (call.method == 'Clipboard.setData') copied = (call.arguments as Map)['text'] as String;
-      return null;
-    });
     await tester.pumpWidget(TigerApp(core: core));
     await tester.pumpAndSettle();
 
@@ -336,7 +335,8 @@ void main() {
     expect(inRow('work', 'Ссылка'), findsNothing);
     await tester.tap(inRow('home', 'Ссылка'));
     await tester.pumpAndSettle();
-    expect(copied, key);
+    // Copied as a secret, which the clipboard keeps only for a minute.
+    expect(core.copied, [key]);
 
     await open();
     await tester.tap(inRow('work', 'Обновить'));

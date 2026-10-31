@@ -171,7 +171,16 @@ type serverConn interface {
 type h2Conn struct{ *http2.ClientConn }
 
 func (c h2Conn) closed() bool { return c.State().Closed }
-func (c h2Conn) usable() bool { return c.CanTakeNewRequest() }
+
+// usable also turns away a connection that carries h2Streams streams: they
+// share one TCP connection, where a big download holds up a short request
+// beside it, so a few more connections serve them better.
+func (c h2Conn) usable() bool {
+	st := c.State()
+	return c.CanTakeNewRequest() && st.StreamsActive+st.StreamsReserved+st.StreamsPending < h2Streams
+}
+
+const h2Streams = 4
 
 func (h *Handler) Start() error                         { return nil }
 func (h *Handler) SenderSettings() *serial.TypedMessage { return nil }

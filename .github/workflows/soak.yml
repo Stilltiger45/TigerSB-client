@@ -15,7 +15,7 @@ on:
         required: false
         default: "Умная Базовая Все"
       dpi:
-        description: "Имитация DPI: off, weak (режет обычный VLESS и QUIC по первому пакету), strong (режет QUIC целиком) или несколько по очереди, например «off weak strong»"
+        description: "Имитация DPI: off, weak (режет обычный VLESS и QUIC по первому пакету), strong (режет QUIC целиком), freeze (TCP замирает после 16 КБ, как у ТСПУ) или несколько по очереди, например «off weak strong»"
         required: false
         default: "off"
       profile:
