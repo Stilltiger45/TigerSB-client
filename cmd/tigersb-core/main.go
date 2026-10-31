@@ -6,6 +6,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"flag"
 	"fmt"
@@ -16,6 +18,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -174,6 +177,7 @@ type runFlags struct {
 	http   *string
 	assets *string
 	log    *string
+	open   *bool
 }
 
 func addRunFlags(fs *flag.FlagSet) runFlags {
@@ -184,7 +188,30 @@ func addRunFlags(fs *flag.FlagSet) runFlags {
 		http:   fs.String("http", "127.0.0.1:10809", "адрес локального HTTP-прокси (пусто — не открывать)"),
 		assets: fs.String("assets", "", "каталог с geosite.dat и geoip.dat (по умолчанию скачиваются в каталог состояния)"),
 		log:    fs.String("log", "warning", "уровень журнала Xray: debug, info, warning, error, none"),
+		open:   fs.Bool("noauth", false, "открыть SOCKS5 и HTTP без пароля: ими сможет пользоваться любая программа"),
 	}
+}
+
+// proxyUser is the login of the local proxies; the password is made once
+// and kept in the state directory.
+const proxyUser = "tigersb"
+
+// proxyPass returns the local proxies' password from dir, making a random
+// one the first time.
+func proxyPass(dir string) (string, error) {
+	path := filepath.Join(dir, "proxy-password")
+	if b, err := os.ReadFile(path); err == nil && len(strings.TrimSpace(string(b))) >= 16 {
+		return strings.TrimSpace(string(b)), nil
+	}
+	b := make([]byte, 18)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	pass := base64.RawURLEncoding.EncodeToString(b)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	return pass, os.WriteFile(path, []byte(pass+"\n"), 0o600)
 }
 
 func (f runFlags) build() ([]byte, *profile.Profile, error) {
@@ -197,6 +224,12 @@ func (f runFlags) build() ([]byte, *profile.Profile, error) {
 		return nil, nil, err
 	}
 	opt := xrayconf.Options{Mode: mode, LogLevel: *f.log}
+	pass := ""
+	if !*f.open && (*f.socks != "" || *f.http != "") {
+		if pass, err = proxyPass(*f.dir); err != nil {
+			return nil, nil, err
+		}
+	}
 	for _, ib := range []struct{ tag, proto, addr string }{
 		{"socks-in", "socks", *f.socks},
 		{"http-in", "http", *f.http},
@@ -212,7 +245,11 @@ func (f runFlags) build() ([]byte, *profile.Profile, error) {
 		if err != nil || port < 1 || port > 65535 {
 			return nil, nil, fmt.Errorf("неверный порт в адресе %q", ib.addr)
 		}
-		opt.Inbounds = append(opt.Inbounds, xrayconf.Inbound{Tag: ib.tag, Protocol: ib.proto, Listen: host, Port: port})
+		in := xrayconf.Inbound{Tag: ib.tag, Protocol: ib.proto, Listen: host, Port: port}
+		if pass != "" {
+			in.User, in.Pass = proxyUser, pass
+		}
+		opt.Inbounds = append(opt.Inbounds, in)
 	}
 	cfg, err := xrayconf.Build(p, opt)
 	return cfg, p, err
@@ -263,6 +300,10 @@ func cmdRun(args []string) error {
 	}
 	if *f.http != "" {
 		fmt.Printf(" HTTP %s.", *f.http)
+	}
+	if !*f.open && (*f.socks != "" || *f.http != "") {
+		pass, _ := proxyPass(*f.dir)
+		fmt.Printf(" Логин %s, пароль %s (лежит в %s).", proxyUser, pass, filepath.Join(*f.dir, "proxy-password"))
 	}
 	fmt.Println(" Остановить: Ctrl+C")
 	sig := make(chan os.Signal, 1)

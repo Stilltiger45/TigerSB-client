@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 
 import '../core.dart';
 import '../ui/buttons.dart';
@@ -289,8 +288,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _copyLink(ProfileInfo p) async {
     _profileMenu.close();
-    await Clipboard.setData(ClipboardData(text: p.key));
-    _snack('Ссылка на профиль скопирована');
+    await widget.core.copySecret(p.key);
+    _snack('Ссылка на профиль скопирована. Через минуту она сотрётся из буфера обмена');
   }
 
   Future<void> _delete(ProfileInfo p) async {

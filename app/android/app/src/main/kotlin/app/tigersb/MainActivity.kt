@@ -4,6 +4,8 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.BroadcastReceiver
+import android.content.ClipData
+import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
@@ -17,6 +19,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.PersistableBundle
 import android.os.PowerManager
 import android.provider.Settings
 import android.view.WindowManager
@@ -33,6 +36,7 @@ import java.util.concurrent.Executors
 class MainActivity : FlutterActivity() {
     companion object {
         private const val REQ_VPN = 1
+        private const val SECRET_TTL = 60_000L
     }
 
     private val main = Handler(Looper.getMainLooper())
@@ -50,16 +54,22 @@ class MainActivity : FlutterActivity() {
         window.setFlags(WindowManager.LayoutParams.FLAG_SECURE, WindowManager.LayoutParams.FLAG_SECURE)
         window.decorView.filterTouchesWhenObscured = true
         if (Build.VERSION.SDK_INT >= 31) window.setHideOverlayWindows(true)
+        // Only this app may send the installer's answer: before Android 13
+        // a receiver registered here is open to all, so it also asks the
+        // sender for a permission that only apps signed like this one get.
         val filter = IntentFilter(Updates.ACTION_STATUS)
-        if (Build.VERSION.SDK_INT >= 33) registerReceiver(updateStatus, filter, Context.RECEIVER_NOT_EXPORTED)
-        else registerReceiver(updateStatus, filter)
+        val permission = Updates.permission(this)
+        if (Build.VERSION.SDK_INT >= 33) {
+            registerReceiver(updateStatus, filter, permission, null, Context.RECEIVER_NOT_EXPORTED)
+        } else {
+            registerReceiver(updateStatus, filter, permission, null)
+        }
     }
 
     /** The system installer's answer to an update: asks the user, or tells why it failed. */
     private val updateStatus = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            // Before Android 13 the receiver is open to other apps too: only
-            // the answer about the session this app started counts.
+            // Only the answer about the session this app started counts.
             val id = intent.getIntExtra(PackageInstaller.EXTRA_SESSION_ID, -1)
             if (id < 0 || id != Updates.session) return
             val status = intent.getIntExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_FAILURE)
@@ -70,7 +80,10 @@ class MainActivity : FlutterActivity() {
                     @Suppress("DEPRECATION")
                     intent.getParcelableExtra(Intent.EXTRA_INTENT)
                 }
-                confirm?.let { startActivity(it.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                // Started only when it is the system's installer asking.
+                if (confirm != null && Updates.isSystemInstaller(this@MainActivity, confirm)) {
+                    startActivity(confirm.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                }
                 return
             }
             if (status == PackageInstaller.STATUS_SUCCESS) return
@@ -156,6 +169,10 @@ class MainActivity : FlutterActivity() {
                             startActivity(Intent.createChooser(send, "Отправить журнал"))
                         }
                         null
+                    }
+                    "copySecret" -> {
+                        copySecret(call.argument<String>("text") ?: "")
+                        result.success(null)
                     }
                     "about" -> background(result) { Mobile.about() }
                     "checkUpdate" -> background(result) {
@@ -292,6 +309,56 @@ class MainActivity : FlutterActivity() {
         if (ok) TigerVpnService.start(this)
         pendingConnect?.success(ok)
         pendingConnect = null
+    }
+
+    /** The secret copied last and when, to wipe it from the clipboard later. */
+    private var secret: String? = null
+    private var secretAt = 0L
+
+    /**
+     * Copies a key that gives full use of the VPN: marked sensitive, so
+     * keyboards and the clipboard's preview do not show it (Android 13 reads
+     * the mark, earlier versions take the same extra by name), and wiped a
+     * minute later if it is still what the clipboard holds.
+     */
+    private fun copySecret(text: String) {
+        val clip = ClipData.newPlainText("TigerSB", text)
+        clip.description.extras = PersistableBundle().apply {
+            putBoolean("android.content.extra.IS_SENSITIVE", true)
+        }
+        clipboard().setPrimaryClip(clip)
+        secret = text
+        secretAt = System.currentTimeMillis()
+        main.postDelayed({ wipeSecret() }, SECRET_TTL)
+    }
+
+    /**
+     * Clears the clipboard when the secret has been there for SECRET_TTL and
+     * still is. In the background Android does not let the app read the
+     * clipboard, so it is tried again when the app comes back.
+     */
+    private fun wipeSecret() {
+        val s = secret ?: return
+        if (System.currentTimeMillis() - secretAt < SECRET_TTL) return
+        val cm = clipboard()
+        val now = try {
+            cm.primaryClip?.getItemAt(0)?.text?.toString()
+        } catch (_: Exception) {
+            null
+        } ?: return
+        if (now == s) {
+            if (Build.VERSION.SDK_INT >= 28) cm.clearPrimaryClip()
+            else cm.setPrimaryClip(ClipData.newPlainText("", ""))
+        }
+        secret = null
+    }
+
+    private fun clipboard() = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        // The clipboard can be read once the window has focus.
+        if (hasFocus) wipeSecret()
     }
 
     override fun onDestroy() {

@@ -79,6 +79,10 @@ type Inbound struct {
 	Listen   string
 	Port     int
 	MTU      int // tun only; 0 means DefaultMTU
+	// User and Pass, when set, are the login a socks or http inbound asks
+	// for: any program on the computer could use an open one, and learn
+	// the server from it.
+	User, Pass string
 }
 
 // Options are the inputs besides the profile.
@@ -368,6 +372,9 @@ func addTransports(p *profile.Profile, role profile.Role, outbounds *[]any) ([]s
 				return nil, fmt.Errorf("транспорт %s: %w", it.tag, err)
 			}
 		}
+		if err := withFewStreams(ob); err != nil {
+			return nil, fmt.Errorf("транспорт %s: %w", it.tag, err)
+		}
 		tag, _ := json.Marshal(it.tag)
 		ob["tag"] = tag
 		*outbounds = append(*outbounds, ob)
@@ -456,6 +463,14 @@ func inbounds(in []Inbound) []any {
 		switch ib.Protocol {
 		case "socks":
 			settings = map[string]any{"udp": true, "auth": "noauth"}
+			if ib.Pass != "" {
+				settings["auth"] = "password"
+				settings["accounts"] = []any{map[string]any{"user": ib.User, "pass": ib.Pass}}
+			}
+		case "http":
+			if ib.Pass != "" {
+				settings["accounts"] = []any{map[string]any{"user": ib.User, "pass": ib.Pass}}
+			}
 		case "tun":
 			mtu := ib.MTU
 			if mtu == 0 {

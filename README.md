@@ -110,7 +110,7 @@ Code layout: `pkg/profile` is the profile and key format (the panel uses it too)
 go build -o tigersb-core ./cmd/tigersb-core
 
 ./tigersb-core import 'tigersb://add?url=...&pk=...'   # or https://…, vless://…, hysteria2://…, tuic://…, mierus://…, naive+https://…
-./tigersb-core run                                     # SOCKS5 127.0.0.1:10808, HTTP 127.0.0.1:10809
+./tigersb-core run                                     # SOCKS5 127.0.0.1:10808, HTTP 127.0.0.1:10809, user tigersb, password in proxy-password
 ```
 
 <details>

@@ -173,6 +173,76 @@ func keepAlive(ctx context.Context, dispatcher routing.Dispatcher, tag, u string
 	return best
 }
 
+// BulkURLs are what Bulk downloads through a server abroad: big answers
+// from sites that stay up.
+var BulkURLs = []string{"https://speed.cloudflare.com/__down?bytes=131072", "https://www.youtube.com/"}
+
+// BulkSize is how much Bulk downloads: well past the 16 KB after which
+// Russian DPI freezes a connection abroad, so a frozen channel, which still
+// passes the small requests of Check, fails it.
+const BulkSize = 96 << 10
+
+// Bulk tells whether BulkSize bytes come through the outbound tag within
+// timeout from any of urls, all requested at once. A URL whose whole answer
+// is shorter tells nothing; when no URL tells anything Bulk says yes.
+func Bulk(inst *core.Instance, tag string, urls []string, timeout time.Duration) bool {
+	dispatcher, _ := inst.GetFeature(routing.DispatcherType()).(routing.Dispatcher)
+	if tag == "" || dispatcher == nil {
+		return false
+	}
+	ctx := context.WithValue(context.Background(), core.XrayKey(1), inst)
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	results := make(chan int, len(urls))
+	for _, u := range urls {
+		go func() { results <- download(ctx, dispatcher, tag, u) }()
+	}
+	failed := false
+	for range urls {
+		switch <-results {
+		case 1:
+			return true
+		case -1:
+			failed = true
+		}
+	}
+	return !failed
+}
+
+// download reads BulkSize bytes of u through tag: 1 when they came, 0 when
+// the whole answer was shorter, -1 when it stopped or failed.
+func download(ctx context.Context, dispatcher routing.Dispatcher, tag, u string) int {
+	tr := &http.Transport{
+		Proxy: func(*http.Request) (*url.URL, error) { return nil, nil },
+		DialContext: func(ctx context.Context, network, addr string) (gonet.Conn, error) {
+			dest, err := net.ParseDestination(network + ":" + addr)
+			if err != nil {
+				return nil, err
+			}
+			return tagged.Dialer(ctx, dispatcher, dest, tag)
+		},
+		DisableKeepAlives: true,
+	}
+	defer tr.CloseIdleConnections()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return -1
+	}
+	resp, err := (&http.Client{Transport: tr}).Do(req)
+	if err != nil {
+		return -1
+	}
+	defer resp.Body.Close()
+	n, err := io.Copy(io.Discard, io.LimitReader(resp.Body, BulkSize))
+	switch {
+	case n >= BulkSize:
+		return 1
+	case err == nil:
+		return 0
+	}
+	return -1
+}
+
 // Fastest returns the live outbound of tags with the lowest delay the
 // observatory measured, or the first one before any measurement. tags must
 // not be empty.

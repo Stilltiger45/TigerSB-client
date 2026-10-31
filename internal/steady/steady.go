@@ -5,6 +5,13 @@
 // transport is left only for a clearly faster one, and the one in use is
 // checked more often so a dead server is left within seconds.
 //
+// A transport can also freeze: Russian DPI lets a connection abroad start and
+// stops what the server sends after some 16 KB. The small checks still pass,
+// so the picker watches the connections it carries instead: when one gets
+// nothing back for a while, it downloads more than that through the
+// transport, and leaves it, and every other transport that freezes the same
+// way, for as long as the phone stays on this network.
+//
 // With evasion (the smart mode) the picker also reaches the servers through
 // a DPI preset when they do not open plainly: Tune picks the preset, or none,
 // on every start and network change.
@@ -22,7 +29,9 @@ import (
 
 	"github.com/xtls/xray-core/app/observatory"
 	"github.com/xtls/xray-core/common"
+	"github.com/xtls/xray-core/common/buf"
 	"github.com/xtls/xray-core/common/errors"
+	"github.com/xtls/xray-core/common/net"
 	"github.com/xtls/xray-core/common/serial"
 	"github.com/xtls/xray-core/common/session"
 	"github.com/xtls/xray-core/core"
@@ -53,6 +62,14 @@ type Options struct {
 	// how soon after a failed check (3 s); Down is how long a transport that
 	// failed two checks in a row is avoided (2 min).
 	Check, Recheck, Down time.Duration
+	// BulkURLs are what the downloads that find a frozen transport request
+	// (meter.Bulk); none turns them off. Stall is how long a new TCP
+	// connection may get nothing back before the picker checks (7 s),
+	// BulkTimeout how long such a download may take (12 s), and Frozen how
+	// long a transport that froze is avoided unless the network changes
+	// first (10 min).
+	BulkURLs                   []string
+	Stall, BulkTimeout, Frozen time.Duration
 }
 
 // Hooks returns the engine.Start hooks that add a picker for every role
@@ -72,7 +89,10 @@ func Hooks(p *profile.Profile, evasion bool, preset int) []func(*core.Instance) 
 		if xrayconf.HasPick(p, role, evasion) {
 			tags := xrayconf.Transports(p, role)
 			opt := Options{
-				Tag:      xrayconf.PickTag(role),
+				Tag: xrayconf.PickTag(role),
+				// DPI freezes connections abroad; an exit in Russia is
+				// checked with the small requests only.
+				BulkURLs: bulkURLs(role),
 				Tags:     tags,
 				ProbeURL: probe,
 				Variants: slices.DeleteFunc(slices.Clone(variants), func(t string) bool { return !slices.Contains(tags, t) }),
@@ -82,6 +102,13 @@ func Hooks(p *profile.Profile, evasion bool, preset int) []func(*core.Instance) 
 		}
 	}
 	return hooks
+}
+
+func bulkURLs(r profile.Role) []string {
+	if r == profile.RoleForeign {
+		return meter.BulkURLs
+	}
+	return nil
 }
 
 // Attach adds a picker to a created, not yet started Xray instance.
@@ -94,6 +121,15 @@ func Attach(inst *core.Instance, opt Options) error {
 	}
 	if opt.Down == 0 {
 		opt.Down = 2 * time.Minute
+	}
+	if opt.Stall == 0 {
+		opt.Stall = 7 * time.Second
+	}
+	if opt.BulkTimeout == 0 {
+		opt.BulkTimeout = 12 * time.Second
+	}
+	if opt.Frozen == 0 {
+		opt.Frozen = 10 * time.Minute
 	}
 	ohm, _ := inst.GetFeature(outbound.ManagerType()).(outbound.Manager)
 	if ohm == nil {
@@ -112,6 +148,7 @@ func Attach(inst *core.Instance, opt Options) error {
 		alive: map[string]bool{},
 		rtt:   map[string]float64{},
 		down:  map[string]time.Time{},
+		froze: map[string]time.Time{},
 		stop:  make(chan struct{}),
 	}
 	h.preset.Store(int32(opt.Preset))
@@ -162,6 +199,7 @@ func (h *Handler) renew() {
 	clear(h.alive)
 	clear(h.rtt)
 	clear(h.down)
+	clear(h.froze)
 	h.fails, h.measured = 0, false
 	h.mu.Unlock()
 	go h.prime()
@@ -185,6 +223,9 @@ type Handler struct {
 	rtt      map[string]float64   // smoothed delay, ms
 	down     map[string]time.Time // failed our own checks until then
 	fails    int                  // checks of cur failed in a row
+	froze    map[string]time.Time // froze on a download until then
+	bulking  bool                 // inspect is running
+	bulked   time.Time            // when inspect last started
 
 	stop     chan struct{}
 	stopOnce sync.Once
@@ -234,6 +275,7 @@ func (h *Handler) prime() {
 		})
 	}
 	wg.Wait()
+	h.inspect("")
 }
 
 func (h *Handler) Close() error {
@@ -243,7 +285,8 @@ func (h *Handler) Close() error {
 
 // Dispatch hands the connection to the transport in use.
 func (h *Handler) Dispatch(ctx context.Context, link *transport.Link) {
-	tag := h.via(h.Current())
+	cur := h.Current()
+	tag := h.via(cur)
 	handler := h.ohm.GetHandler(tag)
 	if handler == nil {
 		errors.LogWarning(ctx, "steady: no outbound ", tag)
@@ -252,8 +295,116 @@ func (h *Handler) Dispatch(ctx context.Context, link *transport.Link) {
 		return
 	}
 	obs := session.OutboundsFromContext(ctx)
-	obs[len(obs)-1].Tag = tag
+	ob := obs[len(obs)-1]
+	ob.Tag = tag
+	if len(h.opt.BulkURLs) > 0 && ob.Target.Network == net.Network_TCP {
+		link = h.watchStall(cur, link)
+	}
 	handler.Dispatch(ctx, link)
+}
+
+// watchStall returns link with its way back to the app watched: if nothing
+// comes back within Stall, the picker inspects the transport t.
+func (h *Handler) watchStall(t string, link *transport.Link) *transport.Link {
+	w := &firstByte{Writer: link.Writer}
+	w.timer = time.AfterFunc(h.opt.Stall, func() { h.suspect(t) })
+	return &transport.Link{Reader: link.Reader, Writer: w}
+}
+
+// firstByte stops its timer at the first data written, or when closed.
+type firstByte struct {
+	buf.Writer
+	timer *time.Timer
+}
+
+func (w *firstByte) WriteMultiBuffer(mb buf.MultiBuffer) error {
+	if !mb.IsEmpty() {
+		w.timer.Stop()
+	}
+	return w.Writer.WriteMultiBuffer(mb)
+}
+
+func (w *firstByte) Close() error {
+	w.timer.Stop()
+	return common.Close(w.Writer)
+}
+
+func (w *firstByte) Interrupt() {
+	w.timer.Stop()
+	common.Interrupt(w.Writer)
+}
+
+// suspect starts inspect when t, a connection through which got nothing
+// back, is still in use and was not inspected lately.
+func (h *Handler) suspect(t string) {
+	h.mu.Lock()
+	if h.cur != t || h.bulking || time.Since(h.bulked) < 2*h.opt.Stall {
+		h.mu.Unlock()
+		return
+	}
+	h.mu.Unlock()
+	go h.inspect(t)
+}
+
+// inspect downloads through the transport t (none: all live ones) more than
+// DPI lets through before it freezes a connection. When t freezes, all the
+// others are checked the same way at once, so the picker does not go from
+// one frozen transport to the next. Those that freeze are avoided for
+// Frozen, unless every one does: then it is something else.
+func (h *Handler) inspect(t string) {
+	if len(h.opt.BulkURLs) == 0 {
+		return
+	}
+	h.mu.Lock()
+	if h.bulking {
+		h.mu.Unlock()
+		return
+	}
+	h.bulking, h.bulked = true, time.Now()
+	h.mu.Unlock()
+	defer func() {
+		h.mu.Lock()
+		h.bulking = false
+		h.mu.Unlock()
+	}()
+	if t != "" {
+		if h.bulk(t) {
+			return
+		}
+		errors.LogWarning(context.Background(), "steady: ", t, " freezes on a download, checking the others")
+		h.freeze(t)
+	}
+	var wg sync.WaitGroup
+	for _, o := range h.opt.Tags {
+		h.mu.Lock()
+		skip := o == t || !h.alive[o] || time.Now().Before(h.froze[o])
+		h.mu.Unlock()
+		if skip {
+			continue
+		}
+		wg.Go(func() {
+			if !h.bulk(o) {
+				errors.LogWarning(context.Background(), "steady: ", o, " freezes on a download")
+				h.freeze(o)
+			}
+		})
+	}
+	wg.Wait()
+}
+
+func (h *Handler) bulk(t string) bool {
+	select {
+	case <-h.stop:
+		return true
+	default:
+	}
+	return meter.Bulk(h.inst, h.via(t), h.opt.BulkURLs, h.opt.BulkTimeout)
+}
+
+func (h *Handler) freeze(t string) {
+	h.mu.Lock()
+	h.froze[t] = time.Now().Add(h.opt.Frozen)
+	h.mu.Unlock()
 }
 
 // Current returns the transport in use, switching first if the measurements
@@ -318,9 +469,16 @@ func (h *Handler) fold(st []*observatory.OutboundStatus) {
 
 func (h *Handler) views(now time.Time) map[string]view {
 	v := make(map[string]view, len(h.opt.Tags))
+	allFroze := true
+	for _, t := range h.opt.Tags {
+		allFroze = allFroze && now.Before(h.froze[t])
+	}
 	for _, t := range h.opt.Tags {
 		alive, known := h.alive[t]
 		if until, ok := h.down[t]; ok && now.Before(until) {
+			alive, known = false, true
+		}
+		if !allFroze && now.Before(h.froze[t]) {
 			alive, known = false, true
 		}
 		v[t] = view{known: known, alive: alive, rtt: h.rtt[t]}

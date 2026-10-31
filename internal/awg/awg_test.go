@@ -1,6 +1,7 @@
 package awg_test
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/hex"
@@ -125,7 +126,13 @@ func serverLog(t *testing.T, clientPub []byte, keys map[string]string, j *journa
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, "через AWG") })}
+	srv := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/big" {
+			w.Write(bytes.Repeat([]byte("x"), bigSize))
+			return
+		}
+		fmt.Fprint(w, "через AWG")
+	})}
 	go srv.Serve(l)
 	t.Cleanup(func() { srv.Close() })
 	u, err := tnet.ListenUDPAddrPort(netip.MustParseAddrPort(site + ":7777"))
@@ -333,4 +340,88 @@ func TestAmneziaWGMismatch(t *testing.T) {
 	if d := time.Since(began); d > time.Second {
 		t.Errorf("stopping took %v", d)
 	}
+}
+
+// bigSize is the size of http://1.2.3.4/big.
+const bigSize = 40 << 10
+
+// freezer passes UDP between clients and the server on port like DPI that
+// freezes a flow it does not know: after limit bytes from the server, a
+// client's flow (its address and port) gets nothing more. It returns its
+// own port.
+func freezer(t *testing.T, port, limit int) int {
+	t.Helper()
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { pc.Close() })
+	server := &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: port}
+	var mu sync.Mutex
+	flows := map[string]net.Conn{}
+	go func() {
+		buf := make([]byte, 65535)
+		for {
+			n, from, err := pc.ReadFrom(buf)
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			up := flows[from.String()]
+			if up == nil {
+				if up, err = net.DialUDP("udp", nil, server); err != nil {
+					mu.Unlock()
+					continue
+				}
+				flows[from.String()] = up
+				t.Cleanup(func() { up.Close() })
+				go func() {
+					back := make([]byte, 65535)
+					sent := 0
+					for {
+						n, err := up.Read(back)
+						if err != nil {
+							return
+						}
+						if sent += n; sent <= limit {
+							pc.WriteTo(back[:n], from)
+						}
+					}
+				}()
+			}
+			mu.Unlock()
+			up.Write(buf[:n])
+		}
+	}()
+	return pc.LocalAddr().(*net.UDPAddr).Port
+}
+
+// TestAmneziaWGFrozenFlow: DPI freezes the client's UDP flow after 16 KB;
+// the client takes a new socket, a new flow, and the download goes on.
+func TestAmneziaWGFrozenFlow(t *testing.T) {
+	keys := versions[3].keys
+	cpriv, cpub := keyPair(t)
+	port, spub := server(t, cpub, keys)
+	key, err := profile.ParseKey(conf(cpriv, spub, freezer(t, port, 16<<10), keys))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := profile.FromVLESS(key.Raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, socks, _ := start(t, p)
+	proxy, _ := url.Parse(fmt.Sprintf("socks5://127.0.0.1:%d", socks))
+	c := &http.Client{Transport: &http.Transport{Proxy: http.ProxyURL(proxy)}, Timeout: 60 * time.Second}
+	began := time.Now()
+	resp, err := c.Get("http://" + site + "/big")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	n, err := io.Copy(io.Discard, resp.Body)
+	if err != nil || n != bigSize {
+		t.Fatalf("got %d of %d bytes: %v", n, bigSize, err)
+	}
+	t.Logf("%d KB through a flow frozen after 16 KB in %v", bigSize>>10, time.Since(began).Round(time.Millisecond))
 }

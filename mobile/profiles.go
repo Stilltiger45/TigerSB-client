@@ -109,6 +109,9 @@ func AddKey(key string) (string, error) {
 	// The download runs without mu: the app's screen asks the core for the
 	// profile meanwhile and must not wait for a slow network.
 	st, p, err := (&subscription.Client{}).Import(ctx, key)
+	if c := viaCoreClient(err); c != nil {
+		st, p, err = c.Import(ctx, key)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -171,6 +174,9 @@ func RefreshProfile(id string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 	p, err := (&subscription.Client{}).Refresh(ctx, st)
+	if c := viaCoreClient(err); c != nil {
+		p, err = c.Refresh(ctx, st)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -186,6 +192,25 @@ func RefreshProfile(id string) (string, error) {
 	i := inst
 	inBackground(func() { fetchLists(i, p, geodataMaxAge, nil) })
 	return info(id, st, p)
+}
+
+// viaCoreClient returns a client that downloads through the running VPN, as
+// any app's request goes, when a download that failed with err is worth
+// trying that way; nil otherwise. The app is left out of its own VPN, so
+// where the subscription's domain is blocked, by its name in TLS for one,
+// the download fails although the tunnel works.
+func viaCoreClient(err error) *subscription.Client {
+	if err == nil || errors.Is(err, subscription.ErrRevoked) {
+		return nil
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if inst == nil {
+		return nil
+	}
+	c := viaCore(inst)
+	c.Timeout = 20 * time.Second
+	return &subscription.Client{HTTP: c}
 }
 
 // Current returns the active profile's info as JSON, or "" when no key has

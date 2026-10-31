@@ -7,8 +7,9 @@
 # SOAK_MODES picks the modes. SOAK_PROFILE=mix adds Hysteria 2 and TUIC to the
 # plain VLESS server (scripts/soak/mix.txt). The servers sit behind a stand-in
 # for DPI (scripts/soak/dpi.go): SOAK_DPI is its level, off (0), weak (1:
-# plain VLESS and QUIC told by the first packet are cut) or strong (QUIC is
-# cut altogether), or several levels in turn, each for SOAK_MINUTES in every
+# plain VLESS and QUIC told by the first packet are cut), strong (QUIC is
+# cut altogether) or freeze (TCP stops after 16 KB from the server, as Russian
+# DPI does to connections abroad), or several levels in turn, each for SOAK_MINUTES in every
 # mode. Meanwhile the emulator downloads and uploads 4 MB on every check and
 # keeps a stream going both ways (scripts/soakload).
 # SOAK_SCENARIOS adds the tests of an unsteady network, run in the mode that

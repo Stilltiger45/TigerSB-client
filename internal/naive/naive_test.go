@@ -350,9 +350,9 @@ func testNaive(t *testing.T, srv *server, linkPadding string, wantPadding bool) 
 	}
 }
 
-// TestNaiveOneConnection checks that the streams share one connection to the
-// server, as Chrome's would.
-func TestNaiveOneConnection(t *testing.T) {
+// TestNaiveFewConnections checks that the streams share connections to the
+// server, h2Streams on each at most.
+func TestNaiveFewConnections(t *testing.T) {
 	srv := newServer(t, false)
 	p, err := profile.FromVLESS(fmt.Sprintf("naive+https://naive:secret@127.0.0.1:%d?sni=naive.test&pinSHA256=%s", srv.port, srv.pin))
 	if err != nil {
@@ -379,8 +379,8 @@ func TestNaiveOneConnection(t *testing.T) {
 	if n := len(srv.seen()); n != 10 {
 		t.Errorf("%d CONNECT requests, want 10", n)
 	}
-	if n := len(established(t, srv.port)); n != 1 {
-		t.Errorf("%d connections to the server, want 1", n)
+	if n, most := len(established(t, srv.port)), (10+naive.H2Streams-1)/naive.H2Streams; n < 1 || n > most {
+		t.Errorf("%d connections to the server, want %d at most", n, most)
 	}
 }
 

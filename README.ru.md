@@ -108,7 +108,7 @@
 go build -o tigersb-core ./cmd/tigersb-core
 
 ./tigersb-core import 'tigersb://add?url=...&pk=...'   # или https://…, vless://…, hysteria2://…, tuic://…, mierus://…, naive+https://…
-./tigersb-core run                                     # SOCKS5 127.0.0.1:10808, HTTP 127.0.0.1:10809
+./tigersb-core run                                     # SOCKS5 127.0.0.1:10808, HTTP 127.0.0.1:10809, логин tigersb, пароль в proxy-password
 ```
 
 <details>

@@ -3,7 +3,9 @@ package app.tigersb
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ApplicationInfo
 import android.content.pm.PackageInstaller
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Process
@@ -26,6 +28,24 @@ object Updates {
 
     /** What PackageInstaller tells about the install arrives with this action. */
     const val ACTION_STATUS = "app.tigersb.UPDATE_STATUS"
+
+    /** The permission the status needs: declared signature-only in the manifest. */
+    fun permission(ctx: Context) = "${ctx.packageName}.permission.UPDATE_STATUS"
+
+    /** Whether the intent opens a screen of a system app: the installer's confirmation. */
+    fun isSystemInstaller(ctx: Context, intent: Intent): Boolean {
+        val pm = ctx.packageManager
+        val target = intent.component?.packageName
+            ?: intent.resolveActivity(pm)?.packageName
+            ?: return false
+        if (target == ctx.packageName) return false
+        val info = try {
+            pm.getApplicationInfo(target, 0)
+        } catch (e: PackageManager.NameNotFoundException) {
+            return false
+        }
+        return (info.flags and ApplicationInfo.FLAG_SYSTEM) != 0
+    }
 
     /** The session of the install under way, so a status from elsewhere is ignored. */
     @Volatile

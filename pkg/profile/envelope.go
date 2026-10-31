@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 )
 
@@ -71,12 +72,17 @@ func Sign(priv ed25519.PrivateKey, profileJSON []byte) ([]byte, error) {
 	return json.MarshalIndent(env, "", "  ")
 }
 
+// ErrNotProfile is Open's error for an answer that is not an envelope at
+// all, such as the panel's stub page, which it shows for a key it no longer
+// knows.
+var ErrNotProfile = errors.New("ответ подписки не похож на профиль TigerSB")
+
 // Open checks the envelope signature and returns the profile and the key that
 // signed it. If pinned is set, the envelope must be signed by that key.
 func Open(data []byte, pinned ed25519.PublicKey) (*Profile, ed25519.PublicKey, error) {
 	var env Envelope
 	if err := json.Unmarshal(data, &env); err != nil {
-		return nil, nil, fmt.Errorf("ответ подписки не похож на профиль TigerSB: %w", err)
+		return nil, nil, fmt.Errorf("%w: %w", ErrNotProfile, err)
 	}
 	if env.V != Version {
 		return nil, nil, fmt.Errorf("версия конверта %d не поддерживается", env.V)

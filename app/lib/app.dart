@@ -109,12 +109,15 @@ class _RootState extends State<Root> {
       setState(() => _incomingKey = key);
       return;
     }
+    final from = keyOrigin(key);
     final add = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Добавить профиль?'),
-        content: const Text(
-          'Приложение получило новый ключ. Он станет ещё одним профилем, и VPN подключится через него.',
+        content: Text(
+          '${from.name != null ? 'Профиль «${from.name}»' : 'Профиль'} с сервера ${from.server}.\n\n'
+          'Ключ пришёл из другого приложения или по ссылке. Он станет ещё одним профилем, и VPN '
+          'подключится через этот сервер. Добавляйте, только если ключ прислал тот, кому вы доверяете.',
         ),
         actions: [
           TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Отмена')),
@@ -178,4 +181,13 @@ class _RootState extends State<Root> {
       onNoProfiles: () => setState(() => _profile = null),
     );
   }
+}
+
+/// Where a tigersb:// key leads: its subscription's server and the name it
+/// gives the profile, if any.
+({String server, String? name}) keyOrigin(String key) {
+  final q = Uri.tryParse(key)?.queryParameters ?? const {};
+  final server = Uri.tryParse(q['url'] ?? '')?.host ?? '';
+  final name = q['name']?.trim();
+  return (server: server.isEmpty ? 'неизвестного адреса' : server, name: name == null || name.isEmpty ? null : name);
 }
