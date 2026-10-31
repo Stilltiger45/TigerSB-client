@@ -1,6 +1,7 @@
 package mobile
 
 import (
+	"crypto/ed25519"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"github.com/xtls/xray-core/core"
 
 	"github.com/Stilltiger45/TigerSB-client/internal/subscription"
+	"github.com/Stilltiger45/TigerSB-client/pkg/profile"
 )
 
 func vlessKey(name string) string {
@@ -132,5 +134,54 @@ func TestOldProfileMoves(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "state.json")); !os.IsNotExist(err) {
 		t.Error("the old file stayed")
+	}
+}
+
+// TestKeyFromOtherPanel checks that a tigersb:// key signed by a panel no
+// saved profile comes from is told apart, and that AddKeyAside leaves the
+// profile in use as it is.
+func TestKeyFromOtherPanel(t *testing.T) {
+	initTemp(t)
+	ours, _, _ := profile.GenerateKey()
+	theirs, _, _ := profile.GenerateKey()
+	key := func(pk ed25519.PublicKey) string {
+		return profile.Key{Kind: profile.KindSubscription, URL: "https://panel.example/sub/x", PK: pk}.String()
+	}
+	if OtherPanel(key(theirs)) {
+		t.Error("other panel with no profiles to compare with")
+	}
+	add(t, vlessKey("Дом"))
+	mu.Lock()
+	ix, _ := readIndex()
+	ix.Order = append(ix.Order, "panel")
+	writeIndex(ix)
+	subscription.Save(profileDir("panel"), &subscription.State{Key: key(ours), PK: profile.EncodeKey(ours)})
+	mu.Unlock()
+	if OtherPanel(key(ours)) {
+		t.Error("a key of a saved panel called other")
+	}
+	if !OtherPanel(key(theirs)) {
+		t.Error("a key of another panel not told apart")
+	}
+	if OtherPanel(vlessKey("x")) {
+		t.Error("a share link called another panel")
+	}
+
+	if _, err := AddKeyAside(vlessKey("Чужой")); err != nil {
+		t.Fatal(err)
+	}
+	if names, active := list(t); len(names) != 2 || names[1] != "Чужой" || active != "Дом" {
+		t.Fatalf("after AddKeyAside: %v, active %q", names, active)
+	}
+}
+
+// TestFirstKeyAside: with no profile in use, the key added aside becomes it.
+func TestFirstKeyAside(t *testing.T) {
+	initTemp(t)
+	if _, err := AddKeyAside(vlessKey("Первый")); err != nil {
+		t.Fatal(err)
+	}
+	if _, active := list(t); active != "Первый" {
+		t.Fatalf("active %q", active)
 	}
 }

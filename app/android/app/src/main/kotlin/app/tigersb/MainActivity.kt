@@ -110,6 +110,8 @@ class MainActivity : FlutterActivity() {
                 when (call.method) {
                     "current" -> background(result) { Mobile.current() }
                     "addKey" -> background(result) { Mobile.addKey(call.argument<String>("key") ?: "") }
+                    "addKeyAside" -> background(result) { Mobile.addKeyAside(call.argument<String>("key") ?: "") }
+                    "otherPanel" -> background(result) { Mobile.otherPanel(call.argument<String>("key") ?: "") }
                     "profiles" -> background(result) { Mobile.profiles() }
                     "refresh" -> background(result) {
                         val id = call.argument<String>("id")

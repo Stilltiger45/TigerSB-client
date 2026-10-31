@@ -3,6 +3,7 @@ package subscription
 import (
 	"context"
 	"crypto/ed25519"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -91,7 +92,7 @@ func TestImportPinnedKeyAndRefresh(t *testing.T) {
 	// A profile signed by another key is refused even from the same URL.
 	_, otherPriv, _ := profile.GenerateKey()
 	srv.body.Store(signedFixture(t, otherPriv, nil))
-	if _, err := c.Refresh(context.Background(), st); err == nil || !strings.Contains(err.Error(), "чужим ключом") {
+	if _, err := c.Refresh(context.Background(), st); !errors.Is(err, profile.ErrForged) || !strings.Contains(err.Error(), "чужим ключом") {
 		t.Errorf("foreign key accepted on refresh: %v", err)
 	}
 }
