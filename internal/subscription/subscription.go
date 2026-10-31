@@ -10,8 +10,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Stilltiger45/TigerSB-client/internal/certpin"
@@ -60,9 +62,9 @@ type State struct {
 	Fetched time.Time `json:"fetched"`
 }
 
-// ErrRevoked is what a refresh says when the server answers with something
-// other than a profile: the panel does so for a key that was turned off or
-// issued anew.
+// ErrRevoked is what a download says when the subscription's server answers
+// with its own page instead of a profile (stubPage): the panel does so for a
+// key that was turned off or issued anew.
 var ErrRevoked = errors.New("ключ отключён или перевыпущен: попросите новый")
 
 // Client downloads profiles.
@@ -102,7 +104,7 @@ func (c *Client) Import(ctx context.Context, keyText string) (*State, *profile.P
 		return &State{Key: key.String(), Profile: raw, Fetched: time.Now().UTC()}, p, nil
 	}
 	if key.PK == nil {
-		body, hdr, err := c.get(ctx, key.URL, UserAgent)
+		body, hdr, _, err := c.get(ctx, key.URL, UserAgent)
 		if err != nil {
 			return nil, nil, fmt.Errorf("не удалось получить подписку: %w", err)
 		}
@@ -142,7 +144,7 @@ func (c *Client) importForeign(ctx context.Context, key profile.Key, body []byte
 func (c *Client) readForeign(ctx context.Context, u string, body []byte, hdr http.Header) (*profile.Profile, error) {
 	p, err := parseForeign(u, body, hdr)
 	if err != nil {
-		body2, hdr2, err2 := c.get(ctx, u, compatUserAgent)
+		body2, hdr2, _, err2 := c.get(ctx, u, compatUserAgent)
 		if err2 != nil {
 			return nil, err
 		}
@@ -168,7 +170,7 @@ func (c *Client) Refresh(ctx context.Context, st *State) (*profile.Profile, erro
 		if err != nil {
 			return nil, err
 		}
-		body, hdr, err := c.get(ctx, key.URL, UserAgent)
+		body, hdr, _, err := c.get(ctx, key.URL, UserAgent)
 		if err != nil {
 			return nil, fmt.Errorf("не удалось получить подписку: %w", err)
 		}
@@ -216,29 +218,48 @@ func (c *Client) fetch(ctx context.Context, urls []string, pinned ed25519.Public
 			continue
 		}
 		seen[u] = true
-		body, _, err := c.get(ctx, u, UserAgent)
+		body, _, final, err := c.get(ctx, u, UserAgent)
 		if err != nil {
 			errs = append(errs, err)
 			continue
 		}
 		p, pk, err := profile.Open(body, pinned)
 		if err != nil {
+			if errors.Is(err, profile.ErrNotProfile) && stubPage(u, final, body) {
+				err = ErrRevoked
+			}
 			errs = append(errs, fmt.Errorf("%s: %w", u, err))
 			continue
 		}
 		return body, p, pk, nil
 	}
 	err := errors.Join(errs...)
-	if errors.Is(err, profile.ErrNotProfile) {
+	if errors.Is(err, ErrRevoked) {
 		return nil, nil, nil, ErrRevoked
 	}
 	return nil, nil, nil, fmt.Errorf("не удалось получить профиль: %w", err)
 }
 
-func (c *Client) get(ctx context.Context, u, userAgent string) ([]byte, http.Header, error) {
+// stubPage tells the panel's own page, which it shows for a key it no longer
+// knows, from other answers that are not a profile: it is an HTML page that
+// came over TLS from the subscription's own server. A Wi-Fi login page cannot
+// pass TLS for the panel's domain, and junk is not HTML.
+func stubPage(u, final string, body []byte) bool {
+	a, err1 := url.Parse(u)
+	b, err2 := url.Parse(final)
+	if err1 != nil || err2 != nil || a.Scheme != "https" || b.Scheme != "https" || a.Host != b.Host {
+		return false
+	}
+	head := strings.ToLower(strings.TrimSpace(string(body[:min(len(body), 512)])))
+	return strings.HasPrefix(head, "<!doctype html") || strings.HasPrefix(head, "<html")
+}
+
+// get downloads u and returns the body, the headers and the address that
+// answered, after redirects.
+func (c *Client) get(ctx context.Context, u, userAgent string) ([]byte, http.Header, string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
 	}
 	req.Header.Set("User-Agent", userAgent)
 	for k, v := range map[string]string{
@@ -253,20 +274,20 @@ func (c *Client) get(ctx context.Context, u, userAgent string) ([]byte, http.Hea
 	}
 	resp, err := c.http().Do(req)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
-		return nil, nil, fmt.Errorf("%s: сервер ответил %s", u, resp.Status)
+		return nil, nil, "", fmt.Errorf("%s: сервер ответил %s", u, resp.Status)
 	}
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxBody+1))
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, "", err
 	}
 	if len(body) > maxBody {
-		return nil, nil, fmt.Errorf("%s: ответ больше %d МБ", u, maxBody>>20)
+		return nil, nil, "", fmt.Errorf("%s: ответ больше %d МБ", u, maxBody>>20)
 	}
-	return body, resp.Header, nil
+	return body, resp.Header, resp.Request.URL.String(), nil
 }
 
 // Open returns the stored profile, checking the signature again.

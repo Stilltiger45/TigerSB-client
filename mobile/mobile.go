@@ -54,6 +54,8 @@ var (
 	protocols         map[string]string
 	probeURL          string
 	started           time.Time
+	// freezeHint is what Freezing tells the user (freezeAdvice).
+	freezeHint string
 )
 
 // Init sets the app's private directory and version. Call it once before
@@ -130,6 +132,7 @@ func Start(fd int, mode string, mtu int) error {
 	if err != nil {
 		return err
 	}
+	whole := p
 	if off := protocolsOff(); len(off) > 0 {
 		var ok bool
 		if p, ok = xrayconf.WithoutProtocols(p, off); !ok {
@@ -187,6 +190,7 @@ func Start(fd int, mode string, mtu int) error {
 		}
 	}
 	protocols = xrayconf.Protocols(p)
+	freezeHint = freezeAdvice(whole, p)
 	probeURL = ""
 	if p.Probe != nil {
 		probeURL = p.Probe.URL

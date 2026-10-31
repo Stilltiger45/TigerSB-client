@@ -115,6 +115,7 @@ func cmdImport(args []string) error {
 	fs := flag.NewFlagSet("import", flag.ExitOnError)
 	dir := stateDirFlag(fs)
 	_ = fs.Parse(args)
+	subscription.ThisDevice = thisDevice(*dir)
 	if fs.NArg() != 1 {
 		return errors.New("нужен ровно один ключ: tigersb-core import <ключ>")
 	}
@@ -137,6 +138,7 @@ func cmdUpdate(args []string) error {
 	fs := flag.NewFlagSet("update", flag.ExitOnError)
 	dir := stateDirFlag(fs)
 	_ = fs.Parse(args)
+	subscription.ThisDevice = thisDevice(*dir)
 	st, err := subscription.Load(*dir)
 	if err != nil {
 		return err

@@ -75,7 +75,18 @@ func Sign(priv ed25519.PrivateKey, profileJSON []byte) ([]byte, error) {
 // ErrNotProfile is Open's error for an answer that is not an envelope at
 // all, such as the panel's stub page, which it shows for a key it no longer
 // knows.
-var ErrNotProfile = errors.New("ответ подписки не похож на профиль TigerSB")
+var ErrNotProfile = errors.New("сервер подписки ответил не профилем TigerSB: адрес неверный, или сеть просит войти на своей странице (Wi-Fi в гостинице, метро)")
+
+// ErrForged is Open's error for an envelope that does not hold up: signed by
+// another key, or with a signature that does not match. Downloading it again
+// another way does not help, and the reason is what the user should see.
+var ErrForged = errors.New("профиль подменён")
+
+// forged is an ErrForged with the reason in words.
+type forged string
+
+func (f forged) Error() string      { return string(f) }
+func (forged) Is(target error) bool { return target == ErrForged }
 
 // Open checks the envelope signature and returns the profile and the key that
 // signed it. If pinned is set, the envelope must be signed by that key.
@@ -92,15 +103,15 @@ func Open(data []byte, pinned ed25519.PublicKey) (*Profile, ed25519.PublicKey, e
 		return nil, nil, err
 	}
 	if pinned != nil && !bytes.Equal(pinned, pk) {
-		return nil, nil, fmt.Errorf("профиль подписан чужим ключом: возможно, подписку подменили")
+		return nil, nil, forged("профиль подписан чужим ключом: возможно, подписку подменили")
 	}
 	payload, err := b64.DecodeString(env.Payload)
 	if err != nil {
-		return nil, nil, fmt.Errorf("повреждённое содержимое профиля")
+		return nil, nil, forged("повреждённое содержимое профиля: возможно, подписку подменили")
 	}
 	sig, err := b64.DecodeString(env.Sig)
 	if err != nil || !ed25519.Verify(pk, payload, sig) {
-		return nil, nil, fmt.Errorf("подпись профиля не сходится")
+		return nil, nil, forged("подпись профиля не сходится: возможно, подписку подменили")
 	}
 	var p Profile
 	if err := json.Unmarshal(payload, &p); err != nil {

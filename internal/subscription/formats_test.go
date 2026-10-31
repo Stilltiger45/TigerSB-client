@@ -321,14 +321,36 @@ func TestWireGuardSubscriptions(t *testing.T) {
 }
 
 // TestRevokedKey: the panel answers a key it no longer knows with its stub
-// page; the refresh says what happened in words.
+// page; the refresh says what happened in words. Only that page, over TLS
+// from the panel's own server, means it: junk or a page over plain HTTP, as a
+// Wi-Fi login page is, says the answer is not a profile.
 func TestRevokedKey(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	page := func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "<!doctype html><title>Welcome</title>")
-	}))
-	defer srv.Close()
-	_, _, _, err := (&Client{}).fetch(context.Background(), []string{srv.URL}, nil)
+	}
+	tlsSrv := httptest.NewTLSServer(http.HandlerFunc(page))
+	defer tlsSrv.Close()
+	_, _, _, err := (&Client{HTTP: tlsSrv.Client()}).fetch(context.Background(), []string{tlsSrv.URL}, nil)
 	if !errors.Is(err, ErrRevoked) {
-		t.Fatalf("got %v", err)
+		t.Fatalf("stub page over TLS: got %v", err)
+	}
+
+	plain := httptest.NewServer(http.HandlerFunc(page))
+	defer plain.Close()
+	junk := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte{0x8f, 0x01, 0xfe, 'x', 0x00, 0x7f})
+	}))
+	defer junk.Close()
+	for name, c := range map[string]struct {
+		cl  *Client
+		url string
+	}{
+		"page over HTTP": {&Client{}, plain.URL},
+		"junk over TLS":  {&Client{HTTP: junk.Client()}, junk.URL},
+	} {
+		_, _, _, err := c.cl.fetch(context.Background(), []string{c.url}, nil)
+		if errors.Is(err, ErrRevoked) || !errors.Is(err, profile.ErrNotProfile) {
+			t.Errorf("%s: got %v", name, err)
+		}
 	}
 }

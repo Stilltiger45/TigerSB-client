@@ -451,6 +451,17 @@ class _HomeScreenState extends State<HomeScreen> {
                         style: TextStyle(color: Palette.error),
                       ),
                     ],
+                    // A connected VPN may carry advice, such as which
+                    // protocols get past a network that freezes connections.
+                    if (_status.phase == Phase.connected && _status.error != null) ...[
+                      const SizedBox(height: 10),
+                      Text(
+                        _status.error!,
+                        key: const Key('advice'),
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: Palette.orangeLight),
+                      ),
+                    ],
                     const SizedBox(height: 28),
                     ModeSwitch(mode: _mode, onChanged: _setMode),
                     const SizedBox(height: 14),

@@ -110,6 +110,14 @@ class _RootState extends State<Root> {
       return;
     }
     final from = keyOrigin(key);
+    bool other;
+    try {
+      other = await widget.core.otherPanel(key);
+    } on CoreError {
+      other = true;
+    }
+    if (!mounted) return;
+    if (other) return _onOtherPanelKey(key, from);
     final add = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -126,6 +134,74 @@ class _RootState extends State<Root> {
       ),
     );
     if (add == true && mounted) await _addProfile(key);
+  }
+
+  /// A tigersb:// link from a panel none of the profiles comes from. Such a
+  /// link may be a trap: a server that sees where the user goes. It is added
+  /// only when asked to, and does not take over: the user switches to it on
+  /// purpose.
+  Future<void> _onOtherPanelKey(String key, ({String server, String? name}) from) async {
+    final add = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        icon: Icon(Icons.warning_amber_rounded, color: Palette.error, size: 40),
+        title: const Text('Ключ от другой панели'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              from.server,
+              textAlign: TextAlign.center,
+              style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800, color: Palette.error),
+            ),
+            if (from.name != null) ...[
+              const SizedBox(height: 4),
+              Text('«${from.name}»', textAlign: TextAlign.center, style: const TextStyle(fontSize: 16)),
+            ],
+            const SizedBox(height: 14),
+            const Text(
+              'Этот ключ выдал не тот сервер, от которого ваши профили. Тот, кто держит сервер, видит, '
+              'на какие сайты вы ходите. Если вы не ждали новый ключ, нажмите «Отмена».\n\n'
+              'Профиль добавится в список, а VPN останется на прежнем. Переключиться можно потом.',
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, true), child: const Text('Добавить')),
+          FilledButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('Отмена')),
+        ],
+      ),
+    );
+    if (add != true || !mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    ProfileInfo p;
+    try {
+      p = await widget.core.addKeyAside(key);
+    } on CoreError catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text(e.message)));
+      return;
+    }
+    if (!mounted) return;
+    if (_profile == null) {
+      setState(() => _profile = p);
+      return;
+    }
+    messenger.showSnackBar(
+      SnackBar(
+        duration: const Duration(seconds: 10),
+        content: Text('Профиль «${p.name}» добавлен. VPN остался на «${_profile!.name}».'),
+        action: SnackBarAction(label: 'Переключиться', onPressed: () => _switchTo(p)),
+      ),
+    );
+  }
+
+  Future<void> _switchTo(ProfileInfo p) async {
+    try {
+      final next = await widget.core.select(p.id);
+      if (mounted) setState(() => _profile = next);
+    } on CoreError catch (e) {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.message)));
+    }
   }
 
   /// Opens the key screen for one more profile; it connects through it.

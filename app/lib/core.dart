@@ -174,6 +174,14 @@ abstract class Core {
   /// makes it the one in use.
   Future<ProfileInfo> addKey(String key);
 
+  /// Adds a key as [addKey] does but keeps the profile in use, unless there
+  /// is none: for a key from another panel ([otherPanel]) that came by a link.
+  Future<ProfileInfo> addKeyAside(String key);
+
+  /// Whether a tigersb:// key comes from a panel none of the saved profiles
+  /// comes from: someone else's server, maybe a trap.
+  Future<bool> otherPanel(String key);
+
   /// Downloads the profile [id], or the one in use, again.
   Future<ProfileInfo> refresh([String? id]);
 
@@ -292,6 +300,13 @@ class PlatformCore implements Core {
 
   @override
   Future<ProfileInfo> addKey(String key) async => ProfileInfo.parse(await _call<String>('addKey', {'key': key}))!;
+
+  @override
+  Future<ProfileInfo> addKeyAside(String key) async =>
+      ProfileInfo.parse(await _call<String>('addKeyAside', {'key': key}))!;
+
+  @override
+  Future<bool> otherPanel(String key) async => await _call<bool>('otherPanel', {'key': key}) ?? false;
 
   @override
   Future<List<ProfileInfo>> profiles() async => [

@@ -44,6 +44,19 @@ class FakeCore implements Core {
     return profile = _profile(added.length == 1 ? 'Дом' : 'Ключ ${added.length}');
   }
 
+  /// Keys from other panels: tigersb:// keys whose pk is "evil".
+  @override
+  Future<bool> otherPanel(String key) async => key.contains('pk=evil');
+
+  @override
+  Future<ProfileInfo> addKeyAside(String key) async {
+    added.add(key);
+    final p = _profile('Чужой ${added.length}');
+    if (profile == null) return profile = p;
+    others.add(p);
+    return p;
+  }
+
   final refreshed = <String>[];
 
   @override
@@ -392,6 +405,34 @@ void main() {
     expect(core.added.last, 'tigersb://add?url=https://three&pk=y');
     expect(core.others.length, 2);
     expect(core.connects, 2);
+  });
+
+  testWidgets('a link from another panel warns and does not take over', (tester) async {
+    final core = FakeCore()
+      ..profile = ProfileInfo(id: 'home', name: 'Дом', hasRU: true, fetched: DateTime.now(), exits: const []);
+    await tester.pumpWidget(TigerApp(core: core));
+    await tester.pumpAndSettle();
+
+    const evil = 'tigersb://add?url=https://evil.example.com/sub/x&pk=evil&name=Free';
+    core.incoming.add(evil);
+    await tester.pumpAndSettle();
+    expect(find.text('Ключ от другой панели'), findsOneWidget);
+    expect(find.text('evil.example.com'), findsOneWidget);
+    await tester.tap(find.text('Отмена'));
+    await tester.pumpAndSettle();
+    expect(core.added, isEmpty);
+
+    core.incoming.add(evil);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Добавить'));
+    await tester.pumpAndSettle();
+    expect(core.added, [evil]);
+    expect(core.profile!.id, 'home');
+    expect(core.connects, 0);
+    expect(find.text('Переключиться'), findsOneWidget);
+    await tester.tap(find.text('Переключиться'));
+    await tester.pumpAndSettle();
+    expect(core.profile!.name, 'Чужой 1');
   });
 
   testWidgets('the menu opens apps outside the VPN: MAX is locked, others toggle', (tester) async {

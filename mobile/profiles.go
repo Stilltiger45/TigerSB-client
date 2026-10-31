@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Stilltiger45/TigerSB-client/internal/subscription"
+	"github.com/Stilltiger45/TigerSB-client/pkg/profile"
 )
 
 // The app keeps several profiles, each a subscription in its own folder under
@@ -101,7 +102,38 @@ func loadActive() (*subscription.State, string, error) {
 // AddKey adds a key (tigersb://, https:// or a share link) as a new profile,
 // or updates the profile with the same key, downloads the profile and the
 // lists it needs, makes it the active one and returns its info as JSON.
-func AddKey(key string) (string, error) {
+func AddKey(key string) (string, error) { return addKey(key, true) }
+
+// AddKeyAside adds a key as AddKey does but leaves the active profile as it
+// is, unless there was none: for a key from another panel that came by a
+// link (OtherPanel). The user switches to it on purpose (Select).
+func AddKeyAside(key string) (string, error) { return addKey(key, false) }
+
+// OtherPanel reports whether key is a tigersb:// key signed by a panel none
+// of the saved profiles comes from. Such a key that came by a link may be a
+// trap: someone else's server that would see the user's traffic. Without
+// saved profiles there is nothing to compare with, and it reports false.
+func OtherPanel(key string) bool {
+	k, err := profile.ParseKey(key)
+	if err != nil || k.PK == nil {
+		return false
+	}
+	pk := profile.EncodeKey(k.PK)
+	mu.Lock()
+	defer mu.Unlock()
+	ix, err := readIndex()
+	if err != nil || len(ix.Order) == 0 {
+		return false
+	}
+	for _, id := range ix.Order {
+		if st, err := subscription.Load(profileDir(id)); err == nil && st.PK == pk {
+			return false
+		}
+	}
+	return true
+}
+
+func addKey(key string, activate bool) (string, error) {
 	netMu.Lock()
 	defer netMu.Unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
@@ -110,7 +142,12 @@ func AddKey(key string) (string, error) {
 	// profile meanwhile and must not wait for a slow network.
 	st, p, err := (&subscription.Client{}).Import(ctx, key)
 	if c := viaCoreClient(err); c != nil {
-		st, p, err = c.Import(ctx, key)
+		var err2 error
+		if st, p, err2 = c.Import(ctx, key); err2 != nil {
+			err = retryError(err, err2)
+		} else {
+			err = nil
+		}
 	}
 	if err != nil {
 		return "", err
@@ -135,7 +172,9 @@ func AddKey(key string) (string, error) {
 	if err := subscription.Save(profileDir(id), st); err != nil {
 		return "", err
 	}
-	ix.Active = id
+	if activate || ix.Active == "" {
+		ix.Active = id
+	}
 	if err := writeIndex(ix); err != nil {
 		return "", err
 	}
@@ -175,7 +214,12 @@ func RefreshProfile(id string) (string, error) {
 	defer cancel()
 	p, err := (&subscription.Client{}).Refresh(ctx, st)
 	if c := viaCoreClient(err); c != nil {
-		p, err = c.Refresh(ctx, st)
+		var err2 error
+		if p, err2 = c.Refresh(ctx, st); err2 != nil {
+			err = retryError(err, err2)
+		} else {
+			err = nil
+		}
 	}
 	if err != nil {
 		return "", err
@@ -199,8 +243,13 @@ func RefreshProfile(id string) (string, error) {
 // trying that way; nil otherwise. The app is left out of its own VPN, so
 // where the subscription's domain is blocked, by its name in TLS for one,
 // the download fails although the tunnel works.
+//
+// A profile that failed its signature check is not retried: that is no
+// network trouble. A key the panel turned off is: through the VPN the panel
+// says it again, unless someone between the phone and the panel answered
+// for it.
 func viaCoreClient(err error) *subscription.Client {
-	if err == nil || errors.Is(err, subscription.ErrRevoked) {
+	if err == nil || errors.Is(err, profile.ErrForged) {
 		return nil
 	}
 	mu.Lock()
@@ -211,6 +260,17 @@ func viaCoreClient(err error) *subscription.Client {
 	c := viaCore(inst)
 	c.Timeout = 20 * time.Second
 	return &subscription.Client{HTTP: c}
+}
+
+// retryError picks what to tell of a download that failed directly (first)
+// and through the VPN (second): the panel's own answer, a turned off key or
+// a forged profile, if the second got one; otherwise the first, as the retry
+// only failed to reach the server another way.
+func retryError(first, second error) error {
+	if errors.Is(second, subscription.ErrRevoked) || errors.Is(second, profile.ErrForged) {
+		return second
+	}
+	return first
 }
 
 // Current returns the active profile's info as JSON, or "" when no key has

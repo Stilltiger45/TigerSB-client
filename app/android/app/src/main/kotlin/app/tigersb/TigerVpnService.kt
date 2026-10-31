@@ -334,9 +334,7 @@ class TigerVpnService : VpnService() {
         note("сторож: сервер не ответил ($fails)")
         val now = System.currentTimeMillis()
         if (fails >= FAILS_TO_RESTART && now - lastRestart > RESTART_GAP_MS) {
-            lastRestart = now
-            note("сторож: перезапускаю ядро")
-            connect()
+            restartUnlessFreezing()
             return
         }
         if (back || fails == FAILS_TO_RESET) {
@@ -344,6 +342,36 @@ class TigerVpnService : VpnService() {
         }
         // One failure may be a lost packet: check again soon.
         recheck(RECHECK_MS)
+    }
+
+    /**
+     * Restarts the core, unless the network freezes connections: then fresh
+     * ones work and only die after some data (DPI), and a restart would only
+     * break every connection the apps have. The user is told what helps.
+     */
+    private fun restartUnlessFreezing() {
+        checking = true
+        val began = epoch
+        try {
+            checker.execute {
+                val hint = Mobile.freezing()
+                onWorker {
+                    checking = false
+                    if (tun == null || began != epoch) return@onWorker
+                    if (hint.isEmpty()) {
+                        lastRestart = System.currentTimeMillis()
+                        note("сторож: перезапускаю ядро")
+                        connect()
+                        return@onWorker
+                    }
+                    note("сторож: свежие соединения работают, старые замерзают: ядро не перезапускаю. $hint")
+                    fails = 0
+                    if (VpnState.phase == VpnState.Phase.CONNECTED) VpnState.set(VpnState.Phase.CONNECTED, hint)
+                }
+            }
+        } catch (_: RejectedExecutionException) {
+            checking = false
+        }
     }
 
     private fun recheck(delayMs: Long) {
