@@ -185,6 +185,7 @@ jobs:
   check:
     needs: installers
     runs-on: windows-latest
+    timeout-minutes: 30
     defaults:
       run:
         shell: bash
@@ -206,16 +207,24 @@ jobs:
           sleep 5
           cat soak.log
 
+      # The installer opens the app at the end, as for a person. Start-Process
+      # -Wait would wait for the app too, so only the installer is awaited;
+      # then the app is closed: this check talks to the service itself.
       - name: Install
         shell: pwsh
+        timeout-minutes: 10
         run: |
-          $p = Start-Process -FilePath dist\TigerSB-windows-x64.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/LOG=install.log' -Wait -PassThru
+          $p = Start-Process -FilePath dist\TigerSB-windows-x64.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/LOG=install.log' -PassThru
+          if (-not $p.WaitForExit(300000)) { Get-Content install.log -Tail 30; Write-Output "::error::Установщик не закончил за 5 минут"; exit 1 }
           Get-Content install.log -Tail 30
           if ($p.ExitCode -ne 0) { Write-Output "::error::Установщик вернул $($p.ExitCode)"; exit 1 }
+          Start-Sleep 3
+          Get-Process TigerSB -ErrorAction SilentlyContinue | Stop-Process -Force
           Get-Service TigerSB | Format-List
           Get-ChildItem "C:\Program Files\TigerSB" | Select-Object Name, Length
 
       - name: VPN
+        timeout-minutes: 10
         run: |
           ip=$(powershell -NoProfile -Command "(Find-NetRoute -RemoteIPAddress 8.8.8.8 | Select-Object -First 1).IPAddress" | tr -d '\r')
           echo "runner address: $ip"
@@ -226,7 +235,10 @@ jobs:
         shell: pwsh
         run: |
           $u = "C:\Program Files\TigerSB\unins000.exe"
-          if (Test-Path $u) { Start-Process -FilePath $u -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait }
+          if (Test-Path $u) {
+            $p = Start-Process -FilePath $u -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -PassThru
+            if (-not $p.WaitForExit(300000)) { Write-Output "::error::Удаление не закончилось за 5 минут"; exit 1 }
+          }
           Start-Sleep 3
           if (Get-Service TigerSB -ErrorAction SilentlyContinue) { Write-Output "::error::Служба осталась после удаления"; exit 1 }
 
