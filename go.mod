@@ -2,6 +2,8 @@ module github.com/Stilltiger45/TigerSB-client
 
 go 1.26.0
 
+toolchain go1.26.10
+
 require (
 	github.com/amnezia-vpn/amneziawg-go/v3 v3.1.20260828
 	github.com/apernet/quic-go v0.59.1-0.20260217092621-db4786c77a22
