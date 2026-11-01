@@ -35,8 +35,35 @@ import (
 	"github.com/xtls/xray-core/common/uuid"
 	"github.com/xtls/xray-core/core"
 
+	"github.com/Stilltiger45/TigerSB-client/internal/bypass"
 	"github.com/Stilltiger45/TigerSB-client/internal/engine"
 )
+
+// bindOutside binds the sockets the servers open to the interface the
+// computer reaches the internet through now, before any VPN is up.
+func bindOutside() error {
+	c, err := net.Dial("udp", "8.8.8.8:53")
+	if err != nil {
+		return err
+	}
+	local := c.LocalAddr().(*net.UDPAddr).IP
+	c.Close()
+	ifaces, err := net.Interfaces()
+	if err != nil {
+		return err
+	}
+	for _, ifc := range ifaces {
+		addrs, _ := ifc.Addrs()
+		for _, a := range addrs {
+			if n, ok := a.(*net.IPNet); ok && n.IP.Equal(local) {
+				bypass.Set(ifc.Index, nil)
+				log.Printf("servers' connections leave through %s (%d)", ifc.Name, ifc.Index)
+				return nil
+			}
+		}
+	}
+	return fmt.Errorf("no interface has %s", local)
+}
 
 // Config are the servers' ports and the user's credentials.
 type Config struct {
@@ -67,7 +94,15 @@ func main() {
 	flag.StringVar(&c.ID, "id", "5783a3e7-e373-51cd-8642-c83782b807c5", "user id")
 	flag.StringVar(&c.Password, "pw", "soak-password", "password of Hysteria 2 and TUIC")
 	dpi := flag.String("dpi", "off", "level of the DPI: off, weak (1) or strong")
+	outside := flag.Bool("outside", false, "keep the servers' own connections outside a VPN on this computer (the Windows test)")
 	flag.Parse()
+	if *outside {
+		// The client's VPN runs on the same computer: the servers' traffic
+		// to the internet must not go back into its TUN.
+		if err := bindOutside(); err != nil {
+			log.Fatal(err)
+		}
+	}
 	level, ok := ParseLevel(*dpi)
 	if !ok {
 		log.Fatalf("unknown -dpi %q", *dpi)

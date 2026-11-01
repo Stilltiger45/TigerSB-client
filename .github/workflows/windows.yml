@@ -1,0 +1,236 @@
+name: Windows
+
+# Every pull request builds the Windows app for x64 and ARM64, packs both
+# installers and checks on a runner that the installed VPN works. Publishing
+# a release, or running this workflow by hand with the release's tag,
+# attaches TigerSB-windows-x64.exe, TigerSB-windows-arm64.exe and
+# version-windows.json to it.
+on:
+  push:
+    branches: [main]
+  pull_request:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Тег релиза, к которому приложить установщики (например V0.1)"
+        required: false
+
+permissions:
+  contents: read
+
+env:
+  FLUTTER_VERSION: 3.47.8
+  # Wintun's signed driver, from wintun.net, checked against its hash.
+  WINTUN_URL: https://www.wintun.net/builds/wintun-0.14.1.zip
+  WINTUN_SHA256: 07c256185d6ee3652e09fa55c0b673e2624b565e02c4b9091c79ca7d2f24ef51
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            goarch: amd64
+            runner: windows-latest
+          - arch: arm64
+            goarch: arm64
+            runner: windows-11-arm
+    runs-on: ${{ matrix.runner }}
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # The tag gives the version, as for Android: V0.1 becomes 0.1.0.
+      - name: Version
+        id: ver
+        run: |
+          name=0.0.0
+          if [ -n "$TAG" ]; then
+            IFS=. read -r a b c _ <<< "${TAG#[vV]}"
+            name="${a:-0}.${b:-0}.${c:-0}"
+          fi
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - name: VPN service
+        env:
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          mkdir -p dist/service
+          go build -trimpath -ldflags "-s -w -X main.version=${{ steps.ver.outputs.name }}" \
+            -o dist/service/tigersb-service.exe ./cmd/tigersb-service
+
+      - name: Wintun
+        run: |
+          curl -fsSL -o wintun.zip "$WINTUN_URL"
+          sum=$(sha256sum wintun.zip | cut -d' ' -f1)
+          if [ "$sum" != "$WINTUN_SHA256" ]; then
+            echo "::error::wintun.zip: sha256 $sum, ожидался $WINTUN_SHA256"
+            exit 1
+          fi
+          powershell -NoProfile -Command "Expand-Archive -Path wintun.zip -DestinationPath ."
+          cp wintun/bin/${{ matrix.goarch }}/wintun.dll dist/service/
+          cp wintun/LICENSE.txt dist/service/wintun-LICENSE.txt
+
+      # Flutter from git: it fetches the Dart SDK for the runner's own
+      # architecture, ARM64 included, and builds for it.
+      - name: Flutter
+        run: |
+          git clone --depth 1 -b "$FLUTTER_VERSION" https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+
+      - name: Flutter checks
+        if: matrix.arch == 'x64'
+        working-directory: app
+        run: |
+          flutter pub get
+          flutter test
+
+      - name: Build app
+        working-directory: app
+        run: |
+          flutter config --enable-windows-desktop
+          flutter pub get
+          flutter build windows --release \
+            --build-name=${{ steps.ver.outputs.name }} --build-number=${{ github.run_number }} \
+            --dart-define=VERSION=${{ steps.ver.outputs.name }} --dart-define=BUILD=${{ github.run_number }}
+          ls build/windows/*/runner/Release
+          mkdir -p ../dist/app
+          cp -r build/windows/*/runner/Release/* ../dist/app/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.arch }}
+          path: dist
+
+  # Inno Setup runs on x64 Windows; it packs both architectures.
+  installers:
+    needs: build
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bundle-*
+          path: bundles
+
+      - name: Version
+        id: ver
+        run: |
+          name=0.0.0
+          if [ -n "$TAG" ]; then
+            IFS=. read -r a b c _ <<< "${TAG#[vV]}"
+            name="${a:-0}.${b:-0}.${c:-0}"
+          fi
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+
+      - name: Installers
+        working-directory: app/windows/installer
+        run: |
+          iscc="/c/Program Files (x86)/Inno Setup 6/ISCC.exe"
+          [ -x "$iscc" ] || choco install innosetup -y --no-progress
+          for arch in x64 arm64; do
+            b=$(cygpath -w "$GITHUB_WORKSPACE/bundles/bundle-$arch")
+            "$iscc" //Q //DArch=$arch //DAppVersion=${{ steps.ver.outputs.name }} //DAppBuild=${{ github.run_number }} \
+              "//DAppDir=$b\\app" "//DServiceDir=$b\\service" TigerSB.iss
+          done
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          mv TigerSB-windows-*.exe "$GITHUB_WORKSPACE/dist/"
+          jq -n --arg version "${{ steps.ver.outputs.name }}" --argjson build "${{ github.run_number }}" \
+            '{version: $version, build: $build}' > "$GITHUB_WORKSPACE/dist/version-windows.json"
+          ls -l "$GITHUB_WORKSPACE/dist"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: TigerSB-windows
+          path: dist
+
+      - name: Remove old installers from the release
+        if: env.TAG != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' |
+            grep -E '^TigerSB-windows-.*\.exe$|^version-windows\.json$' |
+            while read -r name; do
+              gh release delete-asset "$TAG" "$name" -R "$GITHUB_REPOSITORY" -y
+            done
+
+      - name: Release
+        if: env.TAG != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" dist/TigerSB-windows-x64.exe dist/TigerSB-windows-arm64.exe dist/version-windows.json -R "$GITHUB_REPOSITORY" --clobber
+
+  # Installs the x64 build on a runner and checks the VPN through the test
+  # servers on the same computer (scripts/wincheck).
+  check:
+    needs: installers
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@v4
+        with:
+          name: TigerSB-windows
+          path: dist
+
+      - name: Test servers
+        run: |
+          go build -o soak.exe ./scripts/soak
+          go build -o wincheck.exe ./scripts/wincheck
+          ./soak.exe -outside > soak.log 2>&1 &
+          sleep 5
+          cat soak.log
+
+      - name: Install
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist\TigerSB-windows-x64.exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART','/LOG=install.log' -Wait -PassThru
+          Get-Content install.log -Tail 30
+          if ($p.ExitCode -ne 0) { Write-Output "::error::Установщик вернул $($p.ExitCode)"; exit 1 }
+          Get-Service TigerSB | Format-List
+          Get-ChildItem "C:\Program Files\TigerSB" | Select-Object Name, Length
+
+      - name: VPN
+        run: |
+          ip=$(powershell -NoProfile -Command "(Find-NetRoute -RemoteIPAddress 8.8.8.8 | Select-Object -First 1).IPAddress" | tr -d '\r')
+          echo "runner address: $ip"
+          ./wincheck.exe -mode all -key "vless://5783a3e7-e373-51cd-8642-c83782b807c5@$ip:20443?security=none#VLESS"
+
+      - name: Uninstall
+        if: always()
+        shell: pwsh
+        run: |
+          $u = "C:\Program Files\TigerSB\unins000.exe"
+          if (Test-Path $u) { Start-Process -FilePath $u -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -Wait }
+          Start-Sleep 3
+          if (Get-Service TigerSB -ErrorAction SilentlyContinue) { Write-Output "::error::Служба осталась после удаления"; exit 1 }
+
+      - name: Servers' log
+        if: always()
+        run: |
+          tail -n 40 soak.log | while IFS= read -r line; do echo "::notice title=soak::$line"; done
