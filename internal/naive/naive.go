@@ -6,8 +6,9 @@
 // or sing-box) that looks like Chrome: the handler dials TLS through Xray with
 // Chrome's fingerprint, keeps one HTTP/2 connection to the server and opens a
 // CONNECT stream in it for each connection. A naive+quic:// server takes
-// HTTP/3 over QUIC instead, as Chrome does with sites that offer it; that
-// connection first sends QUICNoise, like TUIC. When the server agrees, the
+// HTTP/3 over QUIC instead, as Chrome does with sites that offer it; in the
+// smart mode that connection first sends QUICNoise, like TUIC, and a TLS one
+// reaches the server through a DPI preset (xrayconf.CarriedPreset). When the server agrees, the
 // first frames each way carry random padding, as NaïveProxy's own client
 // does, so that the sizes of the first packets do not show the TLS of the
 // site inside. NaïveProxy carries TCP only.
@@ -45,12 +46,22 @@ import (
 )
 
 // Hooks returns the engine.Start hooks that add the profile's NaïveProxy
-// transports to Xray. noise (xrayconf.QUICNoise, or nil in tests) goes to
-// the server before each QUIC connection.
-func Hooks(p *profile.Profile, noise []xrayconf.NoisePacket) []func(*core.Instance) error {
+// transports to Xray. With evasion (the smart mode), QUICNoise goes to the
+// server before each QUIC connection, and a TLS connection reaches it
+// through the DPI preset xrayconf.CarriedPreset names; Build adds the
+// presets' outbounds in that mode.
+func Hooks(p *profile.Profile, evasion bool) []func(*core.Instance) error {
 	var hooks []func(*core.Instance) error
 	for _, ob := range xrayconf.Carried(p, "naive") {
-		hooks = append(hooks, func(inst *core.Instance) error { return Attach(inst, ob.Tag, ob.Xray, noise) })
+		var noise []xrayconf.NoisePacket
+		dpi := ""
+		if evasion {
+			noise = xrayconf.QUICNoise
+			if k := xrayconf.CarriedPreset(ob.Xray); k > 0 {
+				dpi = xrayconf.DPITag(k)
+			}
+		}
+		hooks = append(hooks, func(inst *core.Instance) error { return AttachVia(inst, ob.Tag, ob.Xray, noise, dpi) })
 	}
 	return hooks
 }
@@ -72,6 +83,12 @@ type config struct {
 // Attach adds the NaïveProxy outbound to a created, not yet started Xray
 // instance; over QUIC, noise goes to the server before each connection.
 func Attach(inst *core.Instance, tag string, xray json.RawMessage, noise []xrayconf.NoisePacket) error {
+	return AttachVia(inst, tag, xray, noise, "")
+}
+
+// AttachVia is Attach whose TLS connections reach the server through the
+// outbound with the tag dpi, a DPI preset (none when "").
+func AttachVia(inst *core.Instance, tag string, xray json.RawMessage, noise []xrayconf.NoisePacket, dpi string) error {
 	var c config
 	if err := json.Unmarshal(xray, &c); err != nil {
 		return fmt.Errorf("транспорт %s: %w", tag, err)
@@ -104,6 +121,12 @@ func Attach(inst *core.Instance, tag string, xray json.RawMessage, noise []xrayc
 		}
 		if h.stream, err = internet.ToMemoryStreamConfig(built); err != nil {
 			return fmt.Errorf("транспорт %s: %w", tag, err)
+		}
+		if dpi != "" {
+			if h.stream.SocketSettings == nil {
+				h.stream.SocketSettings = &internet.SocketConfig{}
+			}
+			h.stream.SocketSettings.DialerProxy = dpi
 		}
 	}
 	header := http.Header{}

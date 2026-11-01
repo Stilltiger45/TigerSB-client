@@ -11,6 +11,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"encoding/pem"
 	"fmt"
 	"io"
@@ -227,7 +228,19 @@ func start(t *testing.T, p *profile.Profile) (*core.Instance, int) {
 	if strings.Contains(string(cfg), `"naive"`) {
 		t.Fatalf("naive outbound left in the Xray config: %s", cfg)
 	}
-	inst, err := engine.Start(cfg, naive.Hooks(p, xrayconf.QUICNoise)...)
+	// As in the smart mode: noise before QUIC, and TLS through a DPI preset,
+	// whose outbounds Build adds in that mode only.
+	var m map[string]any
+	if err := json.Unmarshal(cfg, &m); err != nil {
+		t.Fatal(err)
+	}
+	for k := range len(xrayconf.Presets) {
+		m["outbounds"] = append(m["outbounds"].([]any), xrayconf.DPIOutbound(k+1))
+	}
+	if cfg, err = json.Marshal(m); err != nil {
+		t.Fatal(err)
+	}
+	inst, err := engine.Start(cfg, naive.Hooks(p, true)...)
 	if err != nil {
 		t.Fatal(err)
 	}

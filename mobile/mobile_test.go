@@ -166,3 +166,13 @@ func TestAbout(t *testing.T) {
 		t.Fatalf("about: %v", a)
 	}
 }
+
+// TestProtocolsOffRenamed: protocols turned off under the names an older
+// version gave them stay off under the new ones.
+func TestProtocolsOffRenamed(t *testing.T) {
+	initTemp(t)
+	os.WriteFile(filepath.Join(dataDir, protocolsOffFile), []byte(`["VLESS · Reality · gRPC","Xray · gRPC","Hysteria 2"]`), 0o600)
+	if got := protocolsOff(); !slices.Equal(got, []string{"Xray · gRPC", "Hysteria 2"}) {
+		t.Errorf("off %q", got)
+	}
+}

@@ -22,6 +22,7 @@ import (
 	"github.com/xtls/xray-core/common/serial"
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/transport"
+	"github.com/xtls/xray-core/transport/internet"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/Stilltiger45/TigerSB-client/internal/carry"
@@ -37,11 +38,17 @@ func init() {
 }
 
 // Hooks returns the engine.Start hooks that add the profile's mieru
-// transports to Xray.
-func Hooks(p *profile.Profile) []func(*core.Instance) error {
+// transports to Xray. With evasion (the smart mode), one over TCP reaches
+// its server through the DPI preset xrayconf.CarriedPreset names; Build adds
+// the presets' outbounds in that mode.
+func Hooks(p *profile.Profile, evasion bool) []func(*core.Instance) error {
 	var hooks []func(*core.Instance) error
 	for _, ob := range xrayconf.Carried(p, "mieru") {
-		hooks = append(hooks, func(inst *core.Instance) error { return Attach(inst, ob.Tag, ob.Xray) })
+		dpi := ""
+		if k := xrayconf.CarriedPreset(ob.Xray); evasion && k > 0 {
+			dpi = xrayconf.DPITag(k)
+		}
+		hooks = append(hooks, func(inst *core.Instance) error { return AttachVia(inst, ob.Tag, ob.Xray, dpi) })
 	}
 	return hooks
 }
@@ -137,6 +144,12 @@ func clientProfile(raw json.RawMessage) (*appctlpb.ClientProfile, error) {
 
 // Attach adds the mieru outbound to a created, not yet started Xray instance.
 func Attach(inst *core.Instance, tag string, xray json.RawMessage) error {
+	return AttachVia(inst, tag, xray, "")
+}
+
+// AttachVia is Attach whose TCP connections reach the server through the
+// outbound with the tag dpi, a DPI preset (none when "").
+func AttachVia(inst *core.Instance, tag string, xray json.RawMessage, dpi string) error {
 	p, err := clientProfile(xray)
 	if err != nil {
 		return fmt.Errorf("транспорт %s: %w", tag, err)
@@ -144,7 +157,7 @@ func Attach(inst *core.Instance, tag string, xray json.RawMessage) error {
 	client := mclient.NewClient()
 	err = client.Store(&mclient.ClientConfig{
 		Profile:      p,
-		Dialer:       trackedDialer{},
+		Dialer:       trackedDialer{dpi: dpi},
 		PacketDialer: trackedDialer{},
 		Resolver:     gonet.DefaultResolver,
 	})
@@ -230,10 +243,18 @@ func or(a, b string) string {
 
 // trackedDialer dials like the system and hands what it opens to
 // engine.Track, so that a change of network closes mieru's connections like
-// Xray's own.
-type trackedDialer struct{}
+// Xray's own. With dpi, it dials TCP through that Xray outbound, a DPI
+// preset, whose own socket Xray tracks.
+type trackedDialer struct{ dpi string }
 
-func (trackedDialer) DialContext(ctx context.Context, network, address string) (gonet.Conn, error) {
+func (t trackedDialer) DialContext(ctx context.Context, network, address string) (gonet.Conn, error) {
+	if t.dpi != "" && strings.HasPrefix(network, "tcp") {
+		dest, err := net.ParseDestination("tcp:" + address)
+		if err != nil {
+			return nil, err
+		}
+		return internet.DialSystem(ctx, dest, &internet.SocketConfig{DialerProxy: t.dpi})
+	}
 	var d gonet.Dialer
 	c, err := d.DialContext(ctx, network, address)
 	if err == nil {

@@ -8,11 +8,19 @@ import '../ui/palette.dart';
 /// The profile's protocols, each with a switch. Networks differ: a protocol
 /// that works poorly on the user's ones can be turned off, and the VPN goes
 /// through the others. The choice stays on this device for every profile.
+/// In the smart mode ([mode]) each name tells what the mode adds to it.
 class ProtocolsScreen extends StatefulWidget {
-  const ProtocolsScreen({super.key, required this.core, required this.profile, required this.onProfile});
+  const ProtocolsScreen({
+    super.key,
+    required this.core,
+    required this.profile,
+    required this.onProfile,
+    this.mode = Mode.auto,
+  });
 
   final Core core;
   final ProfileInfo profile;
+  final Mode mode;
   final ValueChanged<ProfileInfo> onProfile;
 
   @override
@@ -92,7 +100,7 @@ class _ProtocolsScreenState extends State<ProtocolsScreen> {
     return ListTile(
       key: ValueKey(name),
       contentPadding: const EdgeInsets.symmetric(horizontal: 20),
-      title: Text(name, maxLines: 1, overflow: TextOverflow.ellipsis),
+      title: Text(widget.profile.protocolName(name, widget.mode), maxLines: 1, overflow: TextOverflow.ellipsis),
       subtitle: last ? Text('ОСТАЁТСЯ ХОТЯ БЫ ОДИН', style: capsStyle.copyWith(fontSize: 10)) : null,
       trailing: Switch(
         value: on,

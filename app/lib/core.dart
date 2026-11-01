@@ -19,6 +19,7 @@ class ProfileInfo {
     this.userApps = const [],
     this.protocols = const [],
     this.protocolsOff = const [],
+    this.tricks = const {},
   });
 
   /// Names the profile among the saved ones.
@@ -47,11 +48,20 @@ class ProfileInfo {
   /// Apps the user left out of the VPN.
   final List<String> userApps;
 
-  /// The profile's protocols, such as "VLESS · Reality · gRPC" or
-  /// "Hysteria 2", and every protocol the user turned off on this device,
-  /// other profiles' too.
+  /// The profile's protocols, such as "Xray · gRPC" or "Hysteria 2", and
+  /// every protocol the user turned off on this device, other profiles' too.
   final List<String> protocols;
   final List<String> protocolsOff;
+
+  /// What the smart mode adds to a protocol: "обход DPI" to those over TCP,
+  /// "шумы" to those over QUIC. Shown by the protocol's name in that mode.
+  final Map<String, String> tricks;
+
+  /// The protocol's name as the app shows it in [mode].
+  String protocolName(String protocol, Mode mode) {
+    final t = tricks[protocol];
+    return mode == Mode.auto && t != null ? '$protocol · $t' : protocol;
+  }
 
   factory ProfileInfo.fromJson(Map<String, dynamic> j) => ProfileInfo(
     id: j['id'] as String? ?? '',
@@ -65,6 +75,7 @@ class ProfileInfo {
     userApps: List<String>.from(j['userApps'] as List? ?? const []),
     protocols: List<String>.from(j['protocols'] as List? ?? const []),
     protocolsOff: List<String>.from(j['protocolsOff'] as List? ?? const []),
+    tricks: Map<String, String>.from(j['tricks'] as Map? ?? const {}),
     fetched: DateTime.tryParse(j['fetched'] as String? ?? '')?.toLocal(),
     exits: [
       for (final e in (j['exits'] as List? ?? const []))

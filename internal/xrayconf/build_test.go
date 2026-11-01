@@ -593,8 +593,9 @@ func TestQUICNoise(t *testing.T) {
 	if got := masks(xrayconf.ModeAuto); !slices.Equal(got, []string{"noise", "salamander"}) {
 		t.Errorf("smart mode masks %v, want noise then salamander", got)
 	}
-	if got := masks(xrayconf.ModeAll); !slices.Equal(got, []string{"noise", "salamander"}) {
-		t.Errorf("all mode masks %v, want noise then salamander", got)
+	// Noise only in the smart mode.
+	if got := masks(xrayconf.ModeAll); !slices.Equal(got, []string{"salamander"}) {
+		t.Errorf("all mode masks %v, want salamander alone", got)
 	}
 }
 

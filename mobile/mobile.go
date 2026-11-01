@@ -98,6 +98,9 @@ type profileInfo struct {
 	// profile's and others' (SetProtocolsOff).
 	Protocols    []string `json:"protocols"`
 	ProtocolsOff []string `json:"protocolsOff"`
+	// Tricks maps protocols to what the smart mode adds to them, "обход
+	// DPI" or "шумы" (xrayconf.Trick), for the app to show in that mode.
+	Tricks map[string]string `json:"tricks"`
 	// Key is the key the user imported, to copy and share.
 	Key string `json:"key"`
 	// Signed marks a profile from a TigerSB panel whose signature the app
@@ -167,7 +170,11 @@ func Start(fd int, mode string, mtu int) error {
 	if err := os.Setenv("XRAY_TUN_FD", strconv.Itoa(fd)); err != nil {
 		return err
 	}
-	i, err := engine.Start(cfg, slices.Concat(tuic.Hooks(p, xrayconf.QUICNoise), mieru.Hooks(p), naive.Hooks(p, xrayconf.QUICNoise), awg.Hooks(p), steady.Hooks(p, evasion, savedPresets()[network]))...)
+	// Xray keeps its Hysteria clients from one core to the next, with the
+	// noise of the mode they started in: close and forget them.
+	engine.CloseConnections()
+	engine.ForgetHysteria()
+	i, err := engine.Start(cfg, slices.Concat(tuic.Hooks(p, evasion), mieru.Hooks(p, evasion), naive.Hooks(p, evasion), awg.Hooks(p), steady.Hooks(p, evasion, savedPresets()[network]))...)
 	if err != nil {
 		return err
 	}
@@ -190,6 +197,14 @@ func Start(fd int, mode string, mtu int) error {
 		}
 	}
 	protocols = xrayconf.Protocols(p)
+	if evasion {
+		tricks := xrayconf.Tricks(p)
+		for tag, name := range protocols {
+			if t := tricks[name]; t != "" {
+				protocols[tag] = name + " · " + t
+			}
+		}
+	}
 	freezeHint = freezeAdvice(whole, p)
 	probeURL = ""
 	if p.Probe != nil {
@@ -262,20 +277,16 @@ func About() string {
 	return string(b)
 }
 
-// Protocol names the protocol of the server in use, such as
-// "VLESS · Reality · gRPC", or "" when the VPN is not running.
+// Protocol names the protocol of the server in use, such as "Xray · gRPC",
+// in the smart mode with what it adds ("Xray · gRPC · обход DPI",
+// "Hysteria 2 · шумы"), or "" when the VPN is not running.
 func Protocol() string {
 	mu.Lock()
 	defer mu.Unlock()
 	if inst == nil || len(pingTags) == 0 {
 		return ""
 	}
-	tag := inUse(inst, pingTags)
-	name := protocols[xrayconf.BaseTag(tag)]
-	if tag != xrayconf.BaseTag(tag) && name != "" {
-		name += " · обход DPI"
-	}
-	return name
+	return protocols[xrayconf.BaseTag(inUse(inst, pingTags))]
 }
 
 // SetUserApps saves the apps the user leaves out of the VPN, a JSON array of
@@ -331,7 +342,14 @@ func protocolsOff() []string {
 	if b, err := os.ReadFile(filepath.Join(dataDir, protocolsOffFile)); err == nil {
 		json.Unmarshal(b, &list)
 	}
-	return list
+	// Saved by a version that named the protocols otherwise.
+	var out []string
+	for _, name := range list {
+		if name = xrayconf.RenamedProtocol(name); !slices.Contains(out, name) {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 // Stop stops the VPN. The app closes the TUN descriptor afterwards.
@@ -509,6 +527,7 @@ func info(id string, st *subscription.State, p *profile.Profile) (string, error)
 		UserApps:     userApps(),
 		Protocols:    xrayconf.ProtocolNames(p),
 		ProtocolsOff: protocolsOff(),
+		Tricks:       xrayconf.Tricks(p),
 		Key:          st.Key,
 		Signed:       st.PK != "",
 	}

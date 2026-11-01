@@ -132,17 +132,22 @@ func TestTunePicksPresetThatPasses(t *testing.T) {
 	}
 	t.Log(res)
 
-	// Without DPI the plain way opens as well, and no preset is used.
+	// Without DPI the plain way opens as well, and the mildest preset is
+	// used: the smart mode never goes without one.
 	box.on.Store(false)
 	res, err = Tune(inst, 6*time.Second)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Preset != 0 || res.Plain != 1 || !res.Changed {
-		t.Fatalf("tune without DPI %+v: want none", res)
+	if res.Preset != 1 || res.Plain != 1 || !res.Changed {
+		t.Fatalf("tune without DPI %+v: want preset 1", res)
 	}
-	if got := Current(inst, "pick/ru"); got != "ru/x/a" {
+	if got := Current(inst, "pick/ru"); got != xrayconf.VariantTag(1, "ru/x/a") {
 		t.Errorf("picker sends through %s", got)
+	}
+	SetPreset(inst, 0)
+	if got := Current(inst, "pick/ru"); got != xrayconf.VariantTag(1, "ru/x/a") {
+		t.Errorf("after SetPreset(0): %s", got)
 	}
 	t.Log(res)
 }

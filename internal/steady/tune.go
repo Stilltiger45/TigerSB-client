@@ -30,9 +30,6 @@ type TuneResult struct {
 }
 
 func (r TuneResult) String() string {
-	if r.Preset == 0 {
-		return fmt.Sprintf("не нужен: серверы открываются напрямую, %d из %d", r.Opened, r.Checks)
-	}
 	return fmt.Sprintf("набор %d (%s): открылось %d из %d, без обхода %d",
 		r.Preset, xrayconf.Presets[r.Preset-1].Name, r.Opened, r.Checks, r.Plain)
 }
@@ -42,8 +39,9 @@ const maxTuneServers = 3
 
 // Tune checks the first servers plainly and through every preset at once
 // and has the pickers use the preset that opens the most, the mildest when
-// several open as many, and none when the plain way opens as many: a preset
-// costs a little speed. When nothing opens at all the preset in use stays.
+// several open as many. The smart mode always uses one: the plain way is
+// checked only to report it. When nothing opens at all the preset in use
+// stays.
 // It returns an error when the instance has no picker with preset copies.
 func Tune(inst *core.Instance, timeout time.Duration) (TuneResult, error) {
 	var hs []*Handler
@@ -87,14 +85,14 @@ func Tune(inst *core.Instance, timeout time.Duration) (TuneResult, error) {
 	wg.Wait()
 
 	old := int(hs[0].preset.Load())
-	best := 0
-	for k := 1; k < len(opened); k++ {
+	best := 1
+	for k := 2; k < len(opened); k++ {
 		if opened[k] > opened[best] {
 			best = k
 		}
 	}
 	if opened[best] == 0 {
-		best = old
+		best = max(old, 1)
 	}
 	if best != old {
 		setPreset(hs, best)
@@ -102,13 +100,15 @@ func Tune(inst *core.Instance, timeout time.Duration) (TuneResult, error) {
 	return TuneResult{Preset: best, Opened: opened[best], Plain: opened[0], Checks: len(servers), Changed: best != old}, nil
 }
 
-// SetPreset has the pickers of the instance use preset k (0 for none), as
-// the one that last worked on the network the phone moved to, until Tune
-// checks again. Out of range values are ignored.
+// SetPreset has the pickers of the instance use preset k, as the one that
+// last worked on the network the phone moved to, until Tune checks again.
+// None (0, saved by older versions) is the mildest: the smart mode always
+// uses one. Out of range values are ignored.
 func SetPreset(inst *core.Instance, k int) {
 	if k < 0 || k > len(xrayconf.Presets) {
 		return
 	}
+	k = max(k, 1)
 	var hs []*Handler
 	for _, h := range pickers(inst) {
 		if len(h.opt.Variants) > 0 && int(h.preset.Load()) != k {

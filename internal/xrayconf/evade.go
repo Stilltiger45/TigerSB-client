@@ -87,17 +87,18 @@ type NoisePacket struct {
 	Size, Delay [2]int
 }
 
-// QUICNoise is the junk sent before the first packet of every Hysteria 2,
-// TUIC and NaïveProxy over HTTP/3 connection. They run QUIC over UDP, which
-// DPI in Russia filters: DPI that tells a flow by its first packet sees
-// random bytes instead of a QUIC handshake and lets the flow be, and the
-// server drops the junk. DPI that reads every packet still sees QUIC: only
-// obfuscation on the server (Hysteria 2's salamander) hides it from that.
+// QUICNoise is the junk the smart mode sends before the first packet of
+// every Hysteria 2, TUIC and NaïveProxy over HTTP/3 connection. They run
+// QUIC over UDP, which DPI in Russia filters: DPI that tells a flow by its
+// first packet sees random bytes instead of a QUIC handshake and lets the
+// flow be, and the server drops the junk. DPI that reads every packet still
+// sees QUIC: only obfuscation on the server (Hysteria 2's salamander) hides
+// it from that.
 //
-// It goes out in every mode, not only the smart one: Xray keeps one Hysteria
-// 2 client per server address for the life of the process and builds it
-// with the settings of the core that used the server first, so noise that
-// depended on the mode would stay off after a switch to the smart mode.
+// Xray keeps one Hysteria 2 client per server address for the life of the
+// process, built with the settings of the core that used the server first;
+// the app has it forget them (engine.ForgetHysteria) before each start, so
+// that the noise follows the mode.
 var QUICNoise = []NoisePacket{
 	{Size: [2]int{40, 120}, Delay: [2]int{5, 15}},
 	{Size: [2]int{40, 120}, Delay: [2]int{5, 15}},
@@ -192,6 +193,59 @@ func OverUDP(xray json.RawMessage) bool {
 		return true
 	}
 	return false
+}
+
+// What the smart mode adds to a transport, as the app names it.
+const (
+	TrickDPI   = "обход DPI"
+	TrickNoise = "шумы"
+)
+
+// Trick tells what the smart mode adds to the transport: DPI evasion, a
+// fragmented start of the connection, to those over TCP, and noise before
+// the first packet to those over QUIC. It is "" for WireGuard and
+// AmneziaWG, which send their own junk, for mieru over UDP, and for a
+// transport the panel chains through another outbound.
+func Trick(xray json.RawMessage) string {
+	switch {
+	case variantable(xray) || CarriedPreset(xray) > 0:
+		return TrickDPI
+	case OverUDP(xray) && (!carried(xray) || protocolOf(xray) == "tuic" || protocolOf(xray) == "naive"):
+		return TrickNoise
+	}
+	return ""
+}
+
+// Tricks maps the profile's protocols, as Describe names them, to their
+// Trick, for those that have one.
+func Tricks(p *profile.Profile) map[string]string {
+	m := map[string]string{}
+	for _, role := range []profile.Role{profile.RoleForeign, profile.RoleRU} {
+		for _, it := range transports(p, role) {
+			if t := Trick(it.xray); t != "" {
+				m[Describe(it.xray)] = t
+			}
+		}
+	}
+	return m
+}
+
+// CarriedPreset is the preset a carried protocol over TCP reaches its
+// server through in the smart mode, or 0: NaïveProxy over TLS gets its
+// ClientHello split (preset 1), mieru, which has no TLS, the start of its
+// first packet (preset 3). They do not follow the preset the pickers tune
+// for Xray's own transports, which they are not among.
+func CarriedPreset(xray json.RawMessage) int {
+	if OverUDP(xray) {
+		return 0
+	}
+	switch protocolOf(xray) {
+	case "naive":
+		return 1
+	case "mieru":
+		return 3
+	}
+	return 0
 }
 
 // UDPTransports returns the tags of the profile's transports over UDP.
