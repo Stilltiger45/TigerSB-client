@@ -24,6 +24,7 @@ import (
 	"github.com/apernet/quic-go"
 	"github.com/xtls/xray-core/transport/internet/finalmask/salamander"
 
+	"github.com/Stilltiger45/TigerSB-client/internal/bypass"
 	"github.com/Stilltiger45/TigerSB-client/pkg/profile"
 )
 
@@ -187,7 +188,7 @@ func fetch(ctx context.Context, srv server) (string, error) {
 		}
 		state = s
 	} else {
-		c, err := (&tls.Dialer{Config: conf}).DialContext(ctx, "tcp", addr)
+		c, err := (&tls.Dialer{NetDialer: bypass.Dialer(0), Config: conf}).DialContext(ctx, "tcp", addr)
 		if err != nil {
 			return "", err
 		}
@@ -206,7 +207,7 @@ func fetchQUIC(ctx context.Context, addr, obfs string, conf *tls.Config) (tls.Co
 	if err != nil {
 		return tls.ConnectionState{}, err
 	}
-	udp, err := net.ListenUDP("udp", nil)
+	udp, err := bypass.ListenUDP("udp", nil)
 	if err != nil {
 		return tls.ConnectionState{}, err
 	}

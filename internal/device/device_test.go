@@ -1,4 +1,4 @@
-package main
+package device
 
 import (
 	"os"
@@ -7,16 +7,16 @@ import (
 	"testing"
 )
 
-// TestThisDevice checks that the computer sends a steady hwid of 16 hex
+// TestThis checks that the computer sends a steady hwid of 16 hex
 // digits, its system and its name, and that without a machine id the hwid
 // comes from an id kept in the state directory.
-func TestThisDevice(t *testing.T) {
+func TestThis(t *testing.T) {
 	dir := t.TempDir()
-	d := thisDevice(dir)
+	d := This(dir)
 	if !regexp.MustCompile(`^[0-9a-f]{16}$`).MatchString(d.HWID) || d.OS == "" {
 		t.Fatalf("device %+v", d)
 	}
-	if again := thisDevice(dir); again.HWID != d.HWID {
+	if again := This(dir); again.HWID != d.HWID {
 		t.Errorf("hwid changed: %s, %s", d.HWID, again.HWID)
 	}
 	id := savedID(dir)

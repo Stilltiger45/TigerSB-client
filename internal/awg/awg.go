@@ -29,6 +29,7 @@ import (
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/transport"
 
+	"github.com/Stilltiger45/TigerSB-client/internal/bypass"
 	"github.com/Stilltiger45/TigerSB-client/internal/carry"
 	"github.com/Stilltiger45/TigerSB-client/internal/engine"
 	"github.com/Stilltiger45/TigerSB-client/internal/xrayconf"
@@ -469,7 +470,7 @@ func (b *bind) Open(port uint16) ([]conn.ReceiveFunc, uint16, error) {
 
 // listen opens a new socket; mu is held.
 func (b *bind) listen() error {
-	pc, err := gonet.ListenUDP("udp", nil)
+	pc, err := bypass.ListenUDP("udp", nil)
 	if err != nil {
 		return err
 	}

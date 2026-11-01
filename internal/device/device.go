@@ -1,4 +1,5 @@
-package main
+// Package device describes the computer to subscription servers.
+package device
 
 import (
 	"crypto/rand"
@@ -11,12 +12,12 @@ import (
 	"github.com/Stilltiger45/TigerSB-client/internal/subscription"
 )
 
-// thisDevice describes the computer to subscription servers, as the Android
+// This describes the computer to subscription servers, as the Android
 // app describes the phone: panels with a device limit count devices by the
 // hwid and list them by system and name. The hwid comes from the system's
 // machine id, hashed so that it tells nothing else about the computer, or,
 // where there is none, from a random id kept in the state directory dir.
-func thisDevice(dir string) subscription.Device {
+func This(dir string) subscription.Device {
 	host, _ := os.Hostname()
 	name, version := osName()
 	return subscription.Device{HWID: hwid(dir), OS: name, OSVersion: version, Model: host}

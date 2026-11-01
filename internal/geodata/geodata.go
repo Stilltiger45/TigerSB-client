@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Stilltiger45/TigerSB-client/internal/bypass"
 	"github.com/Stilltiger45/TigerSB-client/pkg/profile"
 )
 
@@ -67,7 +68,7 @@ func Codes(p *profile.Profile, extraIPs ...string) (sites, ips []string) {
 // complete file fails, the old file stays and Ensure succeeds.
 func Ensure(ctx context.Context, c *http.Client, dir string, p *profile.Profile, maxAge time.Duration, extraIPs ...string) error {
 	if c == nil {
-		c = http.DefaultClient
+		c = &http.Client{Transport: bypass.Transport()}
 	}
 	sites, ips := Codes(p, extraIPs...)
 	siteURL, ipURL := DefaultGeoSite, DefaultGeoIP

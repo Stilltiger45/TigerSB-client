@@ -2,10 +2,10 @@ package mobile
 
 import (
 	"context"
-	gonet "net"
 	"sync/atomic"
 	"time"
 
+	"github.com/Stilltiger45/TigerSB-client/internal/bypass"
 	"github.com/Stilltiger45/TigerSB-client/internal/engine"
 	"github.com/Stilltiger45/TigerSB-client/internal/steady"
 )
@@ -77,8 +77,7 @@ func Online() bool {
 	for _, h := range onlineHosts {
 		go func() {
 			defer func() { done <- struct{}{} }()
-			var d gonet.Dialer
-			if c, err := d.DialContext(ctx, "tcp", h); err == nil {
+			if c, err := bypass.Dialer(0).DialContext(ctx, "tcp", h); err == nil {
 				c.Close()
 				ok.Store(true)
 				cancel()

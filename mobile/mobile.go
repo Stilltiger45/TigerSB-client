@@ -118,6 +118,22 @@ type exitInfo struct {
 // Start runs the VPN on the TUN file descriptor fd in mode "auto", "main" or "all".
 // mtu is the MTU the app gave the TUN (see PickMTU).
 func Start(fd int, mode string, mtu int) error {
+	return start(xrayconf.Inbound{Tag: "tun-in", Protocol: "tun", MTU: mtu}, mode, func() error {
+		// Xray's Android TUN reads the descriptor from this variable.
+		return os.Setenv("XRAY_TUN_FD", strconv.Itoa(fd))
+	})
+}
+
+// StartTUN runs the VPN as Start does, on a TUN the core creates itself by
+// the name: on Windows a Wintun adapter, which the caller then gives its
+// addresses, routes and DNS server.
+func StartTUN(name, mode string, mtu int) error {
+	return start(xrayconf.Inbound{Tag: "tun-in", Protocol: "tun", MTU: mtu, Name: name}, mode, nil)
+}
+
+// start runs the VPN on the TUN inbound tun; before, when set, prepares the
+// TUN right before the core starts.
+func start(tun xrayconf.Inbound, mode string, before func() error) error {
 	mu.Lock()
 	defer mu.Unlock()
 	if inst != nil {
@@ -158,7 +174,7 @@ func Start(fd int, mode string, mtu int) error {
 	evasion := m == xrayconf.ModeAuto
 	cfg, err := xrayconf.Build(p, xrayconf.Options{
 		Mode:     m,
-		Inbounds: []xrayconf.Inbound{{Tag: "tun-in", Protocol: "tun", MTU: mtu}},
+		Inbounds: []xrayconf.Inbound{tun},
 		LogFile:  filepath.Join(dataDir, xrayLog),
 		Evasion:  evasion,
 		NoGeo:    noGeo,
@@ -166,9 +182,10 @@ func Start(fd int, mode string, mtu int) error {
 	if err != nil {
 		return err
 	}
-	// Xray's Android TUN reads the descriptor from this variable.
-	if err := os.Setenv("XRAY_TUN_FD", strconv.Itoa(fd)); err != nil {
-		return err
+	if before != nil {
+		if err := before(); err != nil {
+			return err
+		}
 	}
 	// Xray keeps its Hysteria clients from one core to the next, with the
 	// noise of the mode they started in: close and forget them.

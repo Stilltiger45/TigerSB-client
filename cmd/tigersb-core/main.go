@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/Stilltiger45/TigerSB-client/internal/awg"
+	"github.com/Stilltiger45/TigerSB-client/internal/device"
 	"github.com/Stilltiger45/TigerSB-client/internal/engine"
 	"github.com/Stilltiger45/TigerSB-client/internal/geodata"
 	"github.com/Stilltiger45/TigerSB-client/internal/mieru"
@@ -115,7 +116,7 @@ func cmdImport(args []string) error {
 	fs := flag.NewFlagSet("import", flag.ExitOnError)
 	dir := stateDirFlag(fs)
 	_ = fs.Parse(args)
-	subscription.ThisDevice = thisDevice(*dir)
+	subscription.ThisDevice = device.This(*dir)
 	if fs.NArg() != 1 {
 		return errors.New("нужен ровно один ключ: tigersb-core import <ключ>")
 	}
@@ -138,7 +139,7 @@ func cmdUpdate(args []string) error {
 	fs := flag.NewFlagSet("update", flag.ExitOnError)
 	dir := stateDirFlag(fs)
 	_ = fs.Parse(args)
-	subscription.ThisDevice = thisDevice(*dir)
+	subscription.ThisDevice = device.This(*dir)
 	st, err := subscription.Load(*dir)
 	if err != nil {
 		return err
