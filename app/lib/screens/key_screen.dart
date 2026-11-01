@@ -139,14 +139,17 @@ class _KeyScreenState extends State<KeyScreen> {
                             label: 'Вставить',
                           ),
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: GlassButton(
-                            onPressed: _busy ? null : _scan,
-                            icon: Icons.qr_code_scanner_rounded,
-                            label: 'QR-код',
+                        // A computer has no camera to scan with.
+                        if (widget.core is! Desktop) ...[
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: GlassButton(
+                              onPressed: _busy ? null : _scan,
+                              icon: Icons.qr_code_scanner_rounded,
+                              label: 'QR-код',
+                            ),
                           ),
-                        ),
+                        ],
                       ],
                     ),
                   ],

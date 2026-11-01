@@ -12,6 +12,7 @@ import '../ui/power_button.dart';
 import 'about_screen.dart';
 import 'apps_screen.dart';
 import 'protocols_screen.dart';
+import 'startup_screen.dart';
 
 /// Main screen: one big button, the mode and the profile.
 class HomeScreen extends StatefulWidget {
@@ -241,6 +242,10 @@ class _HomeScreenState extends State<HomeScreen> {
     ),
   );
 
+  void _openStartup() =>
+      Navigator.of(context)
+          .push(MaterialPageRoute<void>(builder: (_) => StartupScreen(desktop: widget.core as Desktop)));
+
   void _openProtocols() => Navigator.of(context).push(
     MaterialPageRoute<void>(
       builder: (_) =>
@@ -399,15 +404,22 @@ class _HomeScreenState extends State<HomeScreen> {
                   'update' => _checkUpdate(),
                   'apps' => _openApps(),
                   'protocols' => _openProtocols(),
+                  'startup' => _openStartup(),
                   'journal' => widget.core.shareJournal(),
                   _ => _openAbout(),
                 },
-                itemBuilder: (_) => const [
-                  PopupMenuItem(value: 'update', child: Text('Проверить обновление')),
-                  PopupMenuItem(value: 'apps', child: Text('Приложения мимо VPN')),
-                  PopupMenuItem(value: 'protocols', child: Text('Протоколы')),
-                  PopupMenuItem(value: 'journal', child: Text('Отправить журнал')),
-                  PopupMenuItem(value: 'about', child: Text('О приложении')),
+                // A computer has no apps to leave out of the VPN, but starts
+                // with the system; its journal opens in the text editor.
+                itemBuilder: (_) => [
+                  const PopupMenuItem(value: 'update', child: Text('Проверить обновление')),
+                  if (widget.core is! Desktop) const PopupMenuItem(value: 'apps', child: Text('Приложения мимо VPN')),
+                  const PopupMenuItem(value: 'protocols', child: Text('Протоколы')),
+                  if (widget.core is Desktop) const PopupMenuItem(value: 'startup', child: Text('Настройки запуска')),
+                  PopupMenuItem(
+                    value: 'journal',
+                    child: Text(widget.core is Desktop ? 'Открыть журнал' : 'Отправить журнал'),
+                  ),
+                  const PopupMenuItem(value: 'about', child: Text('О приложении')),
                 ],
               ),
             ),

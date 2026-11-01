@@ -34,13 +34,20 @@ func main() {
 }
 
 func run() error {
-	// The same modules as scripts/check-licenses.sh.
-	list, err := exec.Command("go", "list", "-deps", "-f",
-		"{{with .Module}}{{if not .Main}}{{.Dir}}\t{{.Path}}{{end}}{{end}}",
-		"./cmd/tigersb-core", "./mobile").Output()
+	// The same modules as scripts/check-licenses.sh: the core's, and those
+	// the Windows service adds.
+	const format = "{{with .Module}}{{if not .Main}}{{.Dir}}\t{{.Path}}{{end}}{{end}}"
+	list, err := exec.Command("go", "list", "-deps", "-f", format, "./cmd/tigersb-core", "./mobile").Output()
 	if err != nil {
 		return fmt.Errorf("go list: %w", err)
 	}
+	win := exec.Command("go", "list", "-deps", "-f", format, "./cmd/tigersb-service")
+	win.Env = append(os.Environ(), "GOOS=windows")
+	more, err := win.Output()
+	if err != nil {
+		return fmt.Errorf("go list: %w", err)
+	}
+	list = append(append(list, '\n'), more...)
 	own, err := os.ReadFile("LICENSE")
 	if err != nil {
 		return err

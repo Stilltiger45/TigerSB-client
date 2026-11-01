@@ -22,6 +22,7 @@ kind() {
 	echo UNKNOWN
 }
 
+format='{{with .Module}}{{if not .Main}}{{.Dir}} {{.Path}} {{.Version}}{{end}}{{end}}'
 bad=0
 [ "$notices" = 1 ] && printf '| Модуль | Версия | Лицензия |\n|---|---|---|\n'
 while read -r dir path version; do
@@ -39,5 +40,9 @@ while read -r dir path version; do
 		continue
 	fi
 	if [ "$notices" = 1 ]; then printf '| %s | %s | %s |\n' "$path" "$version" "$k"; else printf '%-60s %s\n' "$path" "$k"; fi
-done < <(go list -deps -f '{{with .Module}}{{if not .Main}}{{.Dir}} {{.Path}} {{.Version}}{{end}}{{end}}' ./cmd/tigersb-core ./mobile | sort -u -k2)
+done < <({
+	go list -deps -f "$format" ./cmd/tigersb-core ./mobile
+	# The Windows service adds its own.
+	GOOS=windows go list -deps -f "$format" ./cmd/tigersb-service
+} | sort -u -k2)
 exit "$bad"

@@ -208,6 +208,25 @@ class FakeCore implements Core {
   Stream<String> keys() => incoming.stream;
 }
 
+/// The computer app's core: it starts with Windows instead of leaving apps
+/// out of the VPN.
+class FakeDesktopCore extends FakeCore implements Desktop {
+  bool atLogin = false;
+  bool minimized = false;
+
+  @override
+  Future<bool> launchAtLogin() async => atLogin;
+
+  @override
+  Future<void> setLaunchAtLogin(bool on) async => atLogin = on;
+
+  @override
+  Future<bool> startMinimized() async => minimized;
+
+  @override
+  Future<void> setStartMinimized(bool on) async => minimized = on;
+}
+
 void main() {
   // The sparks and rings move forever; pumpAndSettle needs a still screen,
   // as when the system asks to remove animations.
@@ -464,6 +483,32 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('MAX'), findsNothing);
     expect(find.text('Игра'), findsOneWidget);
+  });
+
+  testWidgets('on a computer the menu has startup settings: start with Windows, then minimized', (tester) async {
+    final core = FakeDesktopCore()
+      ..profile = ProfileInfo(name: 'Дом', hasRU: true, fetched: DateTime.now(), exits: const []);
+    await tester.pumpWidget(TigerApp(core: core));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    expect(find.text('Приложения мимо VPN'), findsNothing);
+    expect(find.text('Открыть журнал'), findsOneWidget);
+    await tester.tap(find.text('Настройки запуска'));
+    await tester.pumpAndSettle();
+
+    Switch toggle(String title) =>
+        tester.widget<Switch>(find.descendant(of: find.widgetWithText(ListTile, title), matching: find.byType(Switch)));
+    // Minimized only means something when the app starts with Windows.
+    expect(toggle('Запуск с системой').value, isFalse);
+    expect(toggle('Запуск в свёрнутом виде').onChanged, isNull);
+    await tester.tap(find.text('Запуск с системой'));
+    await tester.pumpAndSettle();
+    expect(core.atLogin, isTrue);
+    await tester.tap(find.text('Запуск в свёрнутом виде'));
+    await tester.pumpAndSettle();
+    expect(core.minimized, isTrue);
+    expect(toggle('Запуск в свёрнутом виде').value, isTrue);
   });
 
   testWidgets('the menu opens protocols: each turns off, the last one stays on', (tester) async {

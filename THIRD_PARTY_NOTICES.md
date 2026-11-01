@@ -1,6 +1,8 @@
 # Сторонние компоненты
 
-TigerSB-client распространяется под GPL-3.0 (см. [LICENSE](LICENSE)). Ниже Go-зависимости, которые входят в ядро. Их лицензии совместимы с GPL-3.0 и требуют сохранять свои уведомления об авторских правах. Полные тексты лежат в [app/assets/licenses.json](app/assets/licenses.json) (создаёт `go run ./scripts/licensetexts`, CI проверяет, что файл свежий) и показываются в приложении: меню профиля → «О приложении» → «Лицензии компонентов». Там же лицензии библиотек Dart/Flutter (Flutter и mobile_scanner), их собирает сам Flutter.
+TigerSB-client распространяется под GPL-3.0 (см. [LICENSE](LICENSE)). Ниже Go-зависимости, которые входят в ядро, и те, что добавляет служба Windows. Их лицензии совместимы с GPL-3.0 и требуют сохранять свои уведомления об авторских правах. Полные тексты лежат в [app/assets/licenses.json](app/assets/licenses.json) (создаёт `go run ./scripts/licensetexts`, CI проверяет, что файл свежий) и показываются в приложении: меню профиля → «О приложении» → «Лицензии компонентов». Там же лицензии библиотек Dart/Flutter (Flutter и mobile_scanner), их собирает сам Flutter.
+
+Установщик для Windows кладёт рядом со службой драйвер [Wintun](https://www.wintun.net/) (`wintun.dll`, WireGuard LLC) неизменённым, как разрешает его лицензия, и текст этой лицензии (`wintun-LICENSE.txt`).
 
 Таблица создана командой `scripts/check-licenses.sh --notices`, CI проверяет те же лицензии на каждом pull request.
 
@@ -40,7 +42,9 @@ TigerSB-client распространяется под GPL-3.0 (см. [LICENSE](
 | golang.org/x/sys | v0.49.0 | BSD |
 | golang.org/x/text | v0.43.0 | BSD |
 | golang.org/x/time | v0.12.0 | BSD |
+| golang.zx2c4.com/wintun | v0.0.0-20230126152724-0fa3db229ce2 | MIT |
 | golang.zx2c4.com/wireguard | v0.0.0-20250521234502-f333402bd9cb | MIT |
+| golang.zx2c4.com/wireguard/windows | v1.1.1 | MIT |
 | google.golang.org/genproto/googleapis/rpc | v0.0.0-20251202230838-ff82c1b0f217 | Apache-2.0 |
 | google.golang.org/grpc | v1.79.3 | Apache-2.0 |
 | google.golang.org/protobuf | v1.36.11 | BSD |

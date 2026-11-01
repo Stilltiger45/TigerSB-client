@@ -271,6 +271,18 @@ abstract class Core {
   Stream<String> keys();
 }
 
+/// What only the computer app has. On a computer the VPN is a system
+/// service, and the app can start with the system.
+abstract class Desktop {
+  /// Whether the app starts when the user logs in to Windows.
+  Future<bool> launchAtLogin();
+  Future<void> setLaunchAtLogin(bool on);
+
+  /// Whether the app, when it starts with Windows, starts minimized.
+  Future<bool> startMinimized();
+  Future<void> setStartMinimized(bool on);
+}
+
 class CoreError implements Exception {
   CoreError(this.message);
   final String message;
