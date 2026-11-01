@@ -3,7 +3,6 @@ package engine
 import (
 	"context"
 	"reflect"
-	"unsafe"
 
 	"github.com/xtls/xray-core/core"
 	"github.com/xtls/xray-core/features/inbound"
@@ -19,6 +18,11 @@ import (
 // usually gets the same number, so the stale stack takes packets from the new
 // tunnel and connections stall. Every reconnect (a mode switch, a new
 // network) added one more such stack.
+//
+// On Windows the stack's Wintun device stays open too: its session holds the
+// adapter, and the next start failed with "initialization has already been
+// completed". There the device is closed with the stack, which also removes
+// the adapter; on Android the app closes its TUN descriptor itself.
 func Stop(inst *core.Instance) error {
 	var stacks []interface{ Close() error }
 	if m, _ := inst.GetFeature(inbound.ManagerType()).(inbound.Manager); m != nil {
@@ -31,6 +35,9 @@ func Stop(inst *core.Instance) error {
 	err := inst.Close()
 	for _, s := range stacks {
 		s.Close()
+		if d := tunDevice(s); d != nil {
+			closeDevice(d)
+		}
 	}
 	return err
 }
@@ -46,12 +53,8 @@ func tunStack(h inbound.Handler) interface{ Close() error } {
 	if !ok || t == nil {
 		return nil
 	}
-	f := reflect.ValueOf(t).Elem().FieldByName("stack")
-	if !f.IsValid() || f.Kind() != reflect.Interface {
-		return nil
-	}
-	f = reflect.NewAt(f.Type(), unsafe.Pointer(f.UnsafeAddr())).Elem()
-	if f.IsNil() {
+	f, ok := field(t, "stack")
+	if !ok || f.Kind() != reflect.Interface || f.IsNil() {
 		return nil
 	}
 	s, _ := f.Interface().(interface{ Close() error })

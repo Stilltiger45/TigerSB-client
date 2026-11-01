@@ -178,6 +178,28 @@ func check(c *conn, key, mode string) error {
 	if err := c.waitPhaseNot(); err != nil {
 		return err
 	}
+	if err := refusesIPv6(); err != nil {
+		return err
+	}
+
+	// Off and on again: the TUN adapter of the first start must be gone.
+	for i := range 2 {
+		if _, err := c.call("disconnect", nil); err != nil {
+			return err
+		}
+		if err := c.waitPhase("disconnected", 10*time.Second); err != nil {
+			return err
+		}
+		if _, err := c.call("connect", nil); err != nil {
+			return err
+		}
+		if err := c.waitPhase("connected", time.Minute); err != nil {
+			return fmt.Errorf("включение №%d после выключения: %w", i+2, err)
+		}
+		if err := get("https://cp.cloudflare.com/generate_204"); err != nil {
+			return fmt.Errorf("включение №%d после выключения: %w", i+2, err)
+		}
+	}
 
 	// After a restart of the service the app's connection comes back and
 	// the user's choice stays: the VPN is off, as the service stopped, and
@@ -241,6 +263,26 @@ func (c *conn) waitPhaseNot() error {
 			return nil
 		}
 	}
+}
+
+// refusesIPv6 checks that an IPv6 connection fails quickly while the VPN is
+// on (Windows tries a refused connection again for about 2 s), so that a
+// browser falls back to IPv4. Before, the core took it and
+// closed it only then, and sites with IPv6 addresses, such as YouTube, did
+// not open in browsers that resolve names themselves.
+func refusesIPv6() error {
+	start := time.Now()
+	c, err := net.DialTimeout("tcp", "[2606:4700:4700::1111]:443", 10*time.Second)
+	took := time.Since(start).Round(time.Millisecond)
+	if err == nil {
+		c.Close()
+		return fmt.Errorf("IPv6-соединение открылось через VPN за %s, а должно сразу отклоняться", took)
+	}
+	fmt.Printf("IPv6: %v in %s\n", err, took)
+	if took > 5*time.Second {
+		return fmt.Errorf("IPv6-соединение отклонено только через %s: браузеры будут долго ждать", took)
+	}
+	return nil
 }
 
 func get(url string) error {

@@ -196,6 +196,9 @@ func start(tun xrayconf.Inbound, mode string, before func() error) error {
 		return err
 	}
 	inst = i
+	if engine.RefuseIPv6(i) == 0 {
+		Note("IPv6 в туннеле не отклоняется сразу: сайты с IPv6 могут открываться медленно")
+	}
 	if evasion {
 		go tune(i, network)
 	}

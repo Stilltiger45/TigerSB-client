@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -91,7 +92,11 @@ func tail(path string, lines int) string {
 	if err != nil {
 		return ""
 	}
-	all := strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+	// Xray warns about the deprecated gRPC transport on every connection;
+	// those lines pushed everything else out of the journal.
+	all := slices.DeleteFunc(strings.Split(strings.TrimRight(string(b), "\n"), "\n"), func(l string) bool {
+		return strings.Contains(l, "is deprecated, not recommended")
+	})
 	if len(all) > lines {
 		all = all[len(all)-lines:]
 	}
