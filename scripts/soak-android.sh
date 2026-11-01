@@ -321,8 +321,15 @@ uncut() {
 scenarios=${SOAK_SCENARIOS:-switches}
 [ -n "$dead" ] && scenarios=none
 switches=${SOAK_SWITCHES:-4}
+# The network scenarios run in «Все», where every site goes through the VPN,
+# unless only other modes were tested: then in the last of them, as the
+# smart mode's DPI evasion and noise work only there.
+scenario_mode=${SOAK_SCENARIO_MODE:-}
+if [ -z "$scenario_mode" ]; then
+  case " $modes " in *" Все "*) scenario_mode="Все" ;; *) scenario_mode=${modes##* } ;; esac
+fi
 case " $scenarios " in *" switches "* | *" outage "* | *" mobile "* | *" toggle "*)
-  tap "Все" || failed=1
+  tap "$scenario_mode" || failed=1
   sleep 10
   ;;
 esac
