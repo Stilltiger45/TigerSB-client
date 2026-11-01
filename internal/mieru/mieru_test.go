@@ -100,16 +100,18 @@ func serve(conn net.Conn, req *model.Request) {
 
 func freePort(t *testing.T) int {
 	t.Helper()
+	// The UDP port first: Windows runners reserve ranges of UDP ports,
+	// and a port the system gives for UDP is one UDP can use.
 	for range 50 {
-		l, err := net.Listen("tcp", "127.0.0.1:0")
+		c, err := net.ListenPacket("udp", "127.0.0.1:0")
 		if err != nil {
 			t.Fatal(err)
 		}
-		port := l.Addr().(*net.TCPAddr).Port
-		c, err := net.ListenPacket("udp", fmt.Sprintf("127.0.0.1:%d", port))
-		l.Close()
+		port := c.LocalAddr().(*net.UDPAddr).Port
+		l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		c.Close()
 		if err == nil {
-			c.Close()
+			l.Close()
 			return port
 		}
 	}
