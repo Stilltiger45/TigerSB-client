@@ -168,8 +168,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # The first time there is nothing to remove: grep finds no name.
           gh release view "$TAG" -R "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' |
-            grep -E '^TigerSB-windows-.*\.exe$|^version-windows\.json$' |
+            { grep -E '^TigerSB-windows-.*\.exe$|^version-windows\.json$' || true; } |
             while read -r name; do
               gh release delete-asset "$TAG" "$name" -R "$GITHUB_REPOSITORY" -y
             done
