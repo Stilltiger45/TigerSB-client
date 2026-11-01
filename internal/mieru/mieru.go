@@ -25,6 +25,7 @@ import (
 	"github.com/xtls/xray-core/transport/internet"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/Stilltiger45/TigerSB-client/internal/bypass"
 	"github.com/Stilltiger45/TigerSB-client/internal/carry"
 	"github.com/Stilltiger45/TigerSB-client/internal/engine"
 	"github.com/Stilltiger45/TigerSB-client/internal/xrayconf"
@@ -255,7 +256,7 @@ func (t trackedDialer) DialContext(ctx context.Context, network, address string)
 		}
 		return internet.DialSystem(ctx, dest, &internet.SocketConfig{DialerProxy: t.dpi})
 	}
-	var d gonet.Dialer
+	d := gonet.Dialer{Control: bypass.Control}
 	c, err := d.DialContext(ctx, network, address)
 	if err == nil {
 		engine.Track(c)
@@ -272,7 +273,7 @@ func (trackedDialer) ListenPacket(_ context.Context, network, laddr, _ string) (
 		}
 		local = a
 	}
-	pc, err := gonet.ListenUDP(network, local)
+	pc, err := bypass.ListenUDP(network, local)
 	if err != nil {
 		return nil, err
 	}

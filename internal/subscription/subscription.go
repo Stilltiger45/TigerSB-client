@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Stilltiger45/TigerSB-client/internal/bypass"
 	"github.com/Stilltiger45/TigerSB-client/internal/certpin"
 	"github.com/Stilltiger45/TigerSB-client/pkg/profile"
 )
@@ -76,7 +77,7 @@ func (c *Client) http() *http.Client {
 	if c.HTTP != nil {
 		return c.HTTP
 	}
-	return &http.Client{Timeout: 20 * time.Second}
+	return &http.Client{Timeout: 20 * time.Second, Transport: bypass.Transport()}
 }
 
 // Import reads a key and returns a fresh state with its profile.

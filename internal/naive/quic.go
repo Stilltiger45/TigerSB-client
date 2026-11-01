@@ -18,6 +18,7 @@ import (
 	"github.com/apernet/quic-go/http3"
 	"github.com/xtls/xray-core/common/net"
 
+	"github.com/Stilltiger45/TigerSB-client/internal/bypass"
 	"github.com/Stilltiger45/TigerSB-client/internal/engine"
 	"github.com/Stilltiger45/TigerSB-client/internal/xrayconf"
 )
@@ -81,7 +82,7 @@ func (d *quicDialer) dial(ctx context.Context, server net.Destination) (serverCo
 	if err != nil {
 		return nil, err
 	}
-	pc, err := gonet.ListenUDP("udp", nil)
+	pc, err := bypass.ListenUDP("udp", nil)
 	if err != nil {
 		return nil, err
 	}

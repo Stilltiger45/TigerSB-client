@@ -79,6 +79,9 @@ type Inbound struct {
 	Listen   string
 	Port     int
 	MTU      int // tun only; 0 means DefaultMTU
+	// Name is the TUN's interface name, tun only: "tigersb0" when empty.
+	// On Windows Xray creates a Wintun adapter by this name.
+	Name string
 	// User and Pass, when set, are the login a socks or http inbound asks
 	// for: any program on the computer could use an open one, and learn
 	// the server from it.
@@ -476,7 +479,11 @@ func inbounds(in []Inbound) []any {
 			if mtu == 0 {
 				mtu = DefaultMTU
 			}
-			settings = map[string]any{"name": "tigersb0", "MTU": mtu}
+			name := ib.Name
+			if name == "" {
+				name = "tigersb0"
+			}
+			settings = map[string]any{"name": name, "MTU": mtu}
 		}
 		in := map[string]any{
 			"tag":      ib.Tag,

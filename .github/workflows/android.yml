@@ -152,6 +152,8 @@ jobs:
 
             После установки вставьте ключ или отсканируйте QR-код и нажмите «Подключить». Новая версия ставится поверх старой, ключ сохраняется. Дальше приложение обновляется само: меню справа → «Проверить обновление».
 
+            **Windows 10 и 11:** скачайте `TigerSB-windows-x64.exe` (обычные компьютеры на Intel и AMD) или `TigerSB-windows-arm64.exe` (компьютеры на ARM, например со Snapdragon) и запустите. Установщик ставит приложение и службу VPN. Дальше всё как на телефоне: вставьте ключ и нажмите «Подключить».
+
   # Starts the release build on an emulator and checks that the key screen
   # appears. Logcat and a screenshot are kept as the artifact
   # TigerSB-android-smoke, so a startup failure can be read without a phone.

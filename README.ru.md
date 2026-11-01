@@ -6,7 +6,7 @@
   <a href="https://github.com/Stilltiger45/TigerSB-client/releases/tag/V0.1"><img alt="Release" src="https://img.shields.io/github/v/release/Stilltiger45/TigerSB-client?style=for-the-badge&label=release&labelColor=1c1c1c&color=FF6A00"></a>
   <a href="LICENSE"><img alt="License GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-FF6A00?style=for-the-badge&labelColor=1c1c1c"></a>
   <img alt="Android 7+" src="https://img.shields.io/badge/Android-7%2B-FF6A00?style=for-the-badge&logo=android&logoColor=white&labelColor=1c1c1c">
-  <img alt="Windows скоро" src="https://img.shields.io/badge/Windows-%D1%81%D0%BA%D0%BE%D1%80%D0%BE-555555?style=for-the-badge&labelColor=1c1c1c">
+  <img alt="Windows 10+" src="https://img.shields.io/badge/Windows-10%2B-FF6A00?style=for-the-badge&labelColor=1c1c1c">
 </p>
 
 <p align="center">
@@ -40,17 +40,19 @@
 
 ## Быстрый старт
 
-1. **Скачайте приложение:** [TigerSB-android.apk](https://github.com/Stilltiger45/TigerSB-client/releases/latest/download/TigerSB-android.apk) (Android 7+). Для старых 32-битных телефонов: [TigerSB-android-old-phones.apk](https://github.com/Stilltiger45/TigerSB-client/releases/latest/download/TigerSB-android-old-phones.apk).
-2. **Установите:** откройте файл на телефоне и разрешите установку.
+1. **Скачайте приложение:**
+   - Android 7+: [TigerSB-android.apk](https://github.com/Stilltiger45/TigerSB-client/releases/latest/download/TigerSB-android.apk). Для старых 32-битных телефонов: [TigerSB-android-old-phones.apk](https://github.com/Stilltiger45/TigerSB-client/releases/latest/download/TigerSB-android-old-phones.apk).
+   - Windows 10 и 11: [TigerSB-windows-x64.exe](https://github.com/Stilltiger45/TigerSB-client/releases/latest/download/TigerSB-windows-x64.exe) для обычных компьютеров на Intel и AMD, [TigerSB-windows-arm64.exe](https://github.com/Stilltiger45/TigerSB-client/releases/latest/download/TigerSB-windows-arm64.exe) для компьютеров на ARM (например, со Snapdragon).
+2. **Установите:** на телефоне откройте файл и разрешите установку, на компьютере запустите установщик.
 3. **Добавьте ключ** одним из способов:
    - откройте ссылку `tigersb://…` из Telegram, почты или панели — приложение откроется с уже вставленным ключом;
-   - отсканируйте QR-код;
+   - отсканируйте QR-код (на телефоне);
    - вставьте ключ вручную: подойдут `tigersb://`, ссылка на подписку `https://` или ссылки `vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://`, `tuic://`, `mierus://`, `mieru://`, `naive+https://`, `naive+quic://`, `wireguard://`, ключ Amnezia `vpn://` или текст конфига WireGuard / AmneziaWG (`.conf`).
 4. **Нажмите кнопку подключения.** Всё.
 
 Ключ выдаёт тот, кто держит сервер: в [TigerSB-panel](https://github.com/Stilltiger45/TigerSB-panel) он на вкладке «Пользователи». Приложение обновляется само: меню справа → «Проверить обновление».
 
-Приложение для Windows появится следующим этапом поверх того же ядра.
+На Windows VPN держит служба: он работает и при закрытом окне. В меню «⋮» → «Настройки запуска» можно включить запуск вместе с Windows, в том числе в свёрнутом виде. Если VPN был включён, после перезагрузки он включится сам.
 
 ## Режимы
 
@@ -60,7 +62,7 @@
 
 ## Что ещё умеет
 
-- **Приложения мимо VPN.** MAX, ВК, Яндекс, банки, госприложения, маркетплейсы и приложения операторов связи всегда идут мимо VPN и не видят туннель и адрес сервера. Свои приложения можно добавить в список.
+- **Приложения мимо VPN** (на Android). MAX, ВК, Яндекс, банки, госприложения, маркетплейсы и приложения операторов связи всегда идут мимо VPN и не видят туннель и адрес сервера. Свои приложения можно добавить в список.
 - **Протоколы под себя.** В меню «Протоколы» можно выключить протоколы, которые в ваших сетях работают плохо: VPN пойдёт через остальные. У Mieru и NaïveProxy в названии всегда указано, как они идут: TCP, UDP или QUIC, а у AmneziaWG — версия (1, 2 или 3), и их можно выключать по отдельности.
 - **Надёжная связь.** Упавший сервер заменяется за секунды, при переходе между Wi-Fi и мобильной сетью VPN не отключается.
 - **Несколько профилей.** Имя профиля вверху экрана открывает список: переключение одним нажатием, у каждого «Обновить», «Ссылка» и «Удалить».
@@ -82,12 +84,15 @@
 | [Go](https://go.dev) 1.26 и gomobile | ядро клиента, консольная утилита `tigersb-core`, библиотека для Android | BSD-3-Clause |
 | [Flutter](https://flutter.dev) 3.47 и Dart | интерфейс приложения | BSD-3-Clause |
 | [Kotlin](https://kotlinlang.org) 2.4 | системный VPN Android (VpnService), слежение за сетью, Keystore | Apache-2.0 |
+| [Wintun](https://www.wintun.net) и [winipcfg](https://git.zx2c4.com/wireguard-windows/) | сетевой адаптер VPN на Windows, его адрес, маршруты и DNS | Wintun: свободное распространение, winipcfg: MIT |
+| [Inno Setup](https://jrsoftware.org/isinfo.php) | установщик для Windows | своя свободная |
 
-Код по папкам: `pkg/profile` — формат профиля и ключа (его же использует панель), `internal/` — ядро (подписки, сборка конфига Xray, маршрутизация и обход DPI, TUIC, Mieru, NaïveProxy и AmneziaWG, замеры, автонастройка сети), `mobile/` — API для Android через gomobile, `app/` — приложение на Flutter и Kotlin, `cmd/tigersb-core` — консольная утилита.
+Код по папкам: `pkg/profile` — формат профиля и ключа (его же использует панель), `internal/` — ядро (подписки, сборка конфига Xray, маршрутизация и обход DPI, TUIC, Mieru, NaïveProxy и AmneziaWG, замеры, автонастройка сети), `mobile/` — API ядра (для Android через gomobile, на Windows его вызывает служба), `desktop/` и `cmd/tigersb-service` — служба VPN для Windows, `app/` — приложение на Flutter (Kotlin для Android, C++ для окна Windows), `cmd/tigersb-core` — консольная утилита.
 
 ## Как это работает
 
-- **Одно ядро на всех платформах.** Xray-core запускается внутри процесса приложения, без отдельных программ. На Android трафик приходит через системный VPN (TUN на gVisor), локальных портов нет.
+- **Одно ядро на всех платформах.** Xray-core запускается внутри процесса, без отдельных программ. На Android трафик приходит через системный VPN (TUN на gVisor), локальных портов нет.
+- **Windows.** Ядро работает в службе `tigersb-service` (SYSTEM), трафик приходит через адаптер Wintun «TigerSB»: служба задаёт ему адрес, маршруты 0/1 и 128/1, DNS и MTU. Свои соединения ядро привязывает к настоящему интерфейсу (`IP_UNICAST_IF`), поэтому они не уходят в туннель. Приложение запускается без прав администратора и управляет службой по 127.0.0.1 с токеном из файла, который могут читать только пользователи компьютера. Сторож и переход между сетями те же, что на Android.
 - **Умная маршрутизация.** Маршруты как в «Базовой» (российские сайты напрямую, остальное через VPN), плюс обход DPI для всех протоколов поверх TCP (Xray, NaïveProxy, Mieru): фрагментация вместо zapret, для Xray набор подбирается сам при каждом включении, смене сети и сбое канала. Протоколы поверх QUIC (Hysteria 2, TUIC, NaïveProxy QUIC) посылают шум перед соединением. Что добавлено, видно в названии протокола. Протокол выбирается по скорости, без приоритета TCP. Режим LTE и подбор MTU работают во всех режимах. Подробно: [docs/profile.md](docs/profile.md#режим-auto-умная).
 - **Режим по спискам** (`main`, в консольной утилите) разводит трафик по профилю TigerSB на три направления: заблокированное — через выход за границей, остальное — через выход в РФ (провайдер не видит трафик, сайты видят российский IP), банки, госуслуги и вузы — напрямую.
 - **Устойчивость.** В «Базовой» и «Все» протокол выбирается по сглаженным замерам и не прыгает между серверами. Канал проверяется двумя GET к t.me и YouTube по одному соединению; после двух неудач подряд соединения к серверам открываются заново, после четырёх ядро перезапускается. При смене сети туннель не пересобирается, а без интернета клиент ждёт, а не перезапускается. MTU (1480, 1460 или 1280) подбирается по тому, какой пакет доходит до сервера без фрагментации; на мобильной сети TCP-сегменты подгоняются под этот путь, а NAT оператора держится открытым.
@@ -96,10 +101,10 @@
 
 - **Подписанный профиль.** Профиль TigerSB подписан Ed25519, а публичный ключ панели закреплён в ключе `tigersb://` (`pk`). Профиль с чужой подписью отклоняется, поэтому подменить серверы по дороге нельзя. Для ссылки `https://` без `pk` закрепляется ключ первого полученного профиля. Подписка скачивается только по HTTPS.
 - **Закрепление сертификата.** Для серверов с самоподписанным сертификатом (`insecure=1` в ссылке) клиент при импорте запоминает SHA-256 сертификата и дальше принимает только его, вместо небезопасного `allowInsecure`.
-- **Хранение ключа.** Файл состояния с ключом подписки зашифрован AES-256-GCM, а ключ шифрования хранится в Android Keystore. Резервные копии приложения выключены (`allowBackup=false`).
+- **Хранение ключа.** Файл состояния с ключом подписки зашифрован AES-256-GCM, а ключ шифрования хранится в Android Keystore. Резервные копии приложения выключены (`allowBackup=false`). На Windows данные службы в `%ProgramData%\TigerSB\data` открыты только системе и администраторам, а ключ шифрования запечатан DPAPI.
 - **Защита экрана.** `FLAG_SECURE` запрещает скриншоты и запись экрана, касания через чужие окна не принимаются, оверлеи других приложений скрываются.
 - **Изоляция приложений.** MAX, ВК, Яндекс, банки, госприложения, маркетплейсы и приложения операторов связи исключены из туннеля системно (`addDisallowedApplication`) и не видят адрес сервера. Панель не может выключить этот список.
-- **Обновления.** Приложение берёт `version.json` и APK только из релиза этого репозитория на GitHub и передаёт APK системному установщику. Android ставит обновление, только если оно подписано тем же ключом, что и установленная версия.
+- **Обновления.** Приложение берёт `version.json` и APK только из релиза этого репозитория на GitHub и передаёт APK системному установщику. Android ставит обновление, только если оно подписано тем же ключом, что и установленная версия. На Windows приложение скачивает из того же релиза `version-windows.json` и установщик своей архитектуры.
 - **Лимит устройств.** При скачивании подписки клиент присылает `x-hwid` и данные устройства, как принято у Remnawave и похожих панелей, чтобы сервер мог считать устройства.
 
 ## Консольная утилита
@@ -149,7 +154,15 @@ scripts/build-core-android.sh        # нужны Android SDK и NDK
 cd app && flutter build apk --split-per-abi
 ```
 
-Обычно это делать не нужно: GitHub Actions собирает APK на каждый pull request (вкладка Actions, артефакт `TigerSB-android`) и выкладывает релиз по тегу. Как выпустить версию и задать ключ подписи APK: [docs/releases.md](docs/releases.md). Формат профиля и ключа: [docs/profile.md](docs/profile.md).
+Приложение для Windows собирается на Windows (нужны Visual Studio с C++ и [Inno Setup](https://jrsoftware.org/isinfo.php)):
+
+```bash
+GOARCH=amd64 go build -o dist/service/tigersb-service.exe ./cmd/tigersb-service   # рядом положите wintun.dll той же архитектуры
+cd app && flutter build windows
+iscc /DArch=x64 /DAppDir=... /DServiceDir=... windows/installer/TigerSB.iss
+```
+
+Обычно это делать не нужно: GitHub Actions собирает APK и установщики Windows (артефакт `TigerSB-windows`, там же проверка установленного VPN на Windows) на каждый pull request (вкладка Actions, артефакт `TigerSB-android`) и выкладывает релиз по тегу. Как выпустить версию и задать ключ подписи APK: [docs/releases.md](docs/releases.md). Формат профиля и ключа: [docs/profile.md](docs/profile.md).
 
 ## Лицензии
 

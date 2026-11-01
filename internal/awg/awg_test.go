@@ -168,7 +168,7 @@ func conf(clientPriv, serverPub []byte, port int, keys map[string]string) string
 // UDP port that forwards to 1.2.3.4:7777.
 func start(t *testing.T, p *profile.Profile) (inst *core.Instance, socks, udp int) {
 	t.Helper()
-	socks, udp = freePort(t), freePort(t)
+	socks, udp = freePort(t), freeUDPPort(t)
 	cfg, err := xrayconf.Build(p, xrayconf.Options{
 		Mode:     xrayconf.ModeAll,
 		LogLevel: "none",
@@ -205,6 +205,18 @@ func freePort(t *testing.T) int {
 	}
 	defer l.Close()
 	return l.Addr().(*net.TCPAddr).Port
+}
+
+// freeUDPPort is a port the system gives for UDP: Windows runners reserve
+// ranges of UDP ports that a free TCP port can fall into.
+func freeUDPPort(t *testing.T) int {
+	t.Helper()
+	c, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	return c.LocalAddr().(*net.UDPAddr).Port
 }
 
 func get(socks int, timeout time.Duration) (string, error) {

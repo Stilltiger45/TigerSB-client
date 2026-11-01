@@ -12,6 +12,8 @@ import (
 
 	"github.com/xtls/xray-core/common/net"
 	"github.com/xtls/xray-core/transport/internet"
+
+	"github.com/Stilltiger45/TigerSB-client/internal/bypass"
 )
 
 // Every connection the cores open to the network goes through the dialer
@@ -25,6 +27,7 @@ func init() {
 	inner := &internet.DefaultSystemDialer{}
 	internet.UseAlternativeSystemDialer(inner)
 	internet.RegisterDialerController(beforeConnect)
+	internet.RegisterListenerController(udpBypass)
 	internet.UseAlternativeSystemDialer(&dialer{inner: inner})
 }
 
@@ -55,12 +58,27 @@ func currentLink() Link {
 
 // beforeConnect sets the link's options that must precede the handshake. Xray
 // applies the panel's socket options after it, so they override these.
-func beforeConnect(network, _ string, c syscall.RawConn) error {
+// Every socket leaves outside the VPN where the core runs behind its own
+// TUN (bypass).
+func beforeConnect(network, address string, c syscall.RawConn) error {
+	if err := bypass.Control(network, address, c); err != nil {
+		return err
+	}
 	if len(network) < 3 || network[:3] != "tcp" {
 		return nil
 	}
 	l := currentLink()
 	return c.Control(func(fd uintptr) { linkOptions(fd, l) })
+}
+
+// udpBypass keeps the UDP sockets Xray listens on to reach servers, as
+// Hysteria's, outside the VPN. The TCP listeners are inbounds, which stay
+// where they are.
+func udpBypass(network, address string, c syscall.RawConn) error {
+	if len(network) < 3 || network[:3] != "udp" {
+		return nil
+	}
+	return bypass.Control(network, address, c)
 }
 
 // mobileKeepAlive is the LTE mode's keepalive.
