@@ -37,9 +37,13 @@ import (
 )
 
 // Hooks returns the engine.Start hooks that add the profile's TUIC
-// transports to Xray. noise (xrayconf.QUICNoise, or nil in tests) goes to
-// the server before each QUIC connection.
-func Hooks(p *profile.Profile, noise []xrayconf.NoisePacket) []func(*core.Instance) error {
+// transports to Xray. With evasion (the smart mode), QUICNoise goes to the
+// server before each QUIC connection.
+func Hooks(p *profile.Profile, evasion bool) []func(*core.Instance) error {
+	var noise []xrayconf.NoisePacket
+	if evasion {
+		noise = xrayconf.QUICNoise
+	}
 	var hooks []func(*core.Instance) error
 	for _, ob := range xrayconf.Carried(p, "tuic") {
 		hooks = append(hooks, func(inst *core.Instance) error { return Attach(inst, ob.Tag, ob.Xray, noise) })

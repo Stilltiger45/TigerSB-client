@@ -243,7 +243,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _openProtocols() => Navigator.of(context).push(
     MaterialPageRoute<void>(
-      builder: (_) => ProtocolsScreen(core: widget.core, profile: widget.profile, onProfile: widget.onProfile),
+      builder: (_) =>
+          ProtocolsScreen(core: widget.core, profile: widget.profile, onProfile: widget.onProfile, mode: _mode),
     ),
   );
 

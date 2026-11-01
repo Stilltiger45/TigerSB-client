@@ -291,7 +291,7 @@ func cmdRun(args []string) error {
 	if err := engine.SetAssetDir(assets); err != nil {
 		return err
 	}
-	inst, err := engine.Start(cfg, slices.Concat(tuic.Hooks(p, xrayconf.QUICNoise), mieru.Hooks(p), naive.Hooks(p, xrayconf.QUICNoise), awg.Hooks(p), steady.Hooks(p, false, 0))...)
+	inst, err := engine.Start(cfg, slices.Concat(tuic.Hooks(p, false), mieru.Hooks(p, false), naive.Hooks(p, false), awg.Hooks(p), steady.Hooks(p, false, 0))...)
 	if err != nil {
 		return err
 	}

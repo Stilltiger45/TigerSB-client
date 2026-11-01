@@ -71,11 +71,7 @@ func client(t *testing.T, p *profile.Profile, mode xrayconf.Mode, noise bool) *c
 	if err != nil {
 		t.Fatal(err)
 	}
-	var n []xrayconf.NoisePacket
-	if noise {
-		n = xrayconf.QUICNoise
-	}
-	inst, err := engine.Start(cfg, append(tuic.Hooks(p, n), steady.Hooks(p, auto, 3)...)...)
+	inst, err := engine.Start(cfg, append(tuic.Hooks(p, noise), steady.Hooks(p, auto, 3)...)...)
 	if err != nil {
 		t.Fatal(err)
 	}

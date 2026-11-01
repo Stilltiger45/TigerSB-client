@@ -147,7 +147,7 @@ func Build(p *profile.Profile, opt Options) ([]byte, error) {
 
 	if opt.Mode != ModeOff {
 		for _, role := range []profile.Role{profile.RoleForeign, profile.RoleRU} {
-			tags, err := addTransports(p, role, &outbounds)
+			tags, err := addTransports(p, role, &outbounds, evasion)
 			if err != nil {
 				return nil, err
 			}
@@ -353,9 +353,9 @@ func transports(p *profile.Profile, role profile.Role) []transportItem {
 }
 
 // addTransports appends the outbounds of every exit with the role, best
-// priority first, and returns their tags. Those over UDP send QUICNoise
-// first.
-func addTransports(p *profile.Profile, role profile.Role, outbounds *[]any) ([]string, error) {
+// priority first, and returns their tags. With noise (the smart mode), those
+// over UDP send QUICNoise first.
+func addTransports(p *profile.Profile, role profile.Role, outbounds *[]any, noise bool) ([]string, error) {
 	items := transports(p, role)
 	tags := make([]string, 0, len(items))
 	for _, it := range items {
@@ -367,7 +367,7 @@ func addTransports(p *profile.Profile, role profile.Role, outbounds *[]any) ([]s
 		if carried(it.xray) {
 			continue // added to Xray by its own package, see Carried
 		}
-		if OverUDP(it.xray) {
+		if noise && OverUDP(it.xray) {
 			if err := withQUICNoise(ob); err != nil {
 				return nil, fmt.Errorf("транспорт %s: %w", it.tag, err)
 			}

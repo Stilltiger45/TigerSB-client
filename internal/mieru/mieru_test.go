@@ -141,8 +141,13 @@ func start(t *testing.T, p *profile.Profile) (inst *core.Instance, socks, udp in
 		"tag": "udp-in", "protocol": "dokodemo-door", "listen": "127.0.0.1", "port": udp,
 		"settings": map[string]any{"address": "1.2.3.4", "port": 7777, "network": "udp"},
 	})
+	// As in the smart mode: TCP through a DPI preset, whose outbounds Build
+	// adds in that mode only.
+	for k := range len(xrayconf.Presets) {
+		c["outbounds"] = append(c["outbounds"].([]any), xrayconf.DPIOutbound(k+1))
+	}
 	cfg, _ = json.Marshal(c)
-	inst, err = engine.Start(cfg, mieru.Hooks(p)...)
+	inst, err = engine.Start(cfg, mieru.Hooks(p, true)...)
 	if err != nil {
 		t.Fatal(err)
 	}

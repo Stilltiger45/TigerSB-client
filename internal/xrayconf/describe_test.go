@@ -10,9 +10,11 @@ import (
 
 func TestDescribe(t *testing.T) {
 	for in, want := range map[string]string{
-		`{"protocol":"vless","streamSettings":{"network":"grpc","security":"reality"}}`: "VLESS · Reality · gRPC",
-		`{"protocol":"vless","streamSettings":{"network":"xhttp","security":"tls"}}`:    "VLESS · TLS · XHTTP",
-		`{"protocol":"trojan","streamSettings":{"network":"tcp","security":"tls"}}`:     "Trojan · TLS",
+		`{"protocol":"vless","streamSettings":{"network":"grpc","security":"reality"}}`:  "Xray · gRPC",
+		`{"protocol":"vless","streamSettings":{"network":"xhttp","security":"reality"}}`: "Xray · XHTTP",
+		`{"protocol":"vless","streamSettings":{"network":"raw","security":"reality"}}`:   "Xray · TCP",
+		`{"protocol":"vless","streamSettings":{"network":"xhttp","security":"tls"}}`:     "VLESS · TLS · XHTTP",
+		`{"protocol":"trojan","streamSettings":{"network":"tcp","security":"tls"}}`:      "Trojan · TLS",
 		`{"protocol":"shadowsocks"}`:                                               "Shadowsocks",
 		`{"protocol":"hysteria","settings":{"version":2}}`:                         "Hysteria 2",
 		`{"protocol":"tuic","streamSettings":{"network":"tuic"}}`:                  "TUIC",
@@ -23,6 +25,41 @@ func TestDescribe(t *testing.T) {
 		`not json`: "",
 	} {
 		if got := xrayconf.Describe([]byte(in)); got != want {
+			t.Errorf("%s: got %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestRenamedProtocol: protocols turned off by name in an older version
+// stay off under their new names.
+func TestRenamedProtocol(t *testing.T) {
+	for old, want := range map[string]string{
+		"VLESS · Reality · gRPC":  "Xray · gRPC",
+		"VLESS · Reality · XHTTP": "Xray · XHTTP",
+		"VLESS · Reality":         "Xray · TCP",
+		"VLESS · TLS · XHTTP":     "VLESS · TLS · XHTTP",
+		"Hysteria 2":              "Hysteria 2",
+	} {
+		if got := xrayconf.RenamedProtocol(old); got != want {
+			t.Errorf("%s: got %q, want %q", old, got, want)
+		}
+	}
+}
+
+// TestTrick: in the smart mode the protocols over TCP get DPI evasion, those
+// over QUIC noise; WireGuard, mieru over UDP and chained ones nothing.
+func TestTrick(t *testing.T) {
+	for in, want := range map[string]string{
+		`{"protocol":"vless","streamSettings":{"network":"grpc","security":"reality"}}`:                                   xrayconf.TrickDPI,
+		`{"protocol":"vless","streamSettings":{"network":"grpc","security":"reality","sockopt":{"dialerProxy":"chain"}}}`: "",
+		`{"protocol":"naive","streamSettings":{"network":"raw","security":"tls"}}`:                                        xrayconf.TrickDPI,
+		`{"protocol":"mieru","settings":{"config":"Cgc="}}`:                                                               xrayconf.TrickDPI,
+		`{"protocol":"hysteria","settings":{"version":2}}`:                                                                xrayconf.TrickNoise,
+		`{"protocol":"tuic","streamSettings":{"network":"tuic"}}`:                                                         xrayconf.TrickNoise,
+		`{"protocol":"naive","settings":{"quic":true}}`:                                                                   xrayconf.TrickNoise,
+		`{"protocol":"wireguard","settings":{"amnezia":{"Jc":"4"}}}`:                                                      "",
+	} {
+		if got := xrayconf.Trick([]byte(in)); got != want {
 			t.Errorf("%s: got %q, want %q", in, got, want)
 		}
 	}
@@ -65,7 +102,7 @@ func TestWithoutProtocols(t *testing.T) {
 		{ID: "nl", Role: profile.RoleForeign, Transports: []profile.Transport{tr("g", grpc), tr("h", hy)}},
 		{ID: "msk", Role: profile.RoleRU, Transports: []profile.Transport{tr("t", tuic), tr("h", hy)}},
 	}}
-	if got := xrayconf.ProtocolNames(p); len(got) != 3 || got[0] != "VLESS · Reality · gRPC" || got[1] != "Hysteria 2" || got[2] != "TUIC" {
+	if got := xrayconf.ProtocolNames(p); len(got) != 3 || got[0] != "Xray · gRPC" || got[1] != "Hysteria 2" || got[2] != "TUIC" {
 		t.Errorf("names %q", got)
 	}
 

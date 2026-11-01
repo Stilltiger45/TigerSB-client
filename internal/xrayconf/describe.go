@@ -52,6 +52,16 @@ func Describe(xray json.RawMessage) string {
 	case "wireguard":
 		return wireGuardName(ob.Settings)
 	}
+	// VLESS with Reality is what the panel serves as Xray: the app names it
+	// so, with its transport.
+	if ob.Protocol == "vless" && ob.Stream.Security == "reality" {
+		switch n := ob.Stream.Network; n {
+		case "", "tcp", "raw":
+			return "Xray · TCP"
+		default:
+			return "Xray · " + networkNames.name(n)
+		}
+	}
 	parts := []string{protocolNames.name(ob.Protocol)}
 	switch ob.Stream.Security {
 	case "reality":
@@ -65,6 +75,19 @@ func Describe(xray json.RawMessage) string {
 		parts = append(parts, networkNames.name(n))
 	}
 	return strings.Join(parts, " · ")
+}
+
+// RenamedProtocol turns a name an older version gave a protocol into the
+// one Describe gives it now: "VLESS · Reality · gRPC" is "Xray · gRPC". The
+// protocols the user turned off are kept by name.
+func RenamedProtocol(name string) string {
+	if name == "VLESS · Reality" {
+		return "Xray · TCP"
+	}
+	if rest, ok := strings.CutPrefix(name, "VLESS · Reality · "); ok {
+		return "Xray · " + rest
+	}
+	return name
 }
 
 // wireGuardName names WireGuard and the versions of AmneziaWG apart: a

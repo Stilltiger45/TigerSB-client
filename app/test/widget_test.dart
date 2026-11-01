@@ -155,6 +155,7 @@ class FakeCore implements Core {
       exits: p.exits,
       protocols: p.protocols,
       protocolsOff: names,
+      tricks: p.tricks,
     );
   }
 
@@ -472,7 +473,8 @@ void main() {
         hasRU: true,
         fetched: DateTime.now(),
         exits: const [],
-        protocols: const ['VLESS · Reality · gRPC', 'Hysteria 2'],
+        protocols: const ['Xray · gRPC', 'Hysteria 2'],
+        tricks: const {'Xray · gRPC': 'обход DPI', 'Hysteria 2': 'шумы'},
         protocolsOff: const ['TUIC'],
       );
     await tester.pumpWidget(TigerApp(core: core));
@@ -482,24 +484,29 @@ void main() {
     await tester.tap(find.text('Протоколы'));
     await tester.pumpAndSettle();
 
-    expect(find.text('VLESS · Reality · gRPC'), findsOneWidget);
-    expect(find.text('Hysteria 2'), findsOneWidget);
+    expect(find.text('Xray · gRPC · обход DPI'), findsOneWidget);
+    expect(find.text('Hysteria 2 · шумы'), findsOneWidget);
     expect(find.text('TUIC'), findsNothing);
-    await tester.tap(find.text('Hysteria 2'));
+    await tester.tap(find.text('Hysteria 2 · шумы'));
     await tester.pumpAndSettle();
     // Another profile's TUIC stays off.
     expect(core.protocolsOff, ['Hysteria 2', 'TUIC']);
     expect(core.profile!.protocolsOff, ['Hysteria 2', 'TUIC']);
 
     expect(find.text('ОСТАЁТСЯ ХОТЯ БЫ ОДИН'), findsOneWidget);
-    await tester.tap(find.text('VLESS · Reality · gRPC'));
+    await tester.tap(find.text('Xray · gRPC · обход DPI'));
     await tester.pumpAndSettle();
     expect(core.protocolsOff, ['Hysteria 2', 'TUIC']);
 
-    await tester.tap(find.text('Hysteria 2'));
+    await tester.tap(find.text('Hysteria 2 · шумы'));
     await tester.pumpAndSettle();
     expect(core.protocolsOff, ['TUIC']);
     expect(find.text('ОСТАЁТСЯ ХОТЯ БЫ ОДИН'), findsNothing);
+
+    // Outside the smart mode nothing is added to the names.
+    final p = core.profile!;
+    expect(p.protocolName('Xray · gRPC', Mode.basic), 'Xray · gRPC');
+    expect(p.protocolName('Hysteria 2', Mode.all), 'Hysteria 2');
   });
 
   testWidgets('the menu opens about: version, source link and every license', (tester) async {

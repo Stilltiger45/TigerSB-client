@@ -83,6 +83,9 @@ func Hooks(p *profile.Profile, evasion bool, preset int) []func(*core.Instance) 
 	var variants []string
 	if evasion {
 		variants = xrayconf.Variants(p)
+		// The smart mode always reaches the servers over TCP through a
+		// preset: none is not among its choices.
+		preset = max(preset, 1)
 	}
 	var hooks []func(*core.Instance) error
 	for _, role := range []profile.Role{profile.RoleForeign, profile.RoleRU} {
