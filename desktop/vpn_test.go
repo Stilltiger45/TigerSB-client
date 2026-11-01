@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net"
 	"net/netip"
+	"runtime/debug"
 	"slices"
 	"strings"
 	"sync"
@@ -252,6 +253,9 @@ func (*testError) Error() string { return "ключ ещё не добавлен
 func TestServer(t *testing.T) {
 	fast(t)
 	mobile.Init(t.TempDir(), "test")
+	// The core keeps crash.log open, and Windows cannot delete an open file:
+	// release it before the folder is removed.
+	t.Cleanup(func() { debug.SetCrashOutput(nil, debug.CrashOptions{}) })
 	eng := &fakeEngine{healthy: true, online: true}
 	plat := &fakePlatform{uplink: wifi, ok: true}
 	v := NewVPN(eng, plat, t.TempDir())
