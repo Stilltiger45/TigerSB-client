@@ -6,7 +6,7 @@
   <a href="https://github.com/Stilltiger45/TigerSB-client/releases/tag/V0.1"><img alt="Release" src="https://img.shields.io/github/v/release/Stilltiger45/TigerSB-client?style=for-the-badge&label=release&labelColor=1c1c1c&color=FF6A00"></a>
   <a href="LICENSE"><img alt="License GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-FF6A00?style=for-the-badge&labelColor=1c1c1c"></a>
   <img alt="Android 7+" src="https://img.shields.io/badge/Android-7%2B-FF6A00?style=for-the-badge&logo=android&logoColor=white&labelColor=1c1c1c">
-  <img alt="Windows soon" src="https://img.shields.io/badge/Windows-soon-555555?style=for-the-badge&labelColor=1c1c1c">
+  <img alt="Windows 10+" src="https://img.shields.io/badge/Windows-10%2B-FF6A00?style=for-the-badge&labelColor=1c1c1c">
 </p>
 
 <p align="center">
@@ -42,17 +42,19 @@
 
 ## Quick start
 
-1. **Download the app:** [TigerSB-android.apk](https://github.com/Stilltiger45/TigerSB-client/releases/latest/download/TigerSB-android.apk) (Android 7+). For old 32-bit phones: [TigerSB-android-old-phones.apk](https://github.com/Stilltiger45/TigerSB-client/releases/latest/download/TigerSB-android-old-phones.apk).
-2. **Install it:** open the file on the phone and allow the install.
+1. **Download the app:**
+   - Android 7+: [TigerSB-android.apk](https://github.com/Stilltiger45/TigerSB-client/releases/latest/download/TigerSB-android.apk). For old 32-bit phones: [TigerSB-android-old-phones.apk](https://github.com/Stilltiger45/TigerSB-client/releases/latest/download/TigerSB-android-old-phones.apk).
+   - Windows 10 and 11: [TigerSB-windows-x64.exe](https://github.com/Stilltiger45/TigerSB-client/releases/latest/download/TigerSB-windows-x64.exe) for ordinary Intel and AMD computers, [TigerSB-windows-arm64.exe](https://github.com/Stilltiger45/TigerSB-client/releases/latest/download/TigerSB-windows-arm64.exe) for ARM computers (Snapdragon, for example).
+2. **Install it:** on the phone open the file and allow the install; on the computer run the installer.
 3. **Add a key** in any of these ways:
    - open a `tigersb://…` link from Telegram, email or the panel, and the app opens with the key already filled in;
-   - scan a QR code;
+   - scan a QR code (on the phone);
    - paste the key by hand: `tigersb://`, an `https://` subscription link, or `vless://`, `vmess://`, `trojan://`, `ss://`, `hysteria2://`, `tuic://`, `mierus://`, `mieru://`, `naive+https://`, `naive+quic://`, `wireguard://` links, an Amnezia `vpn://` key or the text of a WireGuard / AmneziaWG config (`.conf`).
 4. **Press the connect button.** That's it.
 
 The key comes from whoever runs the server: in [TigerSB-panel](https://github.com/Stilltiger45/TigerSB-panel) it is on the Users tab. The app updates itself: menu on the right → «Проверить обновление» (Check for update).
 
-A Windows app on the same core is the next stage.
+On Windows a system service holds the VPN, so it keeps working with the window closed. Menu «⋮» → «Настройки запуска» (Startup settings) starts the app with Windows, minimized if you like. If the VPN was on, it comes back on after a reboot.
 
 ## Modes
 
@@ -62,7 +64,7 @@ A Windows app on the same core is the next stage.
 
 ## What else it does
 
-- **Apps outside the VPN.** MAX, VK, Yandex, banking, government, marketplace and mobile operator apps always bypass the VPN, so they cannot see the tunnel or the server address. You can add your own apps to the list.
+- **Apps outside the VPN** (on Android). MAX, VK, Yandex, banking, government, marketplace and mobile operator apps always bypass the VPN, so they cannot see the tunnel or the server address. You can add your own apps to the list.
 - **Protocols your way.** The «Протоколы» menu turns off the protocols that work poorly on your networks; the VPN goes through the others. Mieru and NaïveProxy always show how they run (TCP, UDP or QUIC) and AmneziaWG its version (1, 2 or 3), so each can be turned off on its own.
 - **Stable connection.** A dead server is replaced within seconds, and the VPN stays on when the phone switches between Wi-Fi and mobile data.
 - **Several profiles.** The profile name at the top opens a list: switch with one tap; each has Refresh, Link and Delete.
@@ -84,12 +86,15 @@ A Windows app on the same core is the next stage.
 | [Go](https://go.dev) 1.26 and gomobile | client core, the `tigersb-core` CLI, Android library | BSD-3-Clause |
 | [Flutter](https://flutter.dev) 3.47 and Dart | app interface | BSD-3-Clause |
 | [Kotlin](https://kotlinlang.org) 2.4 | Android system VPN (VpnService), network watcher, Keystore | Apache-2.0 |
+| [Wintun](https://www.wintun.net) and [winipcfg](https://git.zx2c4.com/wireguard-windows/) | the VPN network adapter on Windows, its address, routes and DNS | Wintun: free redistribution, winipcfg: MIT |
+| [Inno Setup](https://jrsoftware.org/isinfo.php) | the Windows installer | its own, free |
 
-Code layout: `pkg/profile` is the profile and key format (the panel uses it too), `internal/` is the core (subscriptions, Xray config builder, routing and DPI evasion, TUIC, Mieru, NaïveProxy and AmneziaWG, meters, network auto-tuning), `mobile/` is the gomobile API for Android, `app/` is the Flutter and Kotlin app, `cmd/tigersb-core` is the CLI.
+Code layout: `pkg/profile` is the profile and key format (the panel uses it too), `internal/` is the core (subscriptions, Xray config builder, routing and DPI evasion, TUIC, Mieru, NaïveProxy and AmneziaWG, meters, network auto-tuning), `mobile/` is the core's API (gomobile for Android; the Windows service calls it), `desktop/` and `cmd/tigersb-service` are the Windows VPN service, `app/` is the Flutter app (Kotlin for Android, C++ for the Windows window), `cmd/tigersb-core` is the CLI.
 
 ## How it works
 
-- **One core everywhere.** Xray-core runs inside the app process, with no separate programs. On Android traffic arrives through the system VPN (TUN on gVisor), and no local ports are open.
+- **One core everywhere.** Xray-core runs inside the process, with no separate programs. On Android traffic arrives through the system VPN (TUN on gVisor), and no local ports are open.
+- **Windows.** The core runs in the `tigersb-service` service (SYSTEM) and traffic arrives through the Wintun adapter «TigerSB», which the service gives an address, the 0/1 and 128/1 routes, DNS and the MTU. The core binds its own connections to the real interface (`IP_UNICAST_IF`), so they never enter the tunnel. The app runs without administrator rights and controls the service over 127.0.0.1 with a token from a file only the computer's users can read. The watchdog and the network follow are the same as on Android.
 - **Smart routing.** Routes like Basic (Russian sites direct, the rest through the VPN), plus DPI evasion for every protocol over TCP (Xray, NaïveProxy, Mieru): fragmentation instead of zapret, with the Xray preset tuned on every connect, network change and channel failure. Protocols over QUIC (Hysteria 2, TUIC, NaïveProxy QUIC) send noise before each connection. The protocol's name shows what was added. The protocol is picked by speed, with no TCP priority. The LTE mode and MTU tuning work in every mode. Details: [docs/profile.md](docs/profile.md#режим-auto-умная) (in Russian).
 - **List mode** (`main`, in the CLI) splits traffic three ways from the TigerSB profile: blocked sites go through the exit abroad, everything else through the exit in Russia (the ISP sees nothing, sites see a Russian IP), and banks, government services and universities go direct.
 - **Stability.** In Basic and All the protocol is chosen from smoothed measurements without flapping between servers. The channel is checked with two GETs to t.me and YouTube over one connection; two failures in a row reopen the connections to the servers and four restart the core. A network change does not rebuild the tunnel, and with no internet at all the client waits instead of restarting. The MTU (1480, 1460 or 1280) follows how large a packet reaches the server without fragmenting; on mobile data TCP segments are clamped to that path and the operator's NAT is kept open.
@@ -98,10 +103,10 @@ Code layout: `pkg/profile` is the profile and key format (the panel uses it too)
 
 - **Signed profile.** The TigerSB profile is signed with Ed25519, and the panel's public key is pinned in the `tigersb://` key (`pk`). A profile with any other signature is rejected, so nobody on the way can swap the servers. For an `https://` link without `pk`, the key of the first profile received is pinned. Subscriptions are fetched over HTTPS only.
 - **Certificate pinning.** For servers with a self-signed certificate (`insecure=1` in the link) the client remembers the certificate's SHA-256 at import and accepts only that one afterwards, instead of the unsafe `allowInsecure`.
-- **Key storage.** The state file with the subscription key is encrypted with AES-256-GCM, and the encryption key is kept in Android Keystore. App backups are off (`allowBackup=false`).
+- **Key storage.** The state file with the subscription key is encrypted with AES-256-GCM, and the encryption key is kept in Android Keystore. App backups are off (`allowBackup=false`). On Windows the service's data in `%ProgramData%\TigerSB\data` is open only to the system and administrators, and the encryption key is sealed with DPAPI.
 - **Screen protection.** `FLAG_SECURE` blocks screenshots and screen recording, taps through other windows are ignored, and other apps' overlays are hidden.
 - **App isolation.** MAX, VK, Yandex, banking, government, marketplace and mobile operator apps are excluded from the tunnel by the system (`addDisallowedApplication`) and cannot see the server address. The panel cannot turn this list off.
-- **Updates.** The app takes `version.json` and the APK only from this repository's GitHub release and hands the APK to the system installer. Android installs an update only when it is signed with the same key as the installed version.
+- **Updates.** The app takes `version.json` and the APK only from this repository's GitHub release and hands the APK to the system installer. Android installs an update only when it is signed with the same key as the installed version. On Windows the app takes `version-windows.json` and the installer of its architecture from the same release.
 - **Device limit.** When fetching a subscription the client sends `x-hwid` and device details, as Remnawave and similar panels expect, so the server can count devices.
 
 ## Command-line tool
@@ -151,7 +156,15 @@ scripts/build-core-android.sh        # needs the Android SDK and NDK
 cd app && flutter build apk --split-per-abi
 ```
 
-Usually you don't need to: GitHub Actions builds the APK for every pull request (Actions tab, artifact `TigerSB-android`) and publishes the release from a tag. Publishing a version and setting the APK signing key: [docs/releases.md](docs/releases.md). Profile and key format: [docs/profile.md](docs/profile.md) (both in Russian).
+The Windows app is built on Windows (Visual Studio with C++ and [Inno Setup](https://jrsoftware.org/isinfo.php) needed):
+
+```bash
+GOARCH=amd64 go build -o dist/service/tigersb-service.exe ./cmd/tigersb-service   # put wintun.dll of the same architecture next to it
+cd app && flutter build windows
+iscc /DArch=x64 /DAppDir=... /DServiceDir=... windows/installer/TigerSB.iss
+```
+
+Usually you don't need to: GitHub Actions builds the APK and the Windows installers (artifact `TigerSB-windows`, with a check of the installed VPN on Windows) for every pull request (Actions tab, artifact `TigerSB-android`) and publishes the release from a tag. Publishing a version and setting the APK signing key: [docs/releases.md](docs/releases.md). Profile and key format: [docs/profile.md](docs/profile.md) (both in Russian).
 
 ## Licenses
 
