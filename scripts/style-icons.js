@@ -11,7 +11,7 @@ const path = require('path');
 
 const only = process.argv.slice(2);
 const pick = (name) => only.length === 0 || only.includes(name);
-const styles = ['zarya', 'curse', 'miku'].filter(pick);
+const styles = ['zarya', 'curse', 'miku', 'sun', 'star'].filter(pick);
 const res = 'app/android/app/src/main/res';
 const densities = { mdpi: 1, hdpi: 1.5, xhdpi: 2, xxhdpi: 3, xxxhdpi: 4 };
 
