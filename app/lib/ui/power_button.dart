@@ -54,8 +54,49 @@ class PowerButton extends StatelessWidget {
               ),
             ),
           ),
-          _Disc(on: on, busy: fx == Fx.connecting, size: size, onPressed: onPressed),
+          _Body(
+            fx: fx,
+            child: _Disc(on: on, busy: fx == Fx.connecting, size: size, onPressed: onPressed),
+          ),
         ],
+      ),
+    );
+  }
+}
+
+/// The button itself moves only in Бог Солнца: it beats like a heart in the
+/// smart mode and bends like rubber in the basic one.
+class _Body extends StatelessWidget {
+  const _Body({required this.fx, required this.child});
+
+  final Fx fx;
+  final Widget child;
+
+  /// How strongly the heart beats at [t]: two thumps, then a rest.
+  static double heartbeat(double t) {
+    const period = 0.9, second = 0.22;
+    final ph = t % period;
+    return math.max(math.exp(-ph * 14), ph >= second ? 0.75 * math.exp(-(ph - second) * 14) : 0.0);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (Palette.style != AppStyle.sun || (fx != Fx.smart && fx != Fx.basic)) return child;
+    return FxClock(
+      builder: (context, seconds) => ValueListenableBuilder<double>(
+        valueListenable: seconds,
+        child: child,
+        builder: (context, t, child) {
+          if (fx == Fx.smart) return Transform.scale(scale: 1 + 0.07 * heartbeat(t), child: child);
+          // Squashed one way and stretched the other, the axis turning and
+          // the stretch swinging back and forth like a rubber ball.
+          final axis = t * 0.9;
+          final s = 0.07 * math.sin(t * 3.4) + 0.025 * math.sin(t * 7.3);
+          final m = Matrix4.rotationZ(axis)
+            ..scaleByDouble(1 + s, 1 - s, 1, 1)
+            ..rotateZ(-axis);
+          return Transform(alignment: Alignment.center, transform: m, child: child);
+        },
       ),
     );
   }
@@ -242,7 +283,7 @@ class _RingPainter extends CustomPainter {
           case AppStyle.miku:
             _duet(canvas, c, t, r);
           case AppStyle.sun:
-            _rubber(canvas, c, t, r, outer);
+            _mist(canvas, c, t, r, outer);
           case AppStyle.star:
             _starFinger(canvas, c, t, outer);
         }
@@ -514,78 +555,67 @@ class _RingPainter extends CustomPainter {
     }
   }
 
-  /// Бог Солнца, smart: the drums of liberation: the heart beats twice,
-  /// the sun swells with it, and every beat throws a laugh out of the button.
+  /// Бог Солнца, smart: the drums of liberation: the sun beats like a heart,
+  /// its light bursting out on each thump, and now and then a laugh escapes.
   void _drums(Canvas canvas, Offset c, double t, double r, double outer) {
-    const period = 0.9, second = 0.22;
-    final ph = t % period;
-    final thump = math.max(math.exp(-ph * 14), ph >= second ? 0.75 * math.exp(-(ph - second) * 14) : 0.0);
+    final thump = _Body.heartbeat(t);
+    // The heart's light bursts out of the button on every thump.
     canvas.drawCircle(
       c,
-      r - 4 + 6 * thump,
+      radius + (outer - radius) * (0.3 + 0.7 * thump),
+      Paint()
+        ..shader = RadialGradient(
+          colors: [
+            Palette.second.withValues(alpha: 0.75 * thump),
+            Palette.orange.withValues(alpha: 0.35 * thump),
+            Palette.orange.withValues(alpha: 0),
+          ],
+          stops: const [0.55, 0.8, 1],
+        ).createShader(Rect.fromCircle(center: c, radius: outer + 8)),
+    );
+    canvas.drawCircle(
+      c,
+      r - 6 + 10 * thump,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 4 + 8 * thump
-        ..color = Palette.second.withValues(alpha: 0.25 + 0.45 * thump)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 4 + 6 * thump),
+        ..strokeWidth = 3 + 7 * thump
+        ..color = Palette.second.withValues(alpha: 0.3 + 0.6 * thump)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 3 + 6 * thump),
     );
-    _laughs(canvas, c, t, r, outer, words: const ['ХИ-ХИ!', 'ХА!', 'ШИ-ШИ!'], n: 3, cycle: period * 3, size: 17);
+    // Veins of light flash out on the beat.
+    for (var i = 0; i < 12; i++) {
+      final a = i * math.pi / 6 + 0.2 * math.sin(t * 0.7);
+      final from = c + _dir(a) * (r - 2);
+      final to = c + _dir(a) * (r + 2 + (outer - r + 6) * thump * (i.isEven ? 1 : 0.6));
+      canvas.drawLine(
+        from,
+        to,
+        Paint()
+          ..strokeWidth = 2.4
+          ..strokeCap = StrokeCap.round
+          ..color = (i.isEven ? Palette.second : Palette.orangeLight).withValues(alpha: 0.9 * thump),
+      );
+    }
+    _laughs(canvas, c, t, r, outer, words: const ['ХИ-ХИ!', 'ШИ-ШИ!'], n: 1, cycle: 3.6, size: 16);
   }
 
-  /// Бог Солнца, basic: the world is rubber: fists on stretching arms shoot
-  /// out of the button and snap back, each where it likes.
-  void _rubber(Canvas canvas, Offset c, double t, double r, double outer) {
-    const n = 3, cycle = 1.5;
+  /// Бог Солнца, basic: the button bends like rubber (see _Body) in a light
+  /// mist that drifts slowly around it.
+  void _mist(Canvas canvas, Offset c, double t, double r, double outer) {
+    const n = 14;
     for (var i = 0; i < n; i++) {
-      final time = t / cycle + i / n;
-      final k = time.floor();
-      final p = time - k;
-      final a = _rnd(i, k) * 2 * math.pi;
-      // Out fast, a wobble at full reach, back with a snap.
-      final reach = p < 0.3
-          ? Curves.easeOutBack.transform(p / 0.3)
-          : p < 0.65
-          ? 1.0
-          : 1 - Curves.easeIn.transform((p - 0.65) / 0.35);
-      final len = (outer - r + 46) * reach;
-      final d = _dir(a), side = _dir(a + math.pi / 2);
-      final from = c + d * (r - 6);
-      final tip = from + d * len;
-      final wobble = math.sin(p * 40) * 6 * (1 - p);
-      final mid = from + d * (len / 2) + side * wobble;
-      final arm = Path()
-        ..moveTo(from.dx, from.dy)
-        ..quadraticBezierTo(mid.dx, mid.dy, tip.dx, tip.dy);
-      canvas.drawPath(
-        arm,
+      final a = i * 2 * math.pi / n + t * (i.isEven ? 0.18 : -0.12);
+      final drift = 6 * math.sin(t * 0.8 + i * 1.7);
+      final at = c + _dir(a) * (r + 4 + drift);
+      final rr = 14 + 6 * math.sin(t * 0.6 + i * 2.3);
+      canvas.drawCircle(
+        at,
+        rr,
         Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 7
-          ..strokeCap = StrokeCap.round
-          ..color = Palette.second.withValues(alpha: 0.3)
-          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+          ..color = Palette.shine.withValues(alpha: 0.16 + 0.08 * math.sin(t * 1.1 + i))
+          ..maskFilter = MaskFilter.blur(BlurStyle.normal, rr * 0.7),
       );
-      canvas.drawPath(
-        arm,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 3.5
-          ..strokeCap = StrokeCap.round
-          ..color = Palette.second.withValues(alpha: 0.95),
-      );
-      if (len > 4) {
-        canvas.drawCircle(tip, 7.5, Paint()..color = Palette.orange);
-        canvas.drawCircle(
-          tip,
-          7.5,
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 1.6
-            ..color = Palette.second,
-        );
-      }
     }
-    _laughs(canvas, c, t, r, outer, words: const ['хи-хи', 'хе-хе'], n: 2, cycle: 2.4, size: 14);
   }
 
   /// Бог Солнца, all: absolute freedom: white clouds of the sun god bob
