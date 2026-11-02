@@ -130,11 +130,13 @@ class FakeCore implements Core {
 
   List<String> userApps = [];
 
-  @override
-  Future<List<AppInfo>> apps() async => const [
+  List<AppInfo> appList = const [
     AppInfo(package: 'ru.oneme.app', label: 'MAX'),
     AppInfo(package: 'org.example.game', label: 'Игра'),
   ];
+
+  @override
+  Future<List<AppInfo>> apps() async => appList;
 
   @override
   Future<void> setUserApps(List<String> packages) async {
@@ -208,11 +210,11 @@ class FakeCore implements Core {
   Stream<String> keys() => incoming.stream;
 }
 
-/// The computer app's core: it starts with Windows instead of leaving apps
-/// out of the VPN.
+/// The computer app's core: it starts with Windows and leaves programs out
+/// of the VPN.
 class FakeDesktopCore extends FakeCore implements Desktop {
   bool atLogin = false;
-  bool minimized = false;
+  StartAs as = StartAs.open;
 
   @override
   Future<bool> launchAtLogin() async => atLogin;
@@ -221,10 +223,10 @@ class FakeDesktopCore extends FakeCore implements Desktop {
   Future<void> setLaunchAtLogin(bool on) async => atLogin = on;
 
   @override
-  Future<bool> startMinimized() async => minimized;
+  Future<StartAs> startAs() async => as;
 
   @override
-  Future<void> setStartMinimized(bool on) async => minimized = on;
+  Future<void> setStartAs(StartAs a) async => as = a;
 }
 
 void main() {
@@ -485,7 +487,9 @@ void main() {
     expect(find.text('Игра'), findsOneWidget);
   });
 
-  testWidgets('on a computer the menu has startup settings: start with Windows, then minimized', (tester) async {
+  testWidgets('on a computer the menu has startup settings: start with Windows, then open, minimized or closed', (
+    tester,
+  ) async {
     final core = FakeDesktopCore()
       ..profile = ProfileInfo(name: 'Дом', hasRU: true, fetched: DateTime.now(), exits: const []);
     await tester.pumpWidget(TigerApp(core: core));
@@ -493,22 +497,55 @@ void main() {
     await tester.tap(find.byType(PopupMenuButton<String>));
     await tester.pumpAndSettle();
     expect(find.text('Приложения мимо VPN'), findsNothing);
+    expect(find.text('Процессы мимо VPN'), findsOneWidget);
     expect(find.text('Открыть журнал'), findsOneWidget);
     await tester.tap(find.text('Настройки запуска'));
     await tester.pumpAndSettle();
 
     Switch toggle(String title) =>
         tester.widget<Switch>(find.descendant(of: find.widgetWithText(ListTile, title), matching: find.byType(Switch)));
-    // Minimized only means something when the app starts with Windows.
+    ListTile choice(String title) => tester.widget<ListTile>(find.widgetWithText(ListTile, title));
+    // The way to start only means something when the app starts with Windows.
     expect(toggle('Запуск с системой').value, isFalse);
-    expect(toggle('Запуск в свёрнутом виде').onChanged, isNull);
+    expect(choice('Закрытом').enabled, isFalse);
     await tester.tap(find.text('Запуск с системой'));
     await tester.pumpAndSettle();
     expect(core.atLogin, isTrue);
-    await tester.tap(find.text('Запуск в свёрнутом виде'));
+    expect(choice('Открытом').selected, isTrue);
+    await tester.tap(find.text('Закрытом'));
     await tester.pumpAndSettle();
-    expect(core.minimized, isTrue);
-    expect(toggle('Запуск в свёрнутом виде').value, isTrue);
+    expect(core.as, StartAs.closed);
+    expect(choice('Закрытом').selected, isTrue);
+    expect(choice('Открытом').selected, isFalse);
+    await tester.tap(find.text('Свёрнутом'));
+    await tester.pumpAndSettle();
+    expect(core.as, StartAs.minimized);
+  });
+
+  testWidgets('on a computer programs go past the VPN: running ones and ones picked before', (tester) async {
+    final core = FakeDesktopCore()
+      ..appList = const [
+        AppInfo(package: 'chrome.exe', label: 'chrome.exe'),
+        AppInfo(package: 'stalcraft.exe', label: 'stalcraft.exe'),
+      ]
+      ..profile = ProfileInfo(
+        name: 'Дом',
+        hasRU: true,
+        fetched: DateTime.now(),
+        exits: const [],
+        userApps: const ['launcher.exe'],
+      );
+    await tester.pumpWidget(TigerApp(core: core));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Процессы мимо VPN'));
+    await tester.pumpAndSettle();
+    // A program picked before stays in the list while it is not running.
+    expect(find.text('launcher.exe'), findsOneWidget);
+    await tester.tap(find.text('stalcraft.exe'));
+    await tester.pumpAndSettle();
+    expect(core.profile!.userApps, ['launcher.exe', 'stalcraft.exe']);
   });
 
   testWidgets('the menu opens protocols: each turns off, the last one stays on', (tester) async {

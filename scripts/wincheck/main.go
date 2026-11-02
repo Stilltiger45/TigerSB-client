@@ -15,6 +15,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -181,6 +182,9 @@ func check(c *conn, key, mode string) error {
 	if err := refusesIPv6(); err != nil {
 		return err
 	}
+	if err := c.programOutside(); err != nil {
+		return err
+	}
 
 	// Off and on again: the TUN adapter of the first start must be gone.
 	for i := range 2 {
@@ -281,6 +285,95 @@ func refusesIPv6() error {
 	fmt.Printf("IPv6: %v in %s\n", err, took)
 	if took > 5*time.Second {
 		return fmt.Errorf("IPv6-соединение отклонено только через %s: браузеры будут долго ждать", took)
+	}
+	return nil
+}
+
+// programOutside leaves wincheck itself out of the VPN, as a user leaves a
+// game: the service must list it among running programs, and its sites
+// must then open without traffic through the server.
+func (c *conn) programOutside() error {
+	self := filepath.Base(os.Args[0])
+	if !strings.HasSuffix(strings.ToLower(self), ".exe") {
+		self += ".exe"
+	}
+	list, err := c.call("apps", nil)
+	if err != nil {
+		return err
+	}
+	found := false
+	for _, p := range list.([]any) {
+		if m, _ := p.(map[string]any); m != nil && strings.EqualFold(fmt.Sprint(m["name"]), self) {
+			found = true
+		}
+	}
+	if !found {
+		return fmt.Errorf("в списке процессов нет %s: %v", self, list)
+	}
+	// Each stats call also pings the server, which adds some kilobytes, so
+	// the check downloads 2 MB: first through the VPN, to see the meter count
+	// it, then with this program outside the VPN, where it must not.
+	through := func() (int64, error) {
+		down := func() int64 {
+			s, _ := c.call("stats", nil)
+			var st struct{ Down int64 }
+			json.Unmarshal([]byte(fmt.Sprint(s)), &st)
+			return st.Down
+		}
+		before := down()
+		if err := fetch(bigURL, bigSize); err != nil {
+			return 0, err
+		}
+		return down() - before, nil
+	}
+	n, err := through()
+	if err != nil {
+		return fmt.Errorf("через VPN: %w", err)
+	}
+	fmt.Printf("%s through the VPN: %d bytes through the server\n", self, n)
+	if n < bigSize {
+		return fmt.Errorf("через сервер прошло %d байт из %d: счётчик не годится для проверки", n, bigSize)
+	}
+	if _, err := c.call("setUserApps", map[string]any{"apps": []string{self}}); err != nil {
+		return err
+	}
+	if err := c.waitPhase("connected", time.Minute); err != nil {
+		return fmt.Errorf("после выбора процесса: %w", err)
+	}
+	if n, err = through(); err != nil {
+		return fmt.Errorf("%s мимо VPN: %w", self, err)
+	}
+	fmt.Printf("%s outside the VPN: %d bytes through the server\n", self, n)
+	if n > bigSize/2 {
+		return fmt.Errorf("%s выбран мимо VPN, но через сервер прошло %d байт", self, n)
+	}
+	if _, err := c.call("setUserApps", map[string]any{"apps": []string{}}); err != nil {
+		return err
+	}
+	return c.waitPhase("connected", time.Minute)
+}
+
+const (
+	bigURL  = "https://speed.cloudflare.com/__down?bytes=2000000"
+	bigSize = 2_000_000
+)
+
+// fetch downloads url and checks it gave size bytes.
+func fetch(url string, size int64) error {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	res, err := (&http.Client{Transport: &http.Transport{Proxy: nil}}).Do(req)
+	if err != nil {
+		return err
+	}
+	defer res.Body.Close()
+	n, err := io.Copy(io.Discard, res.Body)
+	if err != nil {
+		return err
+	}
+	if res.StatusCode != http.StatusOK || n != size {
+		return fmt.Errorf("%s: %d, %d байт", url, res.StatusCode, n)
 	}
 	return nil
 }

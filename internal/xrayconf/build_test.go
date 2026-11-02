@@ -38,6 +38,7 @@ type built struct {
 			RuleTag     string   `json:"ruleTag"`
 			OutboundTag string   `json:"outboundTag"`
 			Domain      []string `json:"domain"`
+			Process     []string `json:"process"`
 		} `json:"rules"`
 		Balancers []json.RawMessage `json:"balancers"`
 	} `json:"routing"`
@@ -630,5 +631,38 @@ func TestCarried(t *testing.T) {
 	}
 	if v := xrayconf.Variants(p); !slices.Equal(v, []string{"foreign/sub/s1"}) {
 		t.Errorf("copies through the presets for %v, want only VLESS", v)
+	}
+}
+
+func TestDirectProcesses(t *testing.T) {
+	b, dest := buildOpt(t, fixture(t), xrayconf.Options{
+		Mode:            xrayconf.ModeAll,
+		Inbounds:        []xrayconf.Inbound{{Tag: "tun-in", Protocol: "tun"}},
+		DirectProcesses: []string{"stalcraft.exe"},
+	})
+	if dest["processes"] != xrayconf.TagDirect {
+		t.Fatalf("rules %v", dest)
+	}
+	// Before the block of IPv6 and every list: the program goes direct in
+	// every mode; only DNS to the TUN comes first.
+	for _, r := range b.Routing.Rules {
+		if r.RuleTag == "processes" {
+			if !slices.Equal(r.Process, []string{"stalcraft.exe"}) {
+				t.Errorf("processes %v", r.Process)
+			}
+			break
+		}
+		if r.RuleTag != "tun-dns" && r.RuleTag != "dns" {
+			t.Errorf("rule %q comes before the processes", r.RuleTag)
+		}
+	}
+	// Without a TUN there is no process to tell: no rule.
+	_, dest = buildOpt(t, fixture(t), xrayconf.Options{
+		Mode:            xrayconf.ModeAll,
+		Inbounds:        []xrayconf.Inbound{{Tag: "socks-in", Protocol: "socks", Listen: "127.0.0.1", Port: 10808}},
+		DirectProcesses: []string{"stalcraft.exe"},
+	})
+	if _, ok := dest["processes"]; ok {
+		t.Errorf("a rule for processes without a TUN")
 	}
 }

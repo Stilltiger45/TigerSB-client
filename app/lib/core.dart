@@ -278,10 +278,14 @@ abstract class Desktop {
   Future<bool> launchAtLogin();
   Future<void> setLaunchAtLogin(bool on);
 
-  /// Whether the app, when it starts with Windows, starts minimized.
-  Future<bool> startMinimized();
-  Future<void> setStartMinimized(bool on);
+  /// How the app shows itself when it starts with Windows.
+  Future<StartAs> startAs();
+  Future<void> setStartAs(StartAs as);
 }
+
+/// How the app starts with Windows: with its window open, minimized to the
+/// taskbar, or closed (it turns the VPN back on if it was on, and quits).
+enum StartAs { open, minimized, closed }
 
 class CoreError implements Exception {
   CoreError(this.message);

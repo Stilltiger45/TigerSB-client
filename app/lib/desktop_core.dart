@@ -217,12 +217,16 @@ class DesktopCore implements Core, Desktop {
   @override
   Future<void> setStyle(String style) => _set('style', style);
 
-  /// Windows has no way to leave single apps out of the VPN.
+  /// Running programs, by name ("game.exe"): the service sends the
+  /// connections of the ones the user picks direct.
   @override
-  Future<List<AppInfo>> apps() async => const [];
+  Future<List<AppInfo>> apps() async => [
+    for (final p in await _call<List<Object?>>('apps') ?? const [])
+      if (p is Map) AppInfo(package: p['name'] as String, label: p['name'] as String),
+  ];
 
   @override
-  Future<void> setUserApps(List<String> packages) async {}
+  Future<void> setUserApps(List<String> packages) => _call('setUserApps', {'apps': packages});
 
   @override
   Future<void> setProtocolsOff(List<String> names) => _call('setProtocolsOff', {'names': names});
@@ -359,10 +363,23 @@ class DesktopCore implements Core, Desktop {
   Stream<String> keys() => _keys.stream;
 
   /// Started with Windows: the VPN comes back on if the user left it on.
+  /// Right after login the service may still be starting: it is asked
+  /// again for a minute.
   Future<void> resume() async {
+    final until = DateTime.now().add(const Duration(minutes: 1));
+    bool? wasOn;
+    while (wasOn == null) {
+      try {
+        wasOn = await _call<bool>('wasOn') ?? false;
+      } on CoreError {
+        if (DateTime.now().isAfter(until)) return;
+        await Future<void>.delayed(const Duration(seconds: 2));
+      }
+    }
+    if (!wasOn) return;
     try {
-      if (await _call<bool>('wasOn') == true) await connect();
-    } catch (_) {
+      await connect();
+    } on CoreError {
       // The status shows why.
     }
   }
@@ -381,20 +398,29 @@ class DesktopCore implements Core, Desktop {
       await Process.run('reg.exe', ['delete', _runKey, '/v', 'TigerSB', '/f']);
       return;
     }
-    await _writeRun(await startMinimized());
+    await _writeRun(await startAs());
   }
 
   @override
-  Future<bool> startMinimized() async => (await _settings())['startMinimized'] == true;
-
-  @override
-  Future<void> setStartMinimized(bool on) async {
-    await _set('startMinimized', on);
-    if (await launchAtLogin()) await _writeRun(on);
+  Future<StartAs> startAs() async {
+    final s = await _settings();
+    // Before the choice of three there was only "minimized".
+    return StartAs.values.asNameMap()[s['startAs']] ?? (s['startMinimized'] == true ? StartAs.minimized : StartAs.open);
   }
 
-  Future<void> _writeRun(bool minimized) async {
-    final command = '"${Platform.resolvedExecutable}" --autostart${minimized ? ' --minimized' : ''}';
+  @override
+  Future<void> setStartAs(StartAs as) async {
+    await _set('startAs', as.name);
+    if (await launchAtLogin()) await _writeRun(as);
+  }
+
+  Future<void> _writeRun(StartAs as) async {
+    final flag = switch (as) {
+      StartAs.open => '',
+      StartAs.minimized => ' --minimized',
+      StartAs.closed => ' --closed',
+    };
+    final command = '"${Platform.resolvedExecutable}" --autostart$flag';
     final r = await Process.run('reg.exe', ['add', _runKey, '/v', 'TigerSB', '/t', 'REG_SZ', '/d', command, '/f']);
     if (r.exitCode != 0) throw CoreError('Не удалось включить запуск с системой: ${r.stderr}');
   }

@@ -101,6 +101,9 @@ type Options struct {
 	// NoGeo leaves out the geosite: and geoip: lists, for a start before
 	// geosite.dat and geoip.dat are downloaded: the rest of the routing works.
 	NoGeo bool
+	// DirectProcesses are programs whose connections through the TUN go
+	// direct, by name ("game.exe") as Xray matches them on Windows.
+	DirectProcesses []string
 }
 
 // privateRanges never leave the device's own network.
@@ -117,6 +120,7 @@ type rule struct {
 	IP          []string `json:"ip,omitempty"`
 	Port        string   `json:"port,omitempty"`
 	Network     string   `json:"network,omitempty"`
+	Process     []string `json:"process,omitempty"`
 	OutboundTag string   `json:"outboundTag,omitempty"`
 	RuleTag     string   `json:"ruleTag,omitempty"`
 }
@@ -218,6 +222,11 @@ func Build(p *profile.Profile, opt Options) ([]byte, error) {
 	}
 	if hasDNSVia {
 		rules = append(rules, dnsVia.apply(rule{Type: "field", InboundTag: []string{TagDNS}, RuleTag: "dns"}))
+	}
+	if len(tunTags) > 0 && len(opt.DirectProcesses) > 0 {
+		// Programs the user left out of the VPN, by the process that opened
+		// the connection (Windows): a game that must see the Russian address.
+		rules = append(rules, direct.apply(rule{Type: "field", InboundTag: tunTags, Process: opt.DirectProcesses, RuleTag: "processes"}))
 	}
 	rules = append(rules, direct.apply(rule{Type: "field", IP: privateRanges, RuleTag: "private"}))
 	if len(tunTags) > 0 {

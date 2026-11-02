@@ -178,6 +178,9 @@ func start(tun xrayconf.Inbound, mode string, before func() error) error {
 		LogFile:  filepath.Join(dataDir, xrayLog),
 		Evasion:  evasion,
 		NoGeo:    noGeo,
+		// On a computer the user's list holds programs, which Xray tells
+		// by the process behind each connection.
+		DirectProcesses: directProcesses(),
 	})
 	if err != nil {
 		return err
@@ -310,7 +313,7 @@ func Protocol() string {
 }
 
 // SetUserApps saves the apps the user leaves out of the VPN, a JSON array of
-// Android package names. A running VPN applies them when it reconnects.
+// Android package names, or of program names ("game.exe") on Windows. A running VPN applies them when it reconnects.
 func SetUserApps(apps string) error {
 	var list []string
 	if err := json.Unmarshal([]byte(apps), &list); err != nil {
@@ -326,6 +329,24 @@ func SetUserApps(apps string) error {
 }
 
 const userAppsFile = "apps.json"
+
+// directProcesses are the programs left out of the VPN on Windows, where
+// the user's list holds program names instead of Android packages.
+func directProcesses() []string {
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+	return userApps()
+}
+
+// shieldApps are the Android apps always left out of the VPN; a computer
+// has none of them.
+func shieldApps() []string {
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	return xrayconf.ShieldApps
+}
 
 // userApps reads what SetUserApps saved; none when nothing was.
 func userApps() []string {
@@ -543,7 +564,7 @@ func info(id string, st *subscription.State, p *profile.Profile) (string, error)
 		HasRU:        p.HasRole(profile.RoleRU),
 		HasLists:     len(blocked.Domains)+len(blocked.IPs) > 0,
 		Foreign:      st.Foreign,
-		ShieldApps:   xrayconf.ShieldApps,
+		ShieldApps:   shieldApps(),
 		UserApps:     userApps(),
 		Protocols:    xrayconf.ProtocolNames(p),
 		ProtocolsOff: protocolsOff(),

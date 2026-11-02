@@ -22,6 +22,14 @@ Future<void> main(List<String> args) async {
     // Dark and standard, as before the user chose.
   }
   // Started with Windows: the VPN comes back on if the user left it on.
-  if (core is DesktopCore && args.contains('--autostart')) core.resume();
+  if (core is DesktopCore && args.contains('--autostart')) {
+    if (args.contains('--closed')) {
+      // «Закрытом»: no window, the runner never shows it; the VPN lives in
+      // the service.
+      await core.resume();
+      exit(0);
+    }
+    core.resume();
+  }
   runApp(TigerApp(core: core));
 }

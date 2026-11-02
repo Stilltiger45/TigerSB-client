@@ -208,15 +208,34 @@ func (s *server) seen() []http.Header {
 	return s.headers
 }
 
+// freePort finds a port that is free for both TCP and UDP: the SOCKS inbound
+// listens on both, and Windows keeps some UDP ports reserved even when the
+// same TCP port is free ("forbidden by its access permissions").
+func freePort(t *testing.T) int {
+	t.Helper()
+	// The UDP port first: Windows runners reserve ranges of UDP ports,
+	// and a port the system gives for UDP is one UDP can use.
+	for range 50 {
+		c, err := net.ListenPacket("udp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		port := c.LocalAddr().(*net.UDPAddr).Port
+		l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		c.Close()
+		if err == nil {
+			l.Close()
+			return port
+		}
+	}
+	t.Fatal("no port free for both TCP and UDP")
+	return 0
+}
+
 // start runs the client's own config for the profile, with a SOCKS port.
 func start(t *testing.T, p *profile.Profile) (*core.Instance, int) {
 	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	socks := l.Addr().(*net.TCPAddr).Port
-	l.Close()
+	socks := freePort(t)
 	cfg, err := xrayconf.Build(p, xrayconf.Options{
 		Mode:     xrayconf.ModeAll,
 		LogLevel: "none",
@@ -467,12 +486,7 @@ func TestCaddy(t *testing.T) {
 	key, _ := x509.MarshalPKCS8PrivateKey(crt.PrivateKey)
 	os.WriteFile(filepath.Join(dir, "cert.pem"), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: crt.Certificate[0]}), 0o600)
 	os.WriteFile(filepath.Join(dir, "key.pem"), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: key}), 0o600)
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	port := l.Addr().(*net.TCPAddr).Port
-	l.Close()
+	port := freePort(t)
 	caddyfile := fmt.Sprintf(`{
 	admin off
 	auto_https disable_redirects

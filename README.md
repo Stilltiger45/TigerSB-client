@@ -54,7 +54,7 @@
 
 The key comes from whoever runs the server: in [TigerSB-panel](https://github.com/Stilltiger45/TigerSB-panel) it is on the Users tab. The app updates itself: menu on the right → «Проверить обновление» (Check for update).
 
-On Windows a system service holds the VPN, so it keeps working with the window closed. Menu «⋮» → «Настройки запуска» (Startup settings) starts the app with Windows, minimized if you like. If the VPN was on, it comes back on after a reboot.
+On Windows a system service holds the VPN, so it keeps working with the window closed. Menu «⋮» → «Настройки запуска» (Startup settings) starts the app with Windows: open, minimized, or with no window at all (the VPN comes back on by itself). If the VPN was on, it comes back on after a reboot.
 
 ## Modes
 
@@ -64,7 +64,7 @@ On Windows a system service holds the VPN, so it keeps working with the window c
 
 ## What else it does
 
-- **Apps outside the VPN** (on Android). MAX, VK, Yandex, banking, government, marketplace and mobile operator apps always bypass the VPN, so they cannot see the tunnel or the server address. You can add your own apps to the list.
+- **Apps outside the VPN** (on Android). MAX, VK, Yandex, banking, government, marketplace and mobile operator apps always bypass the VPN, so they cannot see the tunnel or the server address. You can add your own apps to the list. On Windows the same menu item is «Процессы мимо VPN» (Programs outside the VPN): pick running programs, for example a game where your account is tied to your region.
 - **Protocols your way.** The «Протоколы» menu turns off the protocols that work poorly on your networks; the VPN goes through the others. Mieru and NaïveProxy always show how they run (TCP, UDP or QUIC) and AmneziaWG its version (1, 2 or 3), so each can be turned off on its own.
 - **Stable connection.** A dead server is replaced within seconds, and the VPN stays on when the phone switches between Wi-Fi and mobile data.
 - **Several profiles.** The profile name at the top opens a list: switch with one tap; each has Refresh, Link and Delete.

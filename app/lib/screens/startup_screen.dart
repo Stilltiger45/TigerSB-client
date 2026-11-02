@@ -6,8 +6,9 @@ import '../ui/glass.dart';
 import '../ui/palette.dart';
 
 /// «Настройки запуска» on a computer: whether TigerSB starts with Windows,
-/// and whether it then starts minimized. The VPN itself lives in a system
-/// service and comes back on after a restart when it was on.
+/// and whether it then starts open, minimized or closed. The VPN itself
+/// lives in a system service and comes back on after a restart when it was
+/// on.
 class StartupScreen extends StatefulWidget {
   const StartupScreen({super.key, required this.desktop});
 
@@ -19,7 +20,7 @@ class StartupScreen extends StatefulWidget {
 
 class _StartupScreenState extends State<StartupScreen> {
   bool? _atLogin;
-  bool _minimized = false;
+  StartAs _as = StartAs.open;
 
   @override
   void initState() {
@@ -29,11 +30,11 @@ class _StartupScreenState extends State<StartupScreen> {
 
   Future<void> _load() async {
     final atLogin = await widget.desktop.launchAtLogin();
-    final minimized = await widget.desktop.startMinimized();
+    final startAs = await widget.desktop.startAs();
     if (!mounted) return;
     setState(() {
       _atLogin = atLogin;
-      _minimized = minimized;
+      _as = startAs;
     });
   }
 
@@ -92,16 +93,40 @@ class _StartupScreenState extends State<StartupScreen> {
                       atLogin,
                       (v) => _change(() => widget.desktop.setLaunchAtLogin(v), () => _atLogin = v),
                     ),
-                    _row(
-                      'Запуск в свёрнутом виде',
-                      'При запуске с системой окно сразу свёрнуто',
-                      _minimized,
-                      atLogin ? (v) => _change(() => widget.desktop.setStartMinimized(v), () => _minimized = v) : null,
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 4),
+                      child: Text('ЗАПУСК В ВИДЕ', style: capsStyle.copyWith(color: atLogin ? null : Palette.faint)),
                     ),
+                    for (final (choice, title, subtitle) in _choices) _choice(choice, title, subtitle, atLogin),
                   ],
                 ),
         ),
       ),
+    );
+  }
+
+  static const _choices = [
+    (StartAs.open, 'Открытом', 'Окно TigerSB открывается'),
+    (StartAs.minimized, 'Свёрнутом', 'Окно свёрнуто на панели задач'),
+    (StartAs.closed, 'Закрытом', 'Окна нет: VPN включается сам, если был включён'),
+  ];
+
+  /// One of the ways to start, which only means something when the app
+  /// starts with Windows.
+  Widget _choice(StartAs choice, String title, String subtitle, bool enabled) {
+    final on = _as == choice;
+    return ListTile(
+      key: ValueKey(choice),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+      enabled: enabled,
+      title: Text(title),
+      subtitle: Text(subtitle, style: TextStyle(color: Palette.muted, fontSize: 12.5)),
+      trailing: Icon(
+        on ? Icons.radio_button_checked_rounded : Icons.radio_button_off_rounded,
+        color: on && enabled ? Palette.orange : Palette.muted,
+      ),
+      selected: on,
+      onTap: !enabled || on ? null : () => _change(() => widget.desktop.setStartAs(choice), () => _as = choice),
     );
   }
 

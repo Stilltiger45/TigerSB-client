@@ -25,3 +25,6 @@ func (NoPlatform) WatchNetwork(func()) (func(), error) { return nil, errNoPlatfo
 func (NoPlatform) ConfigureTUN(string, int) error      { return errNoPlatform }
 func (NoPlatform) ReleaseTUN(string)                   {}
 func (NoPlatform) String() string                      { return "none" }
+
+// Programs lists running programs; only the Windows service needs them.
+func Programs() ([]Program, error) { return nil, errNoPlatform }

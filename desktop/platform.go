@@ -70,3 +70,9 @@ var (
 
 // TUNName is the name of the network adapter the service creates.
 const TUNName = "TigerSB"
+
+// Program is a running program for the list of those left out of the VPN.
+type Program struct {
+	Name string `json:"name"` // "game.exe", what Xray matches
+	Path string `json:"path"` // its file, when Windows tells
+}
