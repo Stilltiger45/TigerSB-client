@@ -4,6 +4,7 @@ package desktop
 
 import (
 	"errors"
+	"net"
 	"os"
 )
 
@@ -28,3 +29,7 @@ func (NoPlatform) String() string                      { return "none" }
 
 // Programs lists running programs; only the Windows service needs them.
 func Programs() ([]Program, error) { return nil, errNoPlatform }
+
+// checkCaller lets every connection in where there is no Windows service:
+// the tests talk to the server directly.
+func checkCaller(net.Conn) error { return nil }

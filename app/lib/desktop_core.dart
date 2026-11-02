@@ -362,25 +362,20 @@ class DesktopCore implements Core, Desktop {
   @override
   Stream<String> keys() => _keys.stream;
 
-  /// Started with Windows: the VPN comes back on if the user left it on.
-  /// Right after login the service may still be starting: it is asked
-  /// again for a minute.
+  /// Started with Windows: the service has already turned the VPN back on
+  /// if the user left it on, before the programs that start with Windows.
+  /// The app only asks it to try again if that failed. Right after login
+  /// the service may still be starting: it is asked again for a minute.
   Future<void> resume() async {
     final until = DateTime.now().add(const Duration(minutes: 1));
-    bool? wasOn;
-    while (wasOn == null) {
+    while (true) {
       try {
-        wasOn = await _call<bool>('wasOn') ?? false;
+        await _call<bool>('resume');
+        return;
       } on CoreError {
         if (DateTime.now().isAfter(until)) return;
         await Future<void>.delayed(const Duration(seconds: 2));
       }
-    }
-    if (!wasOn) return;
-    try {
-      await connect();
-    } on CoreError {
-      // The status shows why.
     }
   }
 

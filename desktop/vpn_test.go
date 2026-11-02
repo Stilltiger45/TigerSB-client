@@ -181,6 +181,15 @@ func TestConnectFollowsNetworkAndRemembers(t *testing.T) {
 	if !again.WasOn() || again.Mode() != "basic" {
 		t.Errorf("after a restart: on %v, mode %s", again.WasOn(), again.Mode())
 	}
+	// The service turns it back on by itself, and the app asking again
+	// later does not tear it down.
+	starts := len(eng.starts)
+	again.Resume()
+	waitFor(t, "resume after a restart", func() bool { return again.Status().Phase == Connected })
+	again.Resume()
+	if again.Status().Phase != Connected || len(eng.starts) != starts+1 {
+		t.Errorf("resume again: %+v, %d starts after %d", again.Status(), len(eng.starts), starts)
+	}
 	again.Disconnect()
 	if again.WasOn() || again.Status().Phase != Disconnected || bypass.Index() != 0 {
 		t.Errorf("after disconnect: on %v, status %+v, bound to %d", again.WasOn(), again.Status(), bypass.Index())
@@ -199,6 +208,17 @@ func TestWaitsForNetwork(t *testing.T) {
 	}
 	plat.move(wifi, true)
 	waitFor(t, "connect once the network is up", func() bool { return v.Status().Phase == Connected })
+}
+
+func TestResumeLeavesOffAlone(t *testing.T) {
+	fast(t)
+	eng := &fakeEngine{healthy: true, online: true}
+	v := NewVPN(eng, &fakePlatform{}, t.TempDir())
+	defer v.Close()
+	v.Resume()
+	if st := v.Status(); st.Phase != Disconnected || len(eng.starts) != 0 {
+		t.Errorf("a VPN the user left off: %+v, %d starts", st, len(eng.starts))
+	}
 }
 
 func TestWatchdogRestartsAfterFailures(t *testing.T) {
