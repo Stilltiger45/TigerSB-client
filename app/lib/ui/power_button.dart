@@ -261,8 +261,18 @@ class _RingPainter extends CustomPainter {
             _equaliser(canvas, c, t, r, outer);
             _arc(canvas, c, r, t * 1.6, math.pi * 2, Palette.second, 1.6);
           case AppStyle.sun:
-            _corona(canvas, c, t, r, outer);
-            _sunburst(canvas, c, t, r, outer);
+            _clouds(canvas, c, t, r, outer);
+            _laughs(
+              canvas,
+              c,
+              t,
+              r,
+              outer,
+              words: const ['ХА-ХА-ХА!', 'ХА-ХА!', 'ХИ-ХИ-ХИ!', 'ШИ-ШИ-ШИ!'],
+              n: 6,
+              cycle: 2.6,
+              size: 18,
+            );
           case AppStyle.star:
             _timeStop(canvas, c, t, r, outer);
         }
@@ -505,134 +515,139 @@ class _RingPainter extends CustomPainter {
   }
 
   /// Бог Солнца, smart: the drums of liberation: the heart beats twice,
-  /// the ring swells with it and each beat rolls out as a wave.
+  /// the sun swells with it, and every beat throws a laugh out of the button.
   void _drums(Canvas canvas, Offset c, double t, double r, double outer) {
-    const period = 0.9, second = 0.22, life = 1.4;
-    for (var k = 0; k < 3; k++) {
-      final base = ((t / period).floor() - k) * period;
-      for (final (delay, color) in [(0.0, Palette.orange), (second, Palette.second)]) {
-        final age = t - base - delay;
-        if (age < 0 || age > life) continue;
-        final p = age / life;
-        canvas.drawCircle(
-          c,
-          r + p * (outer - r),
-          Paint()
-            ..style = PaintingStyle.stroke
-            ..strokeWidth = 3.2 * (1 - p) + 0.4
-            ..color = color.withValues(alpha: 0.85 * (1 - p)),
-        );
-      }
-    }
-    final ph = (t % period) / period * period;
+    const period = 0.9, second = 0.22;
+    final ph = t % period;
     final thump = math.max(math.exp(-ph * 14), ph >= second ? 0.75 * math.exp(-(ph - second) * 14) : 0.0);
     canvas.drawCircle(
       c,
-      r,
+      r - 4 + 6 * thump,
       Paint()
         ..style = PaintingStyle.stroke
-        ..strokeWidth = 2 + 5 * thump
-        ..color = Palette.orange.withValues(alpha: 0.45 + 0.5 * thump)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 2 + 4 * thump),
+        ..strokeWidth = 4 + 8 * thump
+        ..color = Palette.second.withValues(alpha: 0.25 + 0.45 * thump)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 4 + 6 * thump),
     );
-    for (var i = 0; i < 8; i++) {
-      final a = i * math.pi / 4 + t * 0.3;
-      drawMote(
-        canvas,
-        Mote.sun,
-        c + _dir(a) * (r + 5 + 10 * thump),
-        1.6 + thump,
-        Palette.second,
-        0.6 + 0.4 * thump,
-        angle: a,
-      );
-    }
+    _laughs(canvas, c, t, r, outer, words: const ['ХИ-ХИ!', 'ХА!', 'ШИ-ШИ!'], n: 3, cycle: period * 3, size: 17);
   }
 
-  /// Бог Солнца, basic: the world is rubber: two bands, white and gold,
-  /// stretch and bounce around the button as they please.
+  /// Бог Солнца, basic: the world is rubber: fists on stretching arms shoot
+  /// out of the button and snap back, each where it likes.
   void _rubber(Canvas canvas, Offset c, double t, double r, double outer) {
-    final amp = (outer - r - 6) * 0.42;
-    for (final (color, phase, lobes) in [(Palette.second, 0.0, 3), (Palette.orange, 2.1, 4)]) {
-      final path = Path();
-      for (var k = 0; k <= 160; k++) {
-        final a = k / 160 * 2 * math.pi;
-        final stretch =
-            math.sin(a * lobes + t * 2.2 + phase) * math.sin(t * 1.3 + phase) +
-            0.5 * math.sin(a * (lobes + 2) - t * 3.1 + phase);
-        final p = c + _dir(a) * (r + 7 + amp * stretch);
-        k == 0 ? path.moveTo(p.dx, p.dy) : path.lineTo(p.dx, p.dy);
-      }
+    const n = 3, cycle = 1.5;
+    for (var i = 0; i < n; i++) {
+      final time = t / cycle + i / n;
+      final k = time.floor();
+      final p = time - k;
+      final a = _rnd(i, k) * 2 * math.pi;
+      // Out fast, a wobble at full reach, back with a snap.
+      final reach = p < 0.3
+          ? Curves.easeOutBack.transform(p / 0.3)
+          : p < 0.65
+          ? 1.0
+          : 1 - Curves.easeIn.transform((p - 0.65) / 0.35);
+      final len = (outer - r + 46) * reach;
+      final d = _dir(a), side = _dir(a + math.pi / 2);
+      final from = c + d * (r - 6);
+      final tip = from + d * len;
+      final wobble = math.sin(p * 40) * 6 * (1 - p);
+      final mid = from + d * (len / 2) + side * wobble;
+      final arm = Path()
+        ..moveTo(from.dx, from.dy)
+        ..quadraticBezierTo(mid.dx, mid.dy, tip.dx, tip.dy);
       canvas.drawPath(
-        path,
+        arm,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 5
-          ..color = color.withValues(alpha: 0.35)
+          ..strokeWidth = 7
+          ..strokeCap = StrokeCap.round
+          ..color = Palette.second.withValues(alpha: 0.3)
           ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
       );
       canvas.drawPath(
-        path,
+        arm,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 2.6
-          ..strokeJoin = StrokeJoin.round
-          ..color = color.withValues(alpha: 0.95),
+          ..strokeWidth = 3.5
+          ..strokeCap = StrokeCap.round
+          ..color = Palette.second.withValues(alpha: 0.95),
       );
+      if (len > 4) {
+        canvas.drawCircle(tip, 7.5, Paint()..color = Palette.orange);
+        canvas.drawCircle(
+          tip,
+          7.5,
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 1.6
+            ..color = Palette.second,
+        );
+      }
     }
+    _laughs(canvas, c, t, r, outer, words: const ['хи-хи', 'хе-хе'], n: 2, cycle: 2.4, size: 14);
   }
 
-  /// Бог Солнца, all: absolute freedom: the button becomes the sun, its
-  /// flames of white and gold dancing each its own way.
-  void _corona(Canvas canvas, Offset c, double t, double r, double outer) {
-    const n = 22;
+  /// Бог Солнца, all: absolute freedom: white clouds of the sun god bob
+  /// around the button, and laughter bursts out of it in every direction.
+  void _clouds(Canvas canvas, Offset c, double t, double r, double outer) {
+    const n = 9;
+    final soft = Paint()
+      ..color = Palette.second.withValues(alpha: 0.55)
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3);
     for (var i = 0; i < n; i++) {
-      final a = i * 2 * math.pi / n + t * 0.18;
-      final len = (outer - r) * (0.55 + 0.4 * math.sin(t * (1.6 + (i % 4) * 0.35) + i * 2.3));
-      final bend = 0.22 * math.sin(t * 2 + i);
-      final d = _dir(a), side = _dir(a + math.pi / 2), tipDir = _dir(a + bend);
-      final base = c + d * (r - 2);
-      final tip = base + tipDir * len;
-      final ctrl = base + d * (len * 0.55) + side * (len * bend * 0.8);
-      final w = 5.5;
-      final flame = Path()
-        ..moveTo(base.dx + side.dx * w, base.dy + side.dy * w)
-        ..quadraticBezierTo(ctrl.dx + side.dx * w * 0.5, ctrl.dy + side.dy * w * 0.5, tip.dx, tip.dy)
-        ..quadraticBezierTo(
-          ctrl.dx - side.dx * w * 0.5,
-          ctrl.dy - side.dy * w * 0.5,
-          base.dx - side.dx * w,
-          base.dy - side.dy * w,
-        )
-        ..close();
-      final color = i.isEven ? Palette.second : Palette.orange;
-      canvas.drawPath(
-        flame,
-        Paint()
-          ..shader = LinearGradient(colors: [color.withValues(alpha: 0.95), color.withValues(alpha: 0)])
-              .createShader(Rect.fromPoints(base, tip)),
-      );
+      final a = i * 2 * math.pi / n + t * 0.35 + 0.25 * math.sin(t * 0.9 + i);
+      final bob = 4 * math.sin(t * 2.2 + i * 1.9);
+      final at = c + _dir(a) * (r + 6 + bob);
+      for (final (dx, dy, rr) in [(-6.0, 1.0, 6.0), (0.0, -3.0, 7.5), (6.5, 1.0, 5.5)]) {
+        final side = _dir(a + math.pi / 2), out = _dir(a);
+        canvas.drawCircle(at + side * dx + out * dy, rr * (0.9 + 0.1 * math.sin(t * 3 + i)), soft);
+      }
     }
-    canvas.drawCircle(
-      c,
-      r,
-      Paint()
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 7
-        ..color = Palette.second.withValues(alpha: 0.5 + 0.2 * math.sin(t * 2.4))
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
-    );
   }
 
-  /// Бог Солнца, all: drops of sunlight fly off the sun in all directions.
-  void _sunburst(Canvas canvas, Offset c, double t, double r, double outer) {
-    for (var i = 0; i < 12; i++) {
-      final cycle = 1.2 + (i % 3) * 0.3;
-      final time = (t + i * 0.29) / cycle;
-      final p = time - time.floor();
-      final a = _rnd(i, time.floor()) * 2 * math.pi;
-      final at = c + _dir(a + p * 0.6) * (r + p * (outer + 20 - r));
-      drawMote(canvas, Mote.sun, at, 1.8, i.isEven ? Palette.second : Palette.orangeLight, 1 - p, angle: t * 2 + i);
+  /// Words of laughter fly out of the button, each its own way, bouncing as
+  /// they go, and fade far away.
+  void _laughs(
+    Canvas canvas,
+    Offset c,
+    double t,
+    double r,
+    double outer, {
+    required List<String> words,
+    required int n,
+    required double cycle,
+    required double size,
+  }) {
+    for (var i = 0; i < n; i++) {
+      final time = t / cycle + i / n;
+      final k = time.floor();
+      final p = time - k;
+      final a = _rnd(i + 3, k) * 2 * math.pi;
+      final at = c + _dir(a) * (r - 10 + p * (outer - r + 55)) + Offset(0, -18 * math.sin(p * math.pi));
+      final alpha = (p < 0.1 ? p / 0.1 : 1 - math.pow((p - 0.1) / 0.9, 2)).clamp(0.0, 1.0).toDouble();
+      final bounce = 1 + 0.25 * math.sin(p * math.pi * 5) * (1 - p);
+      final word = words[(_rnd(i + 11, k) * words.length).floor() % words.length];
+      final color = (i + k).isEven ? Palette.second : Palette.orangeLight;
+      final text = TextPainter(
+        text: TextSpan(
+          text: word,
+          style: TextStyle(
+            color: color.withValues(alpha: alpha),
+            fontSize: size * (0.85 + 0.4 * p) * bounce,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 0.5,
+            shadows: [Shadow(color: Palette.orange.withValues(alpha: alpha * 0.8), blurRadius: 8)],
+          ),
+        ),
+        textDirection: TextDirection.ltr,
+      )..layout();
+      canvas.save();
+      canvas.translate(at.dx, at.dy);
+      canvas.rotate(0.3 * math.sin(t * 5 + i * 2));
+      text.paint(canvas, Offset(-text.width / 2, -text.height / 2));
+      canvas.restore();
+      text.dispose();
     }
   }
 

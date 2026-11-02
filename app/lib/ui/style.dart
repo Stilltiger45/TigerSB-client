@@ -27,9 +27,9 @@ enum AppStyle {
       allHint: 'ВСЁ ЧЕРЕЗ VPN',
       connecting: 'ИЩУ СЕРВЕР',
       idle: 'НАЖМИТЕ, ЧТОБЫ ВКЛЮЧИТЬ',
-      auto: 'Тигра не удержит ни одна клетка. Он сам находит лазейку там, где другие видят только решётку.',
-      basic: 'Своя территория — открыто, чужая — бесшумной тенью. Тигр гуляет, где хочет.',
-      all: 'Ни следа, ни звука. Один свободный прыжок сквозь ночь, и никто не узнает, куда.',
+      auto: 'Как «Базовая», и обход блокировок DPI подбирается сам под вашу сеть.',
+      basic: 'Российские сайты (.ru, .рф, российские IP) — напрямую, остальное — через VPN.',
+      all: 'Весь трафик — через VPN.',
     ),
   ),
   // A faction of free stalkers: the Zone has no master. The wolf patch's
@@ -104,8 +104,8 @@ enum AppStyle {
       all: 'На полную громкость! Песню, которую поёт весь мир, никому не заглушить.',
     ),
   ),
-  // The sun god of a rubber pirate: white and gold, the laughing drums of
-  // liberation, sunlight scattered all over the screen.
+  // The sun god of a rubber pirate: white and gold, laughter flying out of
+  // the button, sunlight scattered all over the screen.
   sun(
     title: 'Бог Солнца',
     logo: 'assets/styles/sun.png',
