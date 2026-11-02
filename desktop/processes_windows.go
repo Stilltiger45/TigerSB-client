@@ -23,7 +23,7 @@ func Programs() ([]Program, error) {
 		sysDir = `c:\windows`
 	}
 	own, _ := os.Executable()
-	ownDir := strings.ToLower(filepath.Dir(own))
+	ownDir := filepath.Dir(own)
 	seen := map[string]bool{}
 	var out []Program
 	var e windows.ProcessEntry32
@@ -34,12 +34,14 @@ func Programs() ([]Program, error) {
 		if !strings.HasSuffix(key, ".exe") || seen[key] {
 			continue
 		}
-		path := strings.ToLower(imagePath(e.ProcessID))
-		if strings.HasPrefix(path, sysDir+`\`) || (ownDir != "" && strings.HasPrefix(path, ownDir+`\`)) {
+		path := imagePath(e.ProcessID)
+		// TigerSB's own programs: the app and the service.
+		ours := sameDir(filepath.Dir(path), ownDir) && (key == "tigersb.exe" || key == "tigersb-service.exe")
+		if strings.HasPrefix(strings.ToLower(path), sysDir+`\`) || ours {
 			continue
 		}
 		seen[key] = true
-		out = append(out, Program{Name: name, Path: imagePath(e.ProcessID)})
+		out = append(out, Program{Name: name, Path: path})
 	}
 	slices.SortFunc(out, func(a, b Program) int { return strings.Compare(strings.ToLower(a.Name), strings.ToLower(b.Name)) })
 	return out, nil

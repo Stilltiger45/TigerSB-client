@@ -87,8 +87,8 @@ type VPN struct {
 type savedState struct {
 	// Mode is the routing mode: "auto", "basic" or "all".
 	Mode string `json:"mode"`
-	// On is whether the user left the VPN on: after a reboot the app turns
-	// it on again when it starts with the system.
+	// On is whether the user left the VPN on: the service turns it on again
+	// when it starts, before anyone logs in.
 	On bool `json:"on"`
 }
 
@@ -150,6 +150,16 @@ func (v *VPN) Connect() {
 	v.do(func() {
 		v.save(func(s *savedState) { s.On = true })
 		v.connect()
+	})
+}
+
+// Resume turns the VPN on again if the user left it on, and leaves a VPN
+// that is already on or waiting for a network as it is.
+func (v *VPN) Resume() {
+	v.do(func() {
+		if v.saved.On && !v.up && !v.waitNet {
+			v.connect()
+		}
 	})
 }
 

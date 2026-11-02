@@ -61,5 +61,9 @@ func Run(ctx context.Context, root, version string, plat Platform) error {
 	}
 	defer os.Remove(path)
 	mobile.Note("служба запущена, версия " + version)
+	// The service starts with Windows, before the user logs in and the
+	// programs that start with them: a VPN left on comes up first, so their
+	// traffic goes through it from the start.
+	vpn.Resume()
 	return srv.Serve(ctx, l)
 }

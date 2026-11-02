@@ -3,9 +3,15 @@
 // (scripts/soak, started with -outside on this computer), connects in the
 // given mode, opens sites through the TUN, reads the traffic through the
 // server, follows a restart of the service and disconnects. Whatever fails,
-// and the service's journal, go to the run's annotations.
+// and the service's journal, go to the run's annotations. Only programs in
+// the app's folder may drive the service: the check runs from there.
 //
 //	wincheck -key vless://... -mode all
+//
+// With -refused, run from any other folder, it checks that the service
+// refuses it although it sends the right token.
+//
+//	wincheck -refused
 package main
 
 import (
@@ -28,7 +34,16 @@ import (
 func main() {
 	key := flag.String("key", "", "key of the test servers")
 	mode := flag.String("mode", "all", "routing mode")
+	refused := flag.Bool("refused", false, "check that the service refuses this program")
 	flag.Parse()
+	if *refused {
+		if err := checkRefused(); err != nil {
+			fmt.Printf("::error::%s\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("wincheck: the service refused a program outside the app's folder")
+		return
+	}
 	c, err := dial()
 	if err == nil {
 		err = check(c, *key, *mode)
@@ -81,6 +96,21 @@ func dial() (*conn, error) {
 		}
 		time.Sleep(time.Second)
 	}
+}
+
+// checkRefused sends the right token from outside the app's folder, as any
+// program that reads the control file could: the service must close the
+// connection without an answer.
+func checkRefused() error {
+	c, err := dial()
+	if err != nil {
+		return err
+	}
+	defer c.c.Close()
+	if _, err := c.call("current", nil); err == nil {
+		return errors.New("служба ответила чужой программе с верным токеном: она может забрать ссылку подписки и управлять VPN")
+	}
+	return nil
 }
 
 func (c *conn) read() {
@@ -205,9 +235,8 @@ func check(c *conn, key, mode string) error {
 		}
 	}
 
-	// After a restart of the service the app's connection comes back and
-	// the user's choice stays: the VPN is off, as the service stopped, and
-	// remembered as on for the next start with Windows.
+	// After a restart of the service, as at the start of Windows, the
+	// service turns the VPN back on by itself, before any app asks it to.
 	if out, err := exec.Command("sc.exe", "stop", "TigerSB").CombinedOutput(); err != nil {
 		return fmt.Errorf("sc stop: %v %s", err, out)
 	}
@@ -225,14 +254,8 @@ func check(c *conn, key, mode string) error {
 		return err
 	}
 	*c = *c2
-	if on, err := c.call("wasOn", nil); err != nil || on != true {
-		return fmt.Errorf("после перезапуска службы не помнит, что VPN был включён: %v %v", on, err)
-	}
-	if _, err := c.call("connect", nil); err != nil {
-		return err
-	}
-	if err := c.waitPhase("connected", time.Minute); err != nil {
-		return fmt.Errorf("после перезапуска службы: %w", err)
+	if err := c.pollConnected(time.Minute); err != nil {
+		return fmt.Errorf("после перезапуска служба сама не включила VPN: %w", err)
 	}
 	if err := get("https://cp.cloudflare.com/generate_204"); err != nil {
 		return fmt.Errorf("после перезапуска службы: %w", err)
@@ -248,6 +271,26 @@ func check(c *conn, key, mode string) error {
 	}
 	journal(c)
 	return nil
+}
+
+// pollConnected asks for the status until the VPN is connected: nobody
+// asks the service to connect, so no change of status may come.
+func (c *conn) pollConnected(d time.Duration) error {
+	deadline := time.Now().Add(d)
+	for {
+		st, err := c.call("status", nil)
+		if err != nil {
+			return err
+		}
+		m, _ := st.(map[string]any)
+		if m["phase"] == "connected" {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("состояние %v %v", m["phase"], m["error"])
+		}
+		time.Sleep(time.Second)
+	}
 }
 
 // waitPhaseNot makes sure the VPN stays connected for a while: the watchdog

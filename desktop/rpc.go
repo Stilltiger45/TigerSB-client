@@ -10,6 +10,7 @@ import (
 	"errors"
 	"net"
 	"sync"
+	"time"
 
 	"github.com/Stilltiger45/TigerSB-client/mobile"
 )
@@ -43,8 +44,9 @@ type Server struct {
 	vpn   *VPN
 	token string
 
-	mu      sync.Mutex
-	clients map[*client]struct{}
+	mu          sync.Mutex
+	clients     map[*client]struct{}
+	lastRefused time.Time
 }
 
 type client struct {
@@ -90,6 +92,20 @@ func (s *Server) Serve(ctx context.Context, l net.Listener) error {
 	}
 }
 
+// refused notes a connection the service did not answer, once a minute at
+// most, so that a flood of them does not fill the journal.
+func (s *Server) refused(err error) {
+	s.mu.Lock()
+	quiet := time.Since(s.lastRefused) < time.Minute
+	if !quiet {
+		s.lastRefused = time.Now()
+	}
+	s.mu.Unlock()
+	if !quiet {
+		mobile.Note("служба не ответила программе: " + err.Error())
+	}
+}
+
 func (s *Server) broadcast(v any) {
 	s.mu.Lock()
 	cs := make([]*client, 0, len(s.clients))
@@ -104,6 +120,12 @@ func (s *Server) broadcast(v any) {
 
 func (s *Server) handle(conn net.Conn) {
 	defer conn.Close()
+	// Only the app may drive the VPN: the token alone can be read by any
+	// program of any user of the computer.
+	if err := checkCaller(conn); err != nil {
+		s.refused(err)
+		return
+	}
 	r := bufio.NewReaderSize(conn, 64<<10)
 	line, err := r.ReadBytes('\n')
 	if err != nil {
@@ -214,6 +236,9 @@ func (s *Server) call(req request) (any, error) {
 		return v.Status(), nil
 	case "wasOn":
 		return v.WasOn(), nil
+	case "resume":
+		go v.Resume()
+		return true, nil
 	case "about":
 		return mobile.About(), nil
 	case "journal":
