@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"slices"
 	"strings"
@@ -54,7 +55,8 @@ func TestAppsOutsideVPN(t *testing.T) {
 	var in profileInfo
 	json.Unmarshal([]byte(s), &in)
 	if !slices.Contains(in.DirectApps, "ru.oneme.app") || !slices.Contains(in.DirectApps, "org.example.game") ||
-		!slices.Equal(in.UserApps, []string{"org.example.game", "ru.oneme.app"}) || len(in.ShieldApps) == 0 {
+		!slices.Equal(in.UserApps, []string{"org.example.game", "ru.oneme.app"}) ||
+		(len(in.ShieldApps) == 0) != (runtime.GOOS == "windows") {
 		t.Fatalf("info %s", s)
 	}
 	seen := map[string]bool{}
