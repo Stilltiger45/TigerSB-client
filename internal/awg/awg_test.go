@@ -197,14 +197,28 @@ func start(t *testing.T, p *profile.Profile) (inst *core.Instance, socks, udp in
 	return inst, socks, udp
 }
 
+// freePort finds a port that is free for both TCP and UDP: the SOCKS inbound
+// listens on both, and Windows keeps some UDP ports reserved even when the
+// same TCP port is free ("forbidden by its access permissions").
 func freePort(t *testing.T) int {
 	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	// The UDP port first: Windows runners reserve ranges of UDP ports,
+	// and a port the system gives for UDP is one UDP can use.
+	for range 50 {
+		c, err := net.ListenPacket("udp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		port := c.LocalAddr().(*net.UDPAddr).Port
+		l, err := net.Listen("tcp", fmt.Sprintf("127.0.0.1:%d", port))
+		c.Close()
+		if err == nil {
+			l.Close()
+			return port
+		}
 	}
-	defer l.Close()
-	return l.Addr().(*net.TCPAddr).Port
+	t.Fatal("no port free for both TCP and UDP")
+	return 0
 }
 
 // freeUDPPort is a port the system gives for UDP: Windows runners reserve
