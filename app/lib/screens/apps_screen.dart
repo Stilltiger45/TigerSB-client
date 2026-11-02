@@ -7,7 +7,8 @@ import '../ui/palette.dart';
 
 /// Apps left out of the VPN. They work as if there were no VPN, so they cannot
 /// study the tunnel or see the server: MAX, VK, Yandex, banks and government
-/// apps always, plus any the user picks.
+/// apps always, plus any the user picks. On a computer these are programs,
+/// picked from the running ones: a game that must see the Russian address.
 class AppsScreen extends StatefulWidget {
   const AppsScreen({super.key, required this.core, required this.profile, required this.onProfile});
 
@@ -25,16 +26,24 @@ class _AppsScreenState extends State<AppsScreen> {
   late final Set<String> _user = {...widget.profile.userApps};
   late final Set<String> _shield = {...widget.profile.shieldApps};
   String _query = '';
+  bool get _desktop => widget.core is Desktop;
 
   @override
   void initState() {
     super.initState();
     widget.core.apps().then(
       (apps) {
+        // A program picked before may not be running now: it stays in the
+        // list, so it can be put back.
+        final all = [
+          ...apps,
+          for (final p in _user)
+            if (_desktop && !apps.any((a) => a.package == p)) AppInfo(package: p, label: p),
+        ];
         // Apps already outside the VPN on top; the order stays put while the
         // user toggles.
         int rank(AppInfo a) => _shield.contains(a.package) ? 0 : (_user.contains(a.package) ? 1 : 2);
-        final sorted = [...apps]..sort((a, b) => rank(a) - rank(b));
+        final sorted = [...all]..sort((a, b) => rank(a) - rank(b));
         if (mounted) setState(() => _apps = sorted);
       },
       onError: (Object e) {
@@ -63,7 +72,7 @@ class _AppsScreenState extends State<AppsScreen> {
       fx: Fx.idle,
       child: Scaffold(
         backgroundColor: Colors.transparent,
-        appBar: AppBar(title: const Text('Приложения мимо VPN')),
+        appBar: AppBar(title: Text(_desktop ? 'Процессы мимо VPN' : 'Приложения мимо VPN')),
         body: SafeArea(
           top: false,
           child: Column(
@@ -79,8 +88,12 @@ class _AppsScreenState extends State<AppsScreen> {
                       const SizedBox(width: 14),
                       Expanded(
                         child: Text(
-                          'Эти приложения работают напрямую, как без VPN, и не видят туннель. '
-                          'MAX, ВК, Яндекс, банки и госприложения — всегда.',
+                          _desktop
+                              ? 'Соединения выбранных программ идут напрямую, с вашим адресом, как без VPN: '
+                                    'например, игра с аккаунтом СНГ. В списке запущенные программы — '
+                                    'запустите нужную, если её нет.'
+                              : 'Эти приложения работают напрямую, как без VPN, и не видят туннель. '
+                                    'MAX, ВК, Яндекс, банки и госприложения — всегда.',
                           style: TextStyle(color: Palette.white.withValues(alpha: 0.85), fontSize: 13.5, height: 1.35),
                         ),
                       ),
@@ -91,9 +104,9 @@ class _AppsScreenState extends State<AppsScreen> {
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                 child: TextField(
-                  decoration: const InputDecoration(
-                    prefixIcon: Icon(Icons.search_rounded),
-                    hintText: 'Найти приложение',
+                  decoration: InputDecoration(
+                    prefixIcon: const Icon(Icons.search_rounded),
+                    hintText: _desktop ? 'Найти программу' : 'Найти приложение',
                   ),
                   onChanged: (v) => setState(() => _query = v.trim()),
                 ),
@@ -127,7 +140,11 @@ class _AppsScreenState extends State<AppsScreen> {
       leading: ClipRRect(
         borderRadius: BorderRadius.circular(10),
         child: icon == null
-            ? SizedBox(width: 40, height: 40, child: Icon(Icons.android_rounded, color: Palette.faint))
+            ? SizedBox(
+                width: 40,
+                height: 40,
+                child: Icon(_desktop ? Icons.memory_rounded : Icons.android_rounded, color: Palette.faint),
+              )
             : Image.memory(icon, width: 40, height: 40, gaplessPlayback: true),
       ),
       title: Text(a.label, maxLines: 1, overflow: TextOverflow.ellipsis),

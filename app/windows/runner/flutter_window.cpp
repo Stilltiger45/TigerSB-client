@@ -8,8 +8,8 @@
 #include "flutter/generated_plugin_registrant.h"
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project,
-                             bool minimized)
-    : project_(project), minimized_(minimized) {}
+                             Start start)
+    : project_(project), start_(start) {}
 
 FlutterWindow::~FlutterWindow() {}
 
@@ -35,10 +35,14 @@ bool FlutterWindow::OnCreate() {
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
-    if (minimized_) {
-      ::ShowWindow(GetHandle(), SW_SHOWMINNOACTIVE);
-    } else {
-      this->Show();
+    switch (start_) {
+      case Start::kMinimized:
+        ::ShowWindow(GetHandle(), SW_SHOWMINNOACTIVE);
+        break;
+      case Start::kHidden:
+        break;
+      default:
+        this->Show();
     }
   });
 

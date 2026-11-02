@@ -408,11 +408,14 @@ class _HomeScreenState extends State<HomeScreen> {
                   'journal' => widget.core.shareJournal(),
                   _ => _openAbout(),
                 },
-                // A computer has no apps to leave out of the VPN, but starts
-                // with the system; its journal opens in the text editor.
+                // A computer leaves programs out of the VPN and starts with
+                // the system; its journal opens in the text editor.
                 itemBuilder: (_) => [
                   const PopupMenuItem(value: 'update', child: Text('Проверить обновление')),
-                  if (widget.core is! Desktop) const PopupMenuItem(value: 'apps', child: Text('Приложения мимо VPN')),
+                  PopupMenuItem(
+                    value: 'apps',
+                    child: Text(widget.core is Desktop ? 'Процессы мимо VPN' : 'Приложения мимо VPN'),
+                  ),
                   const PopupMenuItem(value: 'protocols', child: Text('Протоколы')),
                   if (widget.core is Desktop) const PopupMenuItem(value: 'startup', child: Text('Настройки запуска')),
                   PopupMenuItem(

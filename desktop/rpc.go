@@ -35,6 +35,7 @@ type args struct {
 	Mode  string   `json:"mode"`
 	Names []string `json:"names"`
 	Event string   `json:"event"`
+	Apps  []string `json:"apps"`
 }
 
 // Server answers the app.
@@ -185,6 +186,15 @@ func (s *Server) call(req request) (any, error) {
 	case "setProtocolsOff":
 		b, _ := json.Marshal(nonNil(a.Names))
 		if err := mobile.SetProtocolsOff(string(b)); err != nil {
+			return nil, err
+		}
+		v.Reconnect()
+		return nil, nil
+	case "apps":
+		return Programs()
+	case "setUserApps":
+		b, _ := json.Marshal(nonNil(a.Apps))
+		if err := mobile.SetUserApps(string(b)); err != nil {
 			return nil, err
 		}
 		v.Reconnect()

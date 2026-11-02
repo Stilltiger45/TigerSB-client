@@ -181,6 +181,9 @@ func check(c *conn, key, mode string) error {
 	if err := refusesIPv6(); err != nil {
 		return err
 	}
+	if err := c.programOutside(); err != nil {
+		return err
+	}
 
 	// Off and on again: the TUN adapter of the first start must be gone.
 	for i := range 2 {
@@ -283,6 +286,56 @@ func refusesIPv6() error {
 		return fmt.Errorf("IPv6-соединение отклонено только через %s: браузеры будут долго ждать", took)
 	}
 	return nil
+}
+
+// programOutside leaves wincheck itself out of the VPN, as a user leaves a
+// game: the service must list it among running programs, and its sites
+// must then open without traffic through the server.
+func (c *conn) programOutside() error {
+	self := filepath.Base(os.Args[0])
+	if !strings.HasSuffix(strings.ToLower(self), ".exe") {
+		self += ".exe"
+	}
+	list, err := c.call("apps", nil)
+	if err != nil {
+		return err
+	}
+	found := false
+	for _, p := range list.([]any) {
+		if m, _ := p.(map[string]any); m != nil && strings.EqualFold(fmt.Sprint(m["name"]), self) {
+			found = true
+		}
+	}
+	if !found {
+		return fmt.Errorf("в списке процессов нет %s: %v", self, list)
+	}
+	down := func() int64 {
+		s, _ := c.call("stats", nil)
+		var st struct{ Down int64 }
+		json.Unmarshal([]byte(fmt.Sprint(s)), &st)
+		return st.Down
+	}
+	if _, err := c.call("setUserApps", map[string]any{"apps": []string{self}}); err != nil {
+		return err
+	}
+	if err := c.waitPhase("connected", time.Minute); err != nil {
+		return fmt.Errorf("после выбора процесса: %w", err)
+	}
+	before := down()
+	for _, site := range []string{"https://github.com/", "https://www.google.com/generate_204"} {
+		if err := get(site); err != nil {
+			return fmt.Errorf("%s мимо VPN: %w", self, err)
+		}
+	}
+	through := down() - before
+	fmt.Printf("%s outside the VPN: %d bytes through the server\n", self, through)
+	if through > 5_000 {
+		return fmt.Errorf("%s выбран мимо VPN, но через сервер прошло %d байт", self, through)
+	}
+	if _, err := c.call("setUserApps", map[string]any{"apps": []string{}}); err != nil {
+		return err
+	}
+	return c.waitPhase("connected", time.Minute)
 }
 
 func get(url string) error {

@@ -79,9 +79,15 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
-  // Started with Windows and asked to stay out of the way: the window
-  // starts minimized ("Настройки запуска").
-  FlutterWindow window(project, HasArgument("--minimized"));
+  // Started with Windows and asked to stay out of the way ("Настройки
+  // запуска"): the window starts minimized, or never shows.
+  FlutterWindow::Start start = FlutterWindow::Start::kOpen;
+  if (HasArgument("--closed")) {
+    start = FlutterWindow::Start::kHidden;
+  } else if (HasArgument("--minimized")) {
+    start = FlutterWindow::Start::kMinimized;
+  }
+  FlutterWindow window(project, start);
 
   // A phone-shaped window that fits the screen's work area.
   RECT work{};

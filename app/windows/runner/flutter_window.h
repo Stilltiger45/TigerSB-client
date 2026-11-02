@@ -17,9 +17,12 @@ constexpr ULONG_PTR kKeyMessage = 0x54534B31;  // "TSK1"
 // copies of the app hand it.
 class FlutterWindow : public Win32Window {
  public:
-  // Creates a new FlutterWindow hosting a Flutter view running |project|,
-  // shown minimized when |minimized|.
-  FlutterWindow(const flutter::DartProject& project, bool minimized);
+  // How the window first appears: as usual, minimized, or not at all (the
+  // app started with Windows «закрытым» turns the VPN on and quits).
+  enum class Start { kOpen, kMinimized, kHidden };
+
+  // Creates a new FlutterWindow hosting a Flutter view running |project|.
+  FlutterWindow(const flutter::DartProject& project, Start start);
   virtual ~FlutterWindow();
 
  protected:
@@ -33,7 +36,7 @@ class FlutterWindow : public Win32Window {
   // The project to run.
   flutter::DartProject project_;
 
-  bool minimized_;
+  Start start_;
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
