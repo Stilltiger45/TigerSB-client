@@ -225,6 +225,10 @@ class _RingPainter extends CustomPainter {
             _cleave(canvas, c, t, r, outer);
           case AppStyle.miku:
             _autotune(canvas, c, t, r, outer);
+          case AppStyle.sun:
+            _drums(canvas, c, t, r, outer);
+          case AppStyle.star:
+            _rush(canvas, c, t, r, outer);
         }
       case Fx.basic:
         switch (look) {
@@ -237,6 +241,10 @@ class _RingPainter extends CustomPainter {
             _binding(canvas, c, t, r);
           case AppStyle.miku:
             _duet(canvas, c, t, r);
+          case AppStyle.sun:
+            _rubber(canvas, c, t, r, outer);
+          case AppStyle.star:
+            _starFinger(canvas, c, t, outer);
         }
       case Fx.all:
         switch (look) {
@@ -252,6 +260,11 @@ class _RingPainter extends CustomPainter {
           case AppStyle.miku:
             _equaliser(canvas, c, t, r, outer);
             _arc(canvas, c, r, t * 1.6, math.pi * 2, Palette.second, 1.6);
+          case AppStyle.sun:
+            _corona(canvas, c, t, r, outer);
+            _sunburst(canvas, c, t, r, outer);
+          case AppStyle.star:
+            _timeStop(canvas, c, t, r, outer);
         }
     }
   }
@@ -488,6 +501,257 @@ class _RingPainter extends CustomPainter {
       canvas.drawCircle(at, 2.4, Paint()..color = Palette.white.withValues(alpha: 0.22));
       if (a1 > 0.05) drawMote(canvas, Mote.spark, at, 2.2 + a1 * 2, Palette.orange, a1);
       if (a2 > 0.05) drawMote(canvas, Mote.spark, at, 2.2 + a2 * 2, Palette.second, a2);
+    }
+  }
+
+  /// Бог Солнца, smart: the drums of liberation: the heart beats twice,
+  /// the ring swells with it and each beat rolls out as a wave.
+  void _drums(Canvas canvas, Offset c, double t, double r, double outer) {
+    const period = 0.9, second = 0.22, life = 1.4;
+    for (var k = 0; k < 3; k++) {
+      final base = ((t / period).floor() - k) * period;
+      for (final (delay, color) in [(0.0, Palette.orange), (second, Palette.second)]) {
+        final age = t - base - delay;
+        if (age < 0 || age > life) continue;
+        final p = age / life;
+        canvas.drawCircle(
+          c,
+          r + p * (outer - r),
+          Paint()
+            ..style = PaintingStyle.stroke
+            ..strokeWidth = 3.2 * (1 - p) + 0.4
+            ..color = color.withValues(alpha: 0.85 * (1 - p)),
+        );
+      }
+    }
+    final ph = (t % period) / period * period;
+    final thump = math.max(math.exp(-ph * 14), ph >= second ? 0.75 * math.exp(-(ph - second) * 14) : 0.0);
+    canvas.drawCircle(
+      c,
+      r,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2 + 5 * thump
+        ..color = Palette.orange.withValues(alpha: 0.45 + 0.5 * thump)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 2 + 4 * thump),
+    );
+    for (var i = 0; i < 8; i++) {
+      final a = i * math.pi / 4 + t * 0.3;
+      drawMote(
+        canvas,
+        Mote.sun,
+        c + _dir(a) * (r + 5 + 10 * thump),
+        1.6 + thump,
+        Palette.second,
+        0.6 + 0.4 * thump,
+        angle: a,
+      );
+    }
+  }
+
+  /// Бог Солнца, basic: the world is rubber: two bands, white and gold,
+  /// stretch and bounce around the button as they please.
+  void _rubber(Canvas canvas, Offset c, double t, double r, double outer) {
+    final amp = (outer - r - 6) * 0.42;
+    for (final (color, phase, lobes) in [(Palette.second, 0.0, 3), (Palette.orange, 2.1, 4)]) {
+      final path = Path();
+      for (var k = 0; k <= 160; k++) {
+        final a = k / 160 * 2 * math.pi;
+        final stretch =
+            math.sin(a * lobes + t * 2.2 + phase) * math.sin(t * 1.3 + phase) +
+            0.5 * math.sin(a * (lobes + 2) - t * 3.1 + phase);
+        final p = c + _dir(a) * (r + 7 + amp * stretch);
+        k == 0 ? path.moveTo(p.dx, p.dy) : path.lineTo(p.dx, p.dy);
+      }
+      canvas.drawPath(
+        path,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 5
+          ..color = color.withValues(alpha: 0.35)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+      );
+      canvas.drawPath(
+        path,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2.6
+          ..strokeJoin = StrokeJoin.round
+          ..color = color.withValues(alpha: 0.95),
+      );
+    }
+  }
+
+  /// Бог Солнца, all: absolute freedom: the button becomes the sun, its
+  /// flames of white and gold dancing each its own way.
+  void _corona(Canvas canvas, Offset c, double t, double r, double outer) {
+    const n = 22;
+    for (var i = 0; i < n; i++) {
+      final a = i * 2 * math.pi / n + t * 0.18;
+      final len = (outer - r) * (0.55 + 0.4 * math.sin(t * (1.6 + (i % 4) * 0.35) + i * 2.3));
+      final bend = 0.22 * math.sin(t * 2 + i);
+      final d = _dir(a), side = _dir(a + math.pi / 2), tipDir = _dir(a + bend);
+      final base = c + d * (r - 2);
+      final tip = base + tipDir * len;
+      final ctrl = base + d * (len * 0.55) + side * (len * bend * 0.8);
+      final w = 5.5;
+      final flame = Path()
+        ..moveTo(base.dx + side.dx * w, base.dy + side.dy * w)
+        ..quadraticBezierTo(ctrl.dx + side.dx * w * 0.5, ctrl.dy + side.dy * w * 0.5, tip.dx, tip.dy)
+        ..quadraticBezierTo(
+          ctrl.dx - side.dx * w * 0.5,
+          ctrl.dy - side.dy * w * 0.5,
+          base.dx - side.dx * w,
+          base.dy - side.dy * w,
+        )
+        ..close();
+      final color = i.isEven ? Palette.second : Palette.orange;
+      canvas.drawPath(
+        flame,
+        Paint()
+          ..shader = LinearGradient(colors: [color.withValues(alpha: 0.95), color.withValues(alpha: 0)])
+              .createShader(Rect.fromPoints(base, tip)),
+      );
+    }
+    canvas.drawCircle(
+      c,
+      r,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 7
+        ..color = Palette.second.withValues(alpha: 0.5 + 0.2 * math.sin(t * 2.4))
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6),
+    );
+  }
+
+  /// Бог Солнца, all: drops of sunlight fly off the sun in all directions.
+  void _sunburst(Canvas canvas, Offset c, double t, double r, double outer) {
+    for (var i = 0; i < 12; i++) {
+      final cycle = 1.2 + (i % 3) * 0.3;
+      final time = (t + i * 0.29) / cycle;
+      final p = time - time.floor();
+      final a = _rnd(i, time.floor()) * 2 * math.pi;
+      final at = c + _dir(a + p * 0.6) * (r + p * (outer + 20 - r));
+      drawMote(canvas, Mote.sun, at, 1.8, i.isEven ? Palette.second : Palette.orangeLight, 1 - p, angle: t * 2 + i);
+    }
+  }
+
+  /// Звезда, smart: a rush of fists: blows land all around the ring
+  /// faster than the eye can follow, each with a flash of a star.
+  void _rush(Canvas canvas, Offset c, double t, double r, double outer) {
+    const n = 12, cycle = 0.32;
+    for (var i = 0; i < n; i++) {
+      final time = t / cycle + i / n;
+      final k = time.floor();
+      final p = time - k;
+      final a = _rnd(i, k) * 2 * math.pi;
+      final reach = (p / 0.35).clamp(0.0, 1.0);
+      final fade = p < 0.35 ? 1.0 : 1 - (p - 0.35) / 0.65;
+      final from = c + _dir(a) * (r - 4);
+      final to = c + _dir(a) * (r - 4 + (outer - r + 2) * reach);
+      final color = i.isEven ? Palette.orange : Palette.second;
+      canvas.drawLine(
+        from,
+        to,
+        Paint()
+          ..strokeWidth = 4.5
+          ..strokeCap = StrokeCap.round
+          ..shader = LinearGradient(
+            colors: [
+              color.withValues(alpha: 0),
+              color.withValues(alpha: fade),
+            ],
+          ).createShader(Rect.fromPoints(from, to)),
+      );
+      if (reach >= 1) drawMote(canvas, Mote.star, to, 2.2 + 2 * (1 - fade), Palette.orangeLight, fade, angle: a);
+    }
+  }
+
+  /// Звезда, basic: a star turns around the button and stretches its points
+  /// out one after another, each a precise strike.
+  void _starFinger(Canvas canvas, Offset c, double t, double outer) {
+    final spin = t * 0.5;
+    final reach = outer - radius - 4;
+    final path = Path();
+    for (var k = 0; k < 10; k++) {
+      final a = spin - math.pi / 2 + k * math.pi / 5;
+      double rr = radius - 2;
+      if (k.isEven) {
+        final point = k ~/ 2;
+        final on = ((t * 1.6) % 5 - point).abs();
+        final strike = math.max(0.0, 1 - math.min(on, 5 - on));
+        rr = radius + reach * (0.45 + 0.55 * strike);
+      }
+      final p = c + _dir(a) * rr;
+      k == 0 ? path.moveTo(p.dx, p.dy) : path.lineTo(p.dx, p.dy);
+    }
+    path.close();
+    canvas.drawPath(path, Paint()..color = Palette.orange.withValues(alpha: 0.18));
+    canvas.drawPath(
+      path,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 5
+        ..strokeJoin = StrokeJoin.round
+        ..color = Palette.orange.withValues(alpha: 0.4)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+    );
+    canvas.drawPath(
+      path,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 2.2
+        ..strokeJoin = StrokeJoin.round
+        ..color = Palette.orangeLight,
+    );
+  }
+
+  /// Звезда, all: time stops: the clock hand runs, a wave of stillness
+  /// rolls out from the button, the world freezes for a while, then goes on.
+  void _timeStop(Canvas canvas, Offset c, double t, double r, double outer) {
+    const cycle = 5.0, stop = 1.25, wave = 0.9, resume = 4.5;
+    final k = (t / cycle).floor();
+    final q = t - k * cycle;
+    final frozen = q >= stop && q < resume;
+    final run = k * (stop + cycle - resume) + math.min(q, stop) + math.max(0.0, q - resume);
+    final tick = Paint()
+      ..strokeWidth = 2
+      ..strokeCap = StrokeCap.round;
+    for (var i = 0; i < 12; i++) {
+      final a = i * math.pi / 6 - math.pi / 2;
+      tick.color = (frozen ? Palette.second : Palette.orange).withValues(alpha: i % 3 == 0 ? 0.95 : 0.5);
+      canvas.drawLine(c + _dir(a) * (r + 1), c + _dir(a) * (r + (i % 3 == 0 ? 10 : 6)), tick);
+    }
+    final hand = run * 2.4 - math.pi / 2;
+    canvas.drawLine(
+      c + _dir(hand) * (r - 2),
+      c + _dir(hand) * (outer - 3),
+      Paint()
+        ..strokeWidth = 3
+        ..strokeCap = StrokeCap.round
+        ..color = frozen ? Palette.shine : Palette.orangeLight,
+    );
+    if (q >= stop && q < stop + wave) {
+      final p = (q - stop) / wave;
+      final rr = radius + p * (outer + 30 - radius);
+      canvas.drawCircle(c, rr, Paint()..color = Palette.orangeDeep.withValues(alpha: 0.28 * (1 - p)));
+      canvas.drawCircle(
+        c,
+        rr,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 3 * (1 - p) + 0.5
+          ..color = Palette.shine.withValues(alpha: 0.9 * (1 - p)),
+      );
+    }
+    if (frozen) {
+      // Stars hang still where the moment caught them.
+      final hold = ((q - stop) / 0.3).clamp(0.0, 1.0) * ((resume - q) / 0.3).clamp(0.0, 1.0);
+      for (var i = 0; i < 7; i++) {
+        final a = _rnd(i, k) * 2 * math.pi;
+        final at = c + _dir(a) * (r + 6 + (outer - r - 12) * _rnd(i + 7, k));
+        drawMote(canvas, Mote.star, at, 1.8, i.isEven ? Palette.orangeLight : Palette.second, hold, angle: a);
+      }
     }
   }
 

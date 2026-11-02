@@ -258,6 +258,14 @@ class _AmbientPainter extends CustomPainter {
         haze(Offset(w / 2, h * 1.02), w * 0.95, Palette.second, 0.2 * g);
       case AppStyle.curse:
         haze(Offset(w / 2, -h * 0.05), w * 0.9, Palette.orangeDeep, 0.3 * g);
+      case AppStyle.sun:
+        // A white sun high above, its gold light pouring down.
+        haze(Offset(w * (0.5 + 0.06 * math.sin(t * 0.2)), -h * 0.04), w * 1.1, Palette.second, 0.22 * g);
+        haze(Offset(w / 2, h * 0.05), w * 0.8, Palette.orange, 0.2 * g);
+      case AppStyle.star:
+        // A violet nebula and a blue one across the night sky.
+        haze(Offset(w * 0.15, h * 0.12), w * 0.9, Palette.orangeDeep, 0.3 * g);
+        haze(Offset(w * 0.95, h * 0.85), w * 0.8, Palette.second, 0.12 * g);
       case AppStyle.tiger || AppStyle.miku:
         break;
     }
@@ -303,6 +311,20 @@ class _AmbientPainter extends CustomPainter {
           x = w * s.x + math.sin(t * 1.2 * s.speed + s.phase * 6.28) * s.sway * 2;
           size = s.size * (1 + 0.3 * beat);
           angle = math.sin(t * 1.6 * s.speed + s.phase * 6.28) * 0.35;
+        case Mote.sun:
+          // Sunlight goes where it likes: each mote wanders its own loop
+          // while drifting up, none of them in step.
+          final loop = travel.value * 0.5 * s.speed + s.phase * 6.28;
+          y = h * (1.08 - p * 1.16) + math.sin(loop * 1.3) * s.sway * 2.5;
+          x = w * ((s.x + 0.12 * math.sin(loop)) % 1.0);
+          size = s.size * (1.1 + 0.25 * math.sin(t * 3 * s.speed + s.phase * 9));
+          angle = t * 0.8 * s.speed + s.phase * 6.28;
+        case Mote.star:
+          // A starfield drifts slowly across the night, each star twinkling.
+          x = w * ((s.x - p * 0.3) % 1.0);
+          y = h * ((s.tone + p * 0.4) % 1.0);
+          a = (0.95 * fade * (0.35 + 0.65 * math.pow(twinkle, 3))).clamp(0.0, 1.0);
+          angle = s.phase * 6.28;
       }
       drawMote(canvas, look.mote, Offset(x, y), size, color, a, angle: angle);
     }
@@ -313,7 +335,8 @@ class _AmbientPainter extends CustomPainter {
 }
 
 /// One spark of the background or the ring in the style's shape: a round
-/// spark, a turning flake of dust, a thin slash or a note. [size] is the
+/// spark, a turning flake of dust, a thin slash, a note, a drop of sunlight
+/// or a star. [size] is the
 /// radius of a round spark; the others are about as large.
 void drawMote(Canvas canvas, Mote mote, Offset c, double size, Color color, double alpha, {double angle = 0}) {
   final glow = Paint()
@@ -355,6 +378,33 @@ void drawMote(Canvas canvas, Mote mote, Offset c, double size, Color color, doub
         ..quadraticBezierTo(h * 2.1, -h * 2.9, h * 1.3, -h * 3.1)
         ..close();
       _drawTurned(canvas, c, angle - 0.3, path, fill);
+    case Mote.sun:
+      // A drop of sunlight: a bright core with four thin rays.
+      canvas.drawCircle(c, size * 3.4, glow);
+      canvas.drawCircle(c, size * 0.9, fill);
+      final l = size * 3.2, w = size * 0.32;
+      final rays = Path();
+      for (var k = 0; k < 4; k++) {
+        final a = k * math.pi / 2;
+        final d = Offset(math.cos(a), math.sin(a)), n = Offset(-d.dy, d.dx);
+        rays
+          ..moveTo(n.dx * w, n.dy * w)
+          ..lineTo(d.dx * l, d.dy * l)
+          ..lineTo(-n.dx * w, -n.dy * w)
+          ..close();
+      }
+      _drawTurned(canvas, c, angle, rays, Paint()..color = color.withValues(alpha: alpha * 0.8));
+    case Mote.star:
+      canvas.drawCircle(c, size * 3, glow);
+      final o = size * 2, i = size * 0.85;
+      final path = Path();
+      for (var k = 0; k < 10; k++) {
+        final rr = k.isEven ? o : i;
+        final a = -math.pi / 2 + k * math.pi / 5;
+        k == 0 ? path.moveTo(rr * math.cos(a), rr * math.sin(a)) : path.lineTo(rr * math.cos(a), rr * math.sin(a));
+      }
+      path.close();
+      _drawTurned(canvas, c, angle, path, fill);
   }
 }
 

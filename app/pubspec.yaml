@@ -25,4 +25,6 @@ flutter:
     - assets/styles/zarya.png
     - assets/styles/curse.png
     - assets/styles/miku.png
+    - assets/styles/sun.png
+    - assets/styles/star.png
     - assets/licenses.json

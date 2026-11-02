@@ -267,15 +267,15 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Подключено'), findsOneWidget);
 
-    expect(find.textContaining('обход блокировок DPI'), findsOneWidget);
+    expect(find.text(AppStyle.tiger.words.auto), findsOneWidget);
     await tester.tap(find.text('Базовая'));
     await tester.pumpAndSettle();
     expect(core.currentMode, Mode.basic);
-    expect(find.textContaining('Российские сайты'), findsOneWidget);
+    expect(find.text(AppStyle.tiger.words.basic), findsOneWidget);
     await tester.tap(find.text('Все'));
     await tester.pumpAndSettle();
     expect(core.currentMode, Mode.all);
-    expect(find.text('Весь трафик — через VPN.'), findsOneWidget);
+    expect(find.text(AppStyle.tiger.words.all), findsOneWidget);
 
     await tester.tap(find.byKey(const Key('power')));
     await tester.pumpAndSettle();
@@ -654,7 +654,7 @@ void main() {
     final core = FakeCore()..profile = ProfileInfo(name: 'Дом', hasRU: true, fetched: DateTime.now(), exits: const []);
     await tester.pumpWidget(TigerApp(core: core));
     await tester.pumpAndSettle();
-    expect(find.textContaining('подбирается сам под вашу сеть'), findsOneWidget);
+    expect(find.text(AppStyle.tiger.words.auto), findsOneWidget);
     await tester.tap(find.byType(PopupMenuButton<String>));
     await tester.pumpAndSettle();
     await tester.tap(find.text('О приложении'));
@@ -670,7 +670,7 @@ void main() {
     // The main screen speaks in the style's words.
     await tester.pageBack();
     await tester.pumpAndSettle();
-    expect(find.textContaining('рассекает'), findsOneWidget);
+    expect(find.text(AppStyle.curse.words.auto), findsOneWidget);
     expect(find.text(AppStyle.curse.words.idle), findsOneWidget);
   });
 

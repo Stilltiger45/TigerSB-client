@@ -65,6 +65,8 @@ object Core {
         "zarya" to "app.tigersb.StyleZarya",
         "curse" to "app.tigersb.StyleCurse",
         "miku" to "app.tigersb.StyleMiku",
+        "sun" to "app.tigersb.StyleSun",
+        "star" to "app.tigersb.StyleStar",
     )
 
     fun style(context: Context): String = prefs(context).getString("style", "tiger") ?: "tiger"
@@ -76,6 +78,8 @@ object Core {
         "zarya" -> Look(R.drawable.ic_stat_zarya, 0xFF8BE33A.toInt())
         "curse" -> Look(R.drawable.ic_stat_curse, 0xFFEE1C2E.toInt())
         "miku" -> Look(R.drawable.ic_stat_miku, 0xFF39C5BB.toInt())
+        "sun" -> Look(R.drawable.ic_stat_sun, 0xFFFFD84A.toInt())
+        "star" -> Look(R.drawable.ic_stat_star, 0xFF9D5CFF.toInt())
         else -> Look(R.drawable.ic_stat_tiger, 0xFFFF7A1A.toInt())
     }
 
